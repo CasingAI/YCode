@@ -6,7 +6,7 @@
 `SessionPane`）底部原来只有一条窄带，带内居中显示"滚动到底部"下箭头；
 只读时 composer dock 被 `readOnly ? null` 整段掐掉，底部是空位。
 本次在该空位放一条常驻 footer，显示三项只读信息：
-工作模式（Plan / Ask / Agent / Bare）、当前模型与思考深度（只读）、
+工作模式（Plan / Ask / Agent / Team）、当前模型与思考深度（只读）、
 上下文用量（与输入框 Input 上的上下文组件同一口径）。
 
 模板与深度标准参照 `docs/specs/subagent-directory-side-pane.md`（子智能体目录）。
@@ -69,16 +69,28 @@ Subagent Footer 只持有子会话快照，不能安全地展示父级账户额�
                                                    ↘ 圆环 hover/点击打开只读 HoverCard
 ```
 
-- 子会话 `config.mode` 的唯一权威来源是**该子 runtime 自身持久化的 `permission.mode`**，不是父会话 mode，也不是代理类型推断。detached child 没有独立 bootstrap record，因此首次创建和冷恢复均由 hydration 从 child session store 读取该值，并通过 `SessionConfigSeed.mode` 注入自己的 publisher。
-- 新 child 在 `notifySessionReady` 前完成 session 持久化；打开子会话时先完成 hydration，再向订阅者提供快照。hydration 种子只补事件未触碰的字段；已有 `SessionModeChanged` 日志值优先，不能通过初始化伪造“用户切换模式”事件。
+- 模式由**子 runtime 自己**拥有，底栏只读其会话投影，不读取父会话 mode，也不按代理类型推断档位。有独立 bootstrap record 时，`getSessionConfigSeed` 从该会话 runtime 读取；没有独立 record 的 detached child 由 hydration 读取自己的持久化状态。持久化模式种子的读取顺序为：
+  1. `runtime/execution_state` 会话条目（`SESSION_ENTRY_EXECUTION_STATE`）的最后一条 `data`；
+  2. 会话行的 `permission.mode` 列，仅作旧数据回退。
+
+  runner 的原子入口 `initializeSubagentFirstExecution` 先创建 child，不写 `permission`；随后 runtime 复用已有会话行，不重建该行，但会写入 `runtime/execution_state`。因此这条创建路径不能只读 `permission.mode`，否则真实的 readonly 档会被展示成默认的 Agent。模式种子通过现有 `SessionConfigSeed.mode` 注入 child 自己的 publisher，不新增持久化写入路径。
+
+- 读取模式种子时，四档、旧值 `bare→team` 及旧对象的计划/只读叠加位共用 `resolvePersistedExecutionMode` 解析；缺值或未知值返回 `undefined`，不生成默认种子。`normalizeLegacyExecutionMode` 保留原有兼容行为：未知值仍归一为 `yolo`。
+- runtime 冷恢复与投影播种是两个边界。`resume.ts` 的最终优先级是显式 `modeOverride`、执行状态条目、模式事件、会话行权限；本次不改变恢复规则。投影中的种子仅补尚未被事件触碰的字段，已经应用的 `SessionModeChanged` 优先于种子。
+- 新 child 在 `notifySessionReady` 前完成会话及执行状态持久化；打开子会话时先完成 hydration，再向订阅者提供快照。不能为初始化伪造“用户切换模式”事件。模式种子读取失败沿用现有警告日志，不中断其余历史内容恢复，也不借用父会话档位。
 - Desktop continuous 与 Web/手机 replayable 继续使用既有 snapshot/delta 通道；本功能不新增队列、ACK、远端状态或协议字段（`packages/shared` 类型无需变）。
 
 ```text
-child runtime → 持久化 permission.mode → detached hydration 读取 child session
-             → publisher.seedConfig（事件未触碰时）→ child snapshot → Footer
+子 runtime（模式所有者）
+  → 持久化 runtime/execution_state → notifySessionReady → 打开子会话
+  → detached hydration 读取自己的条目 → publisher.seedConfig（事件未触碰时）
+  → Desktop continuous / Web replayable 快照 → Footer
+
+冷恢复已有独立 record：持久化状态 → runtime.resume → getSessionConfigSeed
+                      → 同一个 publisher 与 Footer
 ```
 
-冷恢复边界：旧 child 有 `permission.mode` 时以其补齐无模式事件的快照；日志中存在模式事件时日志值优先；store 无 child 记录或无有效模式时不借用父会话值，保留既有快照 fallback。
+恢复边界：detached child 从自己的执行状态条目或旧权限列补齐无模式事件的快照；独立 record 从恢复后的子 runtime 播种。投影已应用模式事件时保留事件值。两条来源都不借用父会话模式；没有可判定的持久化数据时不生成种子，保留既有快照兼容行为。
 
 ## 产品规则
 
@@ -94,8 +106,9 @@ child runtime → 持久化 permission.mode → detached hydration 读取 child 
   无有效用量时只显示本地化的"暂无子会话用量"说明，不显示账户额度或伪造的容量数字。
   有用量时，来源明细与平均缓存命中率必须出现（数据缺失时显示的是数据缺口，
   不是"子代理没有明细"）；显示项、顺序、格式与输入框浮层逐项一致。
-- 模式名映射 `plan→Plan、readonly→Ask、yolo→Agent、bare→Bare`
-  （与 `normalizeAvailableZCodeMode` 的归一口径一致，未知值回退 Agent）；
+- 模式名映射 `plan→Plan、readonly→Ask、yolo→Agent、team→Team`
+  （旧值 `bare` 先经 `normalizeLegacyExecutionMode` 归一为 `team`；
+  与 `normalizeAvailableZCodeMode` 的归一口径一致，未知值回退 Agent）；
   档位色走 `resolveModeOptionToneClass`（`--color-mode-*` 身份色，不表达风险）；
   模型名经 `formatModelDisplayName` 排版，`truncate` 收敛，不挤压上下文格；
   思考档经 `thoughtLevelLabelId` 查词表后作为裸档位词展示（`high`→"· 高"，
@@ -206,7 +219,7 @@ child runtime → 持久化 permission.mode → detached hydration 读取 child 
 
 ## 验收场景
 
-SSR 单测已覆盖（`packages/ui/test/subagentStatusFooter.test.ts`，9 项用例、
+SSR 单测已覆盖（`packages/ui/test/subagentStatusFooter.test.ts`，
 覆盖下列断言场景，其中"分级降级"一个用例承载场景 4 与 5；
 `packages/ui/test/contextUsageBreakdown.test.ts` 的排序与分段行为继续由共享组件复用）：
 
@@ -237,9 +250,14 @@ SSR 单测已覆盖（`packages/ui/test/subagentStatusFooter.test.ts`，9 项用
    的 `ModelComplete`；父快照仍只由 `main_turn` 轮次写入。
 10. 缺分母时保持未知：`ModelSelected`/`ModelComplete` 均未声明 `contextWindow`
     时，快照 `usage.contextWindow` 为 `null`，不得伪造默认窗口。
-11. detached Explore 子会话首次投影从 child 持久化 `permission.mode` 注入 `readonly`，底栏显示 Ask；不读取父会话 mode。
+11. detached Explore 子会话首次投影从 child 持久化的 `runtime/execution_state` 条目注入 `readonly`，底栏显示 Ask；不读取父会话 mode。
 12. 冷恢复无模式事件时由持久化模式种子补齐；若事件日志已有 `SessionModeChanged`，日志 mode 优先于种子。
 13. store 无 child session 或无有效权限模式时不回退父会话值，保留既有快照兼容行为。
+    会话行 `permission.mode` 为空但存在执行状态条目时必须取到真实档位；两者皆空时不产生种子。
+
+模式接线回归（`subagentModeSeedWiring.test.ts`）通过真实 bridge、gateway 订阅和 hydration 验证场景 11–13，而不只调用 `ProductProjection.seedConfig`。覆盖父会话为 Team 时的子会话 readonly/yolo、旧值 `bare→team`、模式事件优先，以及 Desktop continuous / Web replayable 两种订阅。冷激活在此测试中使用契约替身，不宣称覆盖完整 runtime 重启。
+
+模式读取回归（`detachedChildModeSeed.test.ts`）验证执行状态条目优先、旧权限列回退、可选 store 方法缺席及无值不生成种子。Footer SSR 另覆盖 `team→Team` 和无有效模式时的既有回退行为。
 
 生产侧回归（`apps/zcode-cli/packages/core/test/`）：
 

@@ -30,6 +30,26 @@ export function resolveExecutionState(
   return { mode: mode.success ? mode.data : current.mode };
 }
 
+/** 模式种子必须区分「明确档位」与「没有数据」，不能把缺值伪造成完全访问。 */
+export function resolvePersistedExecutionMode(raw: unknown): ExecutionPermissionMode | undefined {
+  if (typeof raw === "string") {
+    if (raw === "plan") return "plan";
+    if (raw === "readonly") return "readonly";
+    // 旧秘书档 bare 整体迁移为 team（docs/specs/team-mode.md「迁移」）。
+    if (raw === "team" || raw === "bare") return "team";
+    if (raw === "yolo") return "yolo";
+    // build / edit / auto / 未知值无法判定档位。
+    return undefined;
+  }
+  if (!raw || typeof raw !== "object") return undefined;
+  const record = raw as { mode?: unknown; planEnabled?: unknown; readOnlyEnabled?: unknown };
+  if (record.planEnabled === true || record.mode === "plan") return "plan";
+  if (record.readOnlyEnabled === true || record.mode === "readonly") return "readonly";
+  if (record.mode === "team" || record.mode === "bare") return "team";
+  if (record.mode === "yolo") return "yolo";
+  return undefined;
+}
+
 /**
  * 升级前落盘数据的迁移入口。旧格式有两处：状态快照是「四档 mode + planEnabled /
  * readOnlyEnabled 两个叠加位」的对象，配置项是裸的四档 mode 字符串。全仓只在读取边界调用。
@@ -37,18 +57,5 @@ export function resolveExecutionState(
  * 旧计划会话必须还原成 plan —— 落到完全访问等于提权。旧 readonly 位同理。
  */
 export function normalizeLegacyExecutionMode(raw: unknown): ExecutionPermissionMode {
-  if (typeof raw === "string") {
-    if (raw === "plan") return "plan";
-    if (raw === "readonly") return "readonly";
-    // 旧秘书档 bare 整体迁移为 team（docs/specs/team-mode.md「迁移」）。
-    if (raw === "team" || raw === "bare") return "team";
-    // build / edit / auto / yolo / 未知值都收敛到默认档。未知不得收成 team。
-    return DEFAULT_EXECUTION_MODE;
-  }
-  if (!raw || typeof raw !== "object") return DEFAULT_EXECUTION_MODE;
-  const record = raw as { mode?: unknown; planEnabled?: unknown; readOnlyEnabled?: unknown };
-  if (record.planEnabled === true || record.mode === "plan") return "plan";
-  if (record.readOnlyEnabled === true || record.mode === "readonly") return "readonly";
-  if (record.mode === "team" || record.mode === "bare") return "team";
-  return DEFAULT_EXECUTION_MODE;
+  return resolvePersistedExecutionMode(raw) ?? DEFAULT_EXECUTION_MODE;
 }

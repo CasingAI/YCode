@@ -87,6 +87,7 @@ import type {
 } from "@zcode/contracts";
 import { HYDRATION_TRACE_ID } from "../zcode-protocol-v4/projection-state.js";
 import { resolveWorkspaceRefFromId } from "./mapper.js";
+import { resolveDetachedChildModeSeed } from "./detached-child-mode-seed.js";
 import { buildLiveWorkspaceConfigStateV4 } from "./v4-workspace-config.js";
 import {
   hasSessionModelProvider,
@@ -2083,19 +2084,8 @@ export function createConversationV4Gateway(
       let detachedModeSeed: CollaborationMode | undefined;
       if (!context.sessions.has(sessionId) && store) {
         try {
-          const childSession = await store.getSession(sessionId as SessionId);
-          const persistedMode = childSession?.permission?.mode;
-          if (
-            persistedMode === "plan" ||
-            persistedMode === "readonly" ||
-            persistedMode === "yolo" ||
-            persistedMode === "team"
-          ) {
-            detachedModeSeed = persistedMode;
-          } else if (persistedMode === "bare") {
-            // 旧秘书档改名 team：落盘旧值归一后作为 seed（docs/specs/team-mode.md「迁移」）。
-            detachedModeSeed = "team";
-          }
+          // runner 预建的 child 未写 permission.mode，真实模式须从执行状态条目恢复。
+          detachedModeSeed = await resolveDetachedChildModeSeed(store, sessionId as SessionId);
         } catch (error) {
           context.logger?.warn("v4 hydrate detached child mode seed read failed", {
             error: error instanceof Error ? error.message : String(error),

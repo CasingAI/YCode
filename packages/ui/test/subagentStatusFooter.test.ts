@@ -60,8 +60,7 @@ function makeSnapshot(
               maxTokens,
               autoCompactThresholdTokens: null,
               ...(breakdown ? { breakdown } : {}),
-              cache:
-                cacheHitRate === null ? undefined : { hitRate: cacheHitRate },
+              cache: cacheHitRate === null ? undefined : { hitRate: cacheHitRate },
             },
       cumulative: {
         inputTokens: 0,
@@ -137,13 +136,29 @@ test("footer 四项锚点都读子会话快照", () => {
   assert.ok(markup.includes("· 高"));
 });
 
-// 快照身份与 sessionId 对不上时按空态处理，禁止回退父会话数值。
 test("readonly 子会话底栏显示 Ask", () => {
   const markup = renderFooter(makeSnapshot({ mode: "readonly" }), "child_1");
 
   assert.equal(getDataAttr(markup, "subagent-footer-mode"), "readonly");
   assert.ok(markup.includes(">Ask<"));
   assert.ok(!markup.includes(">Agent<"));
+});
+
+test("team 子会话底栏显示 Team", () => {
+  const markup = renderFooter(makeSnapshot({ mode: "team" }), "child_1");
+
+  assert.equal(getDataAttr(markup, "subagent-footer-mode"), "team");
+  assert.ok(markup.includes(">Team<"));
+  assert.ok(!markup.includes(">Agent<"));
+});
+
+test("未知或缺失档位回退 Agent", () => {
+  for (const mode of ["build", "", undefined]) {
+    const snapshot = makeSnapshot({ mode });
+    if (mode === undefined) delete (snapshot.config as Partial<typeof snapshot.config>).mode;
+    const markup = renderFooter(snapshot, "child_1");
+    assert.ok(markup.includes(">Agent<"), `mode=${JSON.stringify(mode)} 应回退 Agent`);
+  }
 });
 
 test("快照身份不匹配时不回退父会话数值", () => {
