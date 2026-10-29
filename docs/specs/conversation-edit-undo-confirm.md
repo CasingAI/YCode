@@ -10,6 +10,8 @@
 
 ## 产品规则
 
+三态分流只消费 runtime 已过滤的文件集合：`.zcodeignore` 匹配路径不进入 preview 清单，不计入恢复数量，不触发冲突弹窗；只有此类文件时按纯对话确认处理。具体边界见 [`conversation-file-rewind-ignore-boundary.md`](conversation-file-rewind-ignore-boundary.md)。`ignoredFiles` 仍表示 `bash_ignored`，其冲突语义不变。
+
 1. 提交先做 `previewFileRewind` 三态分流（`resolveEditFileRewindDialogDecision` 不变）：`conversationOnly` → 纯对话确认；`withFiles` → 带 Checkbox 的确认；`conflict` → 原冲突弹窗 `ConversationFileRewindDialog`，三选语义不变。
 2. 无文件：`requestConfirmation({ title: 撤销并重发, description: 中间轮 N 轮文案 / 末轮重生成文案, confirmLabel: 撤销并重发, confirmVariant: "destructive", testId: TID_V4_EDIT_UNDO_CONFIRM_DIALOG })`。`true` 才提交（`preserve`），`false` 则清掉暂存不提交。
 3. 有可恢复文件（`safeFiles.length = N`）：`requestChoice({ ...同上, description: 对话后果 + 文件数量提示, checkbox: { label: 同时恢复 N 个文件 } })`。`confirm` 且勾选 → `workspaceMode: "rewind"`；`confirm` 未勾选 → `"preserve"`；`cancel` / `dismiss`（含单例占位被直接 resolve）一律清掉 `pendingSubmit / pendingFileRewind / fileRewindPreview`，不提交。

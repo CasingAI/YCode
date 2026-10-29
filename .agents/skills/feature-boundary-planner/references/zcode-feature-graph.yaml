@@ -237,6 +237,39 @@ nodes:
         symbol: ConversationV4Gateway
       - file: apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/session-flow.ts
         symbol: sendText
+  - id: capability.conversation-file-rewind
+    kind: capability
+    label: Conversation file rewind preview and apply
+    aliases:
+      - file rewind
+      - 撤销文件改动
+      - 重置并重发
+    codeSeeds:
+      - file: apps/zcode-cli/packages/core/src/runtime/methods/file-rewind.ts
+        symbol: previewWorkspaceFileRewind
+      - file: apps/zcode-cli/packages/core/src/runtime/methods/file-rewind.ts
+        symbol: applyWorkspaceFileRewind
+      - file: apps/zcode-cli/packages/core/src/runtime/helpers/workspace-ignore.ts
+        symbol: loadWorkspaceFileRewindIgnoreRules
+    invariants:
+      - Preview and apply derive candidates from existing checkpoints and independently read current workspace
+        ignore rules without creating or changing the rule file. Excluded paths enter none of the three file lists.
+      - Ordinary file safety checks, Bash conflicts, checkpoint persistence and the conversation commit gate
+        remain authoritative. Desktop continuous and mobile replayable delivery use the same runtime decision.
+  - id: capability.workspace-file-ignore
+    kind: capability
+    label: Shared workspace file ignore rules
+    aliases:
+      - .zcodeignore
+      - 工作区忽略规则
+    codeSeeds:
+      - file: packages/shared/src/workspaceFileIgnore.ts
+        symbol: buildWorkspaceFileSearchIgnoreMatcher
+      - file: packages/services/src/file/workspaceFileIgnore.ts
+        symbol: loadWorkspaceFileSearchIgnoreRules
+    invariants:
+      - Shared owns pure matching and default-template semantics. The file service owns creation and edits;
+        runtime only reads rules through FileSystemPort and blocks restoration when an existing rule file is unreadable.
   - id: state.conversation-projection
     kind: state-owner
     label: Client conversation projection and pending optimistic overlay
@@ -910,6 +943,16 @@ edges:
     condition:
       User/workspace definitions use Markdown; built-in/plugin overrides use the agent state
       file. Neither is a live conversation model switch.
+  - from: capability.conversation-runtime
+    to: capability.conversation-file-rewind
+    type: delegates-to
+    rank: must-inspect
+    condition: History edit and file-summary undo share runtime preview and apply without changing command admission.
+  - from: capability.conversation-file-rewind
+    to: capability.workspace-file-ignore
+    type: filters-candidates-through
+    rank: must-inspect
+    condition: Existing checkpoints are filtered against a read-only current rule snapshot before safety classification.
   - from: capability.conversation-runtime
     to: service.conversation-command-inbox
     type: admits-commands-through

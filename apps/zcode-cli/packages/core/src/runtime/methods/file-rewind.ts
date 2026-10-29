@@ -25,6 +25,11 @@ import {
   stringifyWorkspaceCheckpointArtifact,
   throwIfTurnAborted,
 } from "../helpers/index.js";
+import {
+  isWorkspaceFileRewindPathIgnored,
+  loadWorkspaceFileRewindIgnoreRules,
+} from "../helpers/workspace-ignore.js";
+import type { WorkspaceFileRewindIgnoreRules } from "../helpers/workspace-ignore.js";
 import type {
   WorkspaceFileRewindApplyResult,
   WorkspaceFileRewindIgnoredFile,
@@ -110,8 +115,7 @@ export async function applyWorkspaceFileRewind(
     commitAfterApply?: () => Promise<void>;
   } = {},
 ): Promise<WorkspaceFileRewindApplyResult> {
-  const traceContext =
-    options.traceContext ?? getCurrentTraceContext() ?? this.rootTraceContext;
+  const traceContext = options.traceContext ?? getCurrentTraceContext() ?? this.rootTraceContext;
   const plan = await buildWorkspaceFileRewindPlan.call(this, {
     ...options,
     traceContext,
@@ -403,8 +407,7 @@ async function buildWorkspaceFileRewindPlan(
     traceContext?: TraceContext;
   },
 ): Promise<WorkspaceFileRewindPlan> {
-  const traceContext =
-    options.traceContext ?? getCurrentTraceContext() ?? this.rootTraceContext;
+  const traceContext = options.traceContext ?? getCurrentTraceContext() ?? this.rootTraceContext;
   if (!this.artifactStore || !this.fileSystemPort) {
     return {
       canApply: false,
@@ -472,6 +475,37 @@ async function buildWorkspaceFileRewindPlan(
     }
   }
 
+  // 规则只在存在可读 checkpoint 候选后读取一次，整次计划共用同一快照。
+  // 没有候选时不触碰规则文件，避免无关的读取失败改变 preview 结果。
+  let ignoreRules: WorkspaceFileRewindIgnoreRules | null = null;
+  if (artifacts.length > 0) {
+    ignoreRules = await loadWorkspaceFileRewindIgnoreRules.call(
+      this,
+      traceContext,
+      options.abortSignal,
+    );
+    if ("error" in ignoreRules) {
+      const ignoreFailure: WorkspaceFileRewindUnsafeFile = {
+        operationCount: 1,
+        path: ignoreRules.error.path,
+        reason: "file_read_failed",
+        toolNames: [],
+        message: ignoreRules.error.message,
+      };
+      return {
+        canApply: false,
+        ignoredFiles: [],
+        operations: [],
+        safeFiles: [],
+        unsafeFiles: [...unreadableFiles, ignoreFailure].sort(compareByPath),
+      };
+    }
+  }
+  // 统一先解析为绝对路径，再对工作区内相对路径应用规则；工作区外路径不送匹配。
+  const isIgnoredPath = (absolutePath: string): boolean =>
+    ignoreRules !== null &&
+    isWorkspaceFileRewindPathIgnored(ignoreRules, this.workspaceRoot, absolutePath);
+
   const ignoredByPath = new Map<string, IgnoredFileAggregate>();
   const operations: FileCheckpointOperation[] = [];
   const unsupportedByPath = new Map<string, FileAggregate>();
@@ -479,11 +513,9 @@ async function buildWorkspaceFileRewindPlan(
   for (const { artifact, checkpoint } of artifacts) {
     if (isIgnoredShellTool(artifact.toolName)) {
       for (const file of artifact.files) {
-        addIgnoredFile(
-          ignoredByPath,
-          resolveCheckpointFilePath(this.workspaceRoot, file.path),
-          artifact.toolName,
-        );
+        const filePath = resolveCheckpointFilePath(this.workspaceRoot, file.path);
+        if (isIgnoredPath(filePath)) continue;
+        addIgnoredFile(ignoredByPath, filePath, artifact.toolName);
       }
       continue;
     }
@@ -493,6 +525,9 @@ async function buildWorkspaceFileRewindPlan(
       // FileSystemPort 只接受绝对路径。若不在计划阶段按 runtime workspace root
       // 解析，安全文件会被误报 file_read_failed，组合 rewind 只返回 blocked。
       const filePath = resolveCheckpointFilePath(this.workspaceRoot, file.path);
+      // 规则排除必须先于 after-content 解析与磁盘读取：被忽略路径不进入三类清单，
+      // 也不因缺少可恢复内容产生 unsupported 冲突。
+      if (isIgnoredPath(filePath)) continue;
       const afterContent = resolveCheckpointAfterContent(file);
       if (afterContent === undefined) {
         markUnsafe(unsupportedByPath, {
@@ -632,10 +667,7 @@ function resolveTargetCheckpoints(
       .map((event) => event.payload)
       .filter((payload): payload is CheckpointCreatedPayload => {
         const checkpoint = payload as Partial<CheckpointCreatedPayload>;
-        return (
-          checkpoint.scope === RewindScope.Workspace ||
-          checkpoint.scope === RewindScope.Both
-        );
+        return checkpoint.scope === RewindScope.Workspace || checkpoint.scope === RewindScope.Both;
       });
   }
 

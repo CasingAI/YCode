@@ -6,8 +6,9 @@
 //   （锚在编辑目标轮 user message 上）；append-only branch cut 不删消息，
 //   后续再对同一锚点 rewind 时快照仍在恢复范围内——覆盖可逆。
 import assert from "node:assert/strict";
+import { join, resolve } from "node:path";
 import test from "node:test";
-import { RewindScope, SessionEventType } from "@zcode/contracts";
+import { FileSystemPortError, RewindScope, SessionEventType } from "@zcode/contracts";
 import type { SessionEvent } from "@zcode/contracts";
 import {
   WORKSPACE_CHECKPOINT_CONTENT_TYPE,
@@ -18,12 +19,13 @@ import {
   previewWorkspaceFileRewind,
 } from "../src/runtime/methods/file-rewind.js";
 
-const WS_ROOT = "/ws";
+const WS_ROOT = resolve(process.cwd(), "workspace-rewind-overwrite-test-root");
+const FILE_PATH = join(WS_ROOT, "a.txt");
 
 type Harness = Awaited<ReturnType<typeof makeRuntime>>;
 
 function makeRuntime() {
-  const files = new Map<string, string>([[`${WS_ROOT}/a.txt`, "external"]]);
+  const files = new Map<string, string>([[FILE_PATH, "external"]]);
   const artifacts = new Map<string, string>();
   const events: SessionEvent[] = [];
   let seq = 0;
@@ -46,7 +48,7 @@ function makeRuntime() {
   artifacts.set(
     "artifact://cp1",
     stringifyWorkspaceCheckpointArtifact(
-      { content: "two", filePath: "a.txt", originalFile: "one", structuredPatch: [] },
+      { content: "two", filePath: FILE_PATH, originalFile: "one", structuredPatch: [] },
       {
         toolCallId: "call-1",
         toolName: "Write",
@@ -73,10 +75,7 @@ function makeRuntime() {
         if (content === undefined) throw new Error(`artifact not found: ${uri}`);
         return { content };
       },
-      writeToolResultArtifact: async (input: {
-        content: string;
-        contentType: string;
-      }) => {
+      writeToolResultArtifact: async (input: { content: string; contentType: string }) => {
         assert.equal(input.contentType, WORKSPACE_CHECKPOINT_CONTENT_TYPE);
         seq += 1;
         const uri = `artifact://snapshot-${seq}`;
@@ -87,7 +86,15 @@ function makeRuntime() {
     fileSystemPort: {
       readTextFile: async ({ path }: { path: string }) => {
         const content = files.get(path);
-        if (content === undefined) throw new Error(`missing: ${path}`);
+        if (content === undefined) {
+          // 与生产适配器一致：缺失文件必须以 FileSystemPortError(not_found) 表达，
+          // 否则规则文件读取无法区分「不存在」与「不可读」。
+          throw new FileSystemPortError({
+            code: "not_found",
+            path,
+            message: `missing: ${path}`,
+          });
+        }
         return { content };
       },
       writeTextFile: async ({ path, content }: { path: string; content: string }) => {
@@ -127,10 +134,9 @@ const applyOverwrite = (
   harness: Harness,
   options: Parameters<typeof applyWorkspaceFileRewind>[1],
 ) =>
-  applyWorkspaceFileRewind.call(
-    harness.runtime as never,
-    options,
-  ) as unknown as ReturnType<typeof applyWorkspaceFileRewind>;
+  applyWorkspaceFileRewind.call(harness.runtime as never, options) as unknown as ReturnType<
+    typeof applyWorkspaceFileRewind
+  >;
 
 test("block 模式：external_modified 阻塞且不写盘", async () => {
   const harness = makeRuntime();
@@ -140,7 +146,7 @@ test("block 模式：external_modified 阻塞且不写盘", async () => {
   assert.equal(preview.canApply, false);
   assert.equal(preview.unsafeFiles.length, 1);
   assert.equal(preview.unsafeFiles[0]?.reason, "external_modified");
-  assert.equal(harness.files.get(`${WS_ROOT}/a.txt`), "external");
+  assert.equal(harness.files.get(FILE_PATH), "external");
 });
 
 test("overwrite 模式：external_modified 放行，覆盖前快照持久化且文件恢复到 checkpoint 值", async () => {
@@ -151,7 +157,7 @@ test("overwrite 模式：external_modified 放行，覆盖前快照持久化且�
     targetMessageIds: ["msg-1"],
   });
   assert.equal(result.applied, true);
-  assert.equal(harness.files.get(`${WS_ROOT}/a.txt`), "one", "恢复值来自 checkpoint 链");
+  assert.equal(harness.files.get(FILE_PATH), "one", "恢复值来自 checkpoint 链");
 
   // 覆盖前快照：内容是写盘前的磁盘状态 "external"，锚在编辑目标轮 user message。
   const snapshotEvent = harness.appended.find(
@@ -160,9 +166,9 @@ test("overwrite 模式：external_modified 放行，覆盖前快照持久化且�
   assert.ok(snapshotEvent, "覆盖前必须先持久化快照 checkpoint");
   const payload = snapshotEvent.payload as { messageId?: string; snapshotRef?: string };
   assert.equal(payload.messageId, "msg-0");
-  const snapshotArtifact = JSON.parse(
-    harness.artifacts.get(payload.snapshotRef ?? "") ?? "{}",
-  ) as { files: Array<{ beforeContent: string | null }> };
+  const snapshotArtifact = JSON.parse(harness.artifacts.get(payload.snapshotRef ?? "") ?? "{}") as {
+    files: Array<{ beforeContent: string | null }>;
+  };
   assert.equal(snapshotArtifact.files[0]?.beforeContent, "external");
 
   assert.ok(
@@ -187,9 +193,14 @@ test("overwrite 模式：unsupported_checkpoint 仍阻塞（数据不在，覆�
   harness.events.push({
     id: "evt-cp2",
     type: SessionEventType.CheckpointCreated,
-    payload: { ...harness.checkpointPayload, checkpointId: "checkpoint_cp2", snapshotRef: "artifact://cp2", diffRef: "artifact://cp2" },
+    payload: {
+      ...harness.checkpointPayload,
+      checkpointId: "checkpoint_cp2",
+      snapshotRef: "artifact://cp2",
+      diffRef: "artifact://cp2",
+    },
   } as unknown as SessionEvent);
-  harness.files.set(`${WS_ROOT}/b.txt`, "later");
+  harness.files.set(join(WS_ROOT, "b.txt"), "later");
 
   const result = await applyOverwrite(harness, {
     conflictMode: "overwrite",
@@ -201,7 +212,7 @@ test("overwrite 模式：unsupported_checkpoint 仍阻塞（数据不在，覆�
     result.preview.unsafeFiles.some((file) => file.reason === "unsupported_checkpoint"),
     "unsupported 类冲突不得被 overwrite 放行",
   );
-  assert.equal(harness.files.get(`${WS_ROOT}/b.txt`), "later", "阻塞时不得写盘");
+  assert.equal(harness.files.get(join(WS_ROOT, "b.txt")), "later", "阻塞时不得写盘");
 });
 
 test("覆盖可逆：快照 checkpoint 可再次 rewind，找回被覆盖前的内容", async () => {
@@ -221,7 +232,7 @@ test("覆盖可逆：快照 checkpoint 可再次 rewind，找回被覆盖前的�
   });
   assert.equal(second.applied, true);
   assert.equal(
-    harness.files.get(`${WS_ROOT}/a.txt`),
+    harness.files.get(FILE_PATH),
     "external",
     "再次 rewind 必须找回覆盖前的磁盘状态（快照可逆）",
   );

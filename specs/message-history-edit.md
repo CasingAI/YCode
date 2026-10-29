@@ -54,6 +54,8 @@
 
 ### 文件回滚
 
+文件撤销候选先按当前工作区 `.zcodeignore` 排除，具体规则与失败边界见 [`../docs/specs/conversation-file-rewind-ignore-boundary.md`](../docs/specs/conversation-file-rewind-ignore-boundary.md)。匹配路径不进入 safe/unsafe/ignored 三类清单；下文 `ignored` 仅指仍在候选范围内的 `bash_ignored`，不是工作区路径忽略规则。
+
 9. 默认 `workspaceMode=preserve`：被剪除轮次写下的文件改动保留在工作区（与现状末轮编辑 preserve 语义一致；接受「对话无记录但文件存在」的不一致）。
 10. 「对话 + 文件重置」选项对中间编辑**保持可用**：预览范围从「该轮 checkpoint」扩展为「编辑点之后全部 active 轮的 checkpoint 级联」，UI 展示将还原的文件清单（文件 + 还原到哪一轮之前）。
 11. 检测到无法安全回滚（unsafe/ignored 文件、checkpoint 缺失/不可读）时沿用 fail-closed：选项置灰给出原因，或提交时 blocked 返回原因码；冲突弹窗复用 `ConversationFileRewindDialog`（含「仅重置对话并发送」逃生口）。
