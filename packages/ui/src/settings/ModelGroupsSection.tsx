@@ -1,6 +1,6 @@
 /* eslint-disable max-lines -- 模型组设置页集中编排主从导航、组名编辑与成员增删排序（docs/specs/model-group.md）。 */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, Clock3, InfoIcon, Layers, Loader2, Plus, X } from "lucide-react";
+import { Clock3, InfoIcon, Layers, Loader2, Plus, X } from "lucide-react";
 import {
   isModelGroupEnabled,
   isModelGroupsPrimary,
@@ -31,6 +31,15 @@ import {
   SettingsSortableNav,
   type SettingsSortableNavItem,
 } from "@/settings/SettingsSortableNav.js";
+import { useOptimisticReorder } from "@/settings/useOptimisticReorder.js";
+import {
+  ModelGroupMemberSortableList,
+  ModelGroupMemberSortableRow,
+} from "@/settings/ModelGroupMemberSortable.js";
+import {
+  buildModelGroupMemberOrderEntries,
+  resolveModelGroupMemberOrder,
+} from "@/settings/modelGroupMemberOrder.js";
 import { SettingsResourceHeaderActions } from "@/settings/SettingsResourceHeaderActions.js";
 import { ModelGroupMemberPickerDialog } from "@/settings/ModelGroupMemberPickerDialog.js";
 import { ModelGroupMemberThoughtLevel } from "@/settings/ModelGroupMemberThoughtLevel.js";
@@ -87,6 +96,12 @@ export function ModelGroupsSection() {
     }
   }, [modelGroups, selectedGroupId]);
   const selectedGroup = modelGroups.find((group) => group.groupId === selectedGroupId) ?? null;
+  // 重复成员各自生成唯一 id，拖拽只搬运 id，不认模型身份。
+  const memberEntries = useMemo(
+    () => buildModelGroupMemberOrderEntries(selectedGroup?.memberOrder ?? []),
+    [selectedGroup],
+  );
+  const memberIds = useMemo(() => memberEntries.map((entry) => entry.id), [memberEntries]);
 
   const [creating, setCreating] = useState(false);
   const [createName, setCreateName] = useState("");
@@ -267,6 +282,52 @@ export function ModelGroupsSection() {
     [providerSettingsService, runMutation],
   );
 
+  // 拖拽落下即提交新顺序，写入路径仍是 setModelGroupMembers（唯一写入口）。
+  // 乐观顺序可能与权威顺序不同，这里按 id 还原成员；旧快照（id 缺失或数量不符）
+  // 直接失败关闭，不提交残缺名单。持久化失败同样抛出，让乐观顺序回落到权威名单。
+  const memberOrderPersistContextRef = useRef({
+    entries: memberEntries,
+    groupId: selectedGroup?.groupId ?? null,
+    runMutation,
+  });
+  memberOrderPersistContextRef.current = {
+    entries: memberEntries,
+    groupId: selectedGroup?.groupId ?? null,
+    runMutation,
+  };
+  const persistMemberOrder = useCallback(
+    async (nextIds: readonly string[]) => {
+      const {
+        entries,
+        groupId,
+        runMutation: persistRunMutation,
+      } = memberOrderPersistContextRef.current;
+      if (!groupId) return;
+      const members = resolveModelGroupMemberOrder(entries, nextIds);
+      if (!members) {
+        throw new Error("Model group member order is stale; skip reorder");
+      }
+      const succeeded = await persistRunMutation(() =>
+        providerSettingsService.setModelGroupMembers(groupId, members),
+      );
+      if (!succeeded) {
+        throw new Error("Model group member reorder failed");
+      }
+    },
+    [providerSettingsService],
+  );
+  const optimisticMemberOrder = useOptimisticReorder({
+    authoritativeIds: memberIds,
+    persist: persistMemberOrder,
+  });
+  const renderedMemberEntries = useMemo(() => {
+    const entryById = new Map(memberEntries.map((entry) => [entry.id, entry] as const));
+    return optimisticMemberOrder.renderedIds.flatMap((id) => {
+      const entry = entryById.get(id);
+      return entry ? [entry] : [];
+    });
+  }, [memberEntries, optimisticMemberOrder.renderedIds]);
+
   const handleSetMemberSelectable = useCallback(
     (index: number, selectable: boolean) => {
       if (!selectedGroup || busy) return;
@@ -312,17 +373,6 @@ export function ModelGroupsSection() {
   );
 
   const selectedMembers = selectedGroup?.memberOrder ?? [];
-  const swapMembers = useCallback(
-    (index: number, direction: -1 | 1): ModelGroupMemberRef[] => {
-      const next = [...selectedMembers];
-      const target = index + direction;
-      // 调用点已按边界禁用按钮，这里再守一道：越界时原样返回。
-      if (target < 0 || target >= next.length) return next;
-      [next[index], next[target]] = [next[target]!, next[index]!];
-      return next;
-    },
-    [selectedMembers],
-  );
   // 添加成员候选 = 全部成员候选（只列具体模型，组不是供应商）。
   // 同一模型允许重复加入：档位在添加时固定，同模型不同档位各算一条成员，
   // 所以这里不按 provider+model 排除组内已有成员。
@@ -453,146 +503,143 @@ export function ModelGroupsSection() {
               </div>
               {selectedMembers.length > 0 ? (
                 <div className="overflow-hidden rounded-lg border border-input-border bg-input">
-                  <ul className="flex flex-col">
-                    {selectedMembers.map((member, index) => {
+                  <ModelGroupMemberSortableList
+                    // 使用当前渲染顺序（乐观顺序可能领先于权威顺序），
+                    // 拖拽落点与 SortableContext 的几何保持一致。
+                    ids={optimisticMemberOrder.renderedIds}
+                    disabled={busy}
+                    className="flex flex-col"
+                    onReorder={(nextIds) => {
+                      void optimisticMemberOrder.commit(nextIds).catch(() => undefined);
+                    }}
+                  >
+                    {renderedMemberEntries.map((entry, renderedIndex) => {
+                      const member = entry.member;
+                      // 乐观顺序可能与权威顺序不同：开关、时段、移除都必须落到
+                      // 该成员的权威下标，否则会把策略写到别的成员身上。
+                      const memberIndex = memberIds.indexOf(entry.id);
                       const candidate = memberCandidates.find((item) =>
                         sameMemberRef(item, member),
                       );
-                      const isLast = index === selectedMembers.length - 1;
+                      const isLast = renderedIndex === renderedMemberEntries.length - 1;
                       return (
-                        <li
-                          // 同一模型允许重复加入，key 必须带序号才能唯一。
-                          key={`${member.providerId}/${member.modelId}/${index}`}
+                        <ModelGroupMemberSortableRow
+                          key={entry.id}
+                          id={entry.id}
+                          disabled={busy}
                           className={`space-y-2 px-3 py-2 ${isLast ? "" : "border-b border-input-border"}`}
                         >
-                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                            <div className="flex min-w-0 flex-1 basis-40 flex-wrap items-center gap-x-2 gap-y-1">
-                              <span className="min-w-0 truncate font-mono text-ui-base text-foreground">
-                                {member.modelId}
-                              </span>
-                              <span
-                                className="inline-flex h-5 max-w-40 items-center truncate rounded-md border border-border bg-surface px-1.5 font-mono text-ui-sm text-foreground-subtle"
-                                title={candidate?.providerLabel ?? member.providerId}
-                              >
-                                {candidate?.providerLabel ?? member.providerId}
-                              </span>
-                              {candidate?.providerHidden ? (
-                                <Badge
-                                  variant="outline"
-                                  className="shrink-0 text-ui-xs text-muted-foreground"
-                                >
-                                  {intl.formatMessage({ id: "settings.modelGroups.memberHidden" })}
-                                </Badge>
-                              ) : null}
-                              {candidate && !candidate.available ? (
-                                <Badge
-                                  variant="outline"
-                                  className="shrink-0 text-ui-xs text-muted-foreground"
-                                >
-                                  {intl.formatMessage({
-                                    id: "settings.modelGroups.memberUnavailable",
-                                  })}
-                                </Badge>
-                              ) : null}
-                              {member.reasoningLevel ||
-                              (candidate && candidate.reasoningLevels.length > 0) ? (
-                                <ModelGroupMemberThoughtLevel
-                                  member={member}
-                                  candidate={candidate}
-                                  index={index}
-                                />
-                              ) : null}
-                            </div>
-                            <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2">
-                              <div className="flex items-center gap-2">
-                                <span className="text-ui-sm text-foreground-subtle">
-                                  {intl.formatMessage({ id: "settings.modelGroups.selectable" })}
+                          {(handle) => (
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                              {handle}
+                              <div className="flex min-w-0 flex-1 basis-40 flex-wrap items-center gap-x-2 gap-y-1">
+                                <span className="min-w-0 truncate font-mono text-ui-base text-foreground">
+                                  {member.modelId}
                                 </span>
-                                <Switch
-                                  checked={member.selectable !== false}
+                                <span
+                                  className="inline-flex h-5 max-w-40 items-center truncate rounded-md border border-border bg-surface px-1.5 font-mono text-ui-sm text-foreground-subtle"
+                                  title={candidate?.providerLabel ?? member.providerId}
+                                >
+                                  {candidate?.providerLabel ?? member.providerId}
+                                </span>
+                                {candidate?.providerHidden ? (
+                                  <Badge
+                                    variant="outline"
+                                    className="shrink-0 text-ui-xs text-muted-foreground"
+                                  >
+                                    {intl.formatMessage({
+                                      id: "settings.modelGroups.memberHidden",
+                                    })}
+                                  </Badge>
+                                ) : null}
+                                {candidate && !candidate.available ? (
+                                  <Badge
+                                    variant="outline"
+                                    className="shrink-0 text-ui-xs text-muted-foreground"
+                                  >
+                                    {intl.formatMessage({
+                                      id: "settings.modelGroups.memberUnavailable",
+                                    })}
+                                  </Badge>
+                                ) : null}
+                                {member.reasoningLevel ||
+                                (candidate && candidate.reasoningLevels.length > 0) ? (
+                                  <ModelGroupMemberThoughtLevel
+                                    member={member}
+                                    candidate={candidate}
+                                    index={memberIndex}
+                                  />
+                                ) : null}
+                              </div>
+                              <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-ui-sm text-foreground-subtle">
+                                    {intl.formatMessage({
+                                      id: "settings.modelGroups.selectable",
+                                    })}
+                                  </span>
+                                  <Switch
+                                    checked={member.selectable !== false}
+                                    disabled={busy}
+                                    aria-label={intl.formatMessage({
+                                      id: "settings.modelGroups.selectable",
+                                    })}
+                                    onCheckedChange={(checked) =>
+                                      handleSetMemberSelectable(memberIndex, checked)
+                                    }
+                                  />
+                                </div>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
                                   disabled={busy}
                                   aria-label={intl.formatMessage({
-                                    id: "settings.modelGroups.selectable",
+                                    id: "settings.modelGroups.scheduleEdit",
                                   })}
-                                  onCheckedChange={(checked) =>
-                                    handleSetMemberSelectable(index, checked)
+                                  onClick={() =>
+                                    setScheduleEditor({
+                                      groupId: selectedGroup.groupId,
+                                      memberIndex,
+                                      memberOrderSnapshot: structuredClone(
+                                        selectedGroup.memberOrder,
+                                      ),
+                                      schedule: member.deprioritizeSchedule,
+                                    })
                                   }
-                                />
-                              </div>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                disabled={busy}
-                                aria-label={intl.formatMessage({
-                                  id: "settings.modelGroups.scheduleEdit",
-                                })}
-                                onClick={() =>
-                                  setScheduleEditor({
-                                    groupId: selectedGroup.groupId,
-                                    memberIndex: index,
-                                    memberOrderSnapshot: structuredClone(selectedGroup.memberOrder),
-                                    schedule: member.deprioritizeSchedule,
-                                  })
-                                }
-                              >
-                                <Clock3 className="size-3.5" aria-hidden="true" />
-                                <span className="text-ui-sm">
-                                  {intl.formatMessage({
-                                    id: member.deprioritizeSchedule
-                                      ? "settings.modelGroups.scheduleEdit"
-                                      : "settings.modelGroups.scheduleAdd",
+                                >
+                                  <Clock3 className="size-3.5" aria-hidden="true" />
+                                  <span className="text-ui-sm">
+                                    {intl.formatMessage({
+                                      id: member.deprioritizeSchedule
+                                        ? "settings.modelGroups.scheduleEdit"
+                                        : "settings.modelGroups.scheduleAdd",
+                                    })}
+                                  </span>
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon-sm"
+                                  aria-label={intl.formatMessage({
+                                    id: "settings.modelGroups.removeMember",
                                   })}
-                                </span>
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon-sm"
-                                aria-label={intl.formatMessage({
-                                  id: "settings.modelGroups.moveUp",
-                                })}
-                                disabled={busy || index === 0}
-                                onClick={() =>
-                                  handleSetMembers(selectedGroup.groupId, swapMembers(index, -1))
-                                }
-                              >
-                                <ArrowUp className="size-3.5" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon-sm"
-                                aria-label={intl.formatMessage({
-                                  id: "settings.modelGroups.moveDown",
-                                })}
-                                disabled={busy || index === selectedMembers.length - 1}
-                                onClick={() =>
-                                  handleSetMembers(selectedGroup.groupId, swapMembers(index, 1))
-                                }
-                              >
-                                <ArrowDown className="size-3.5" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon-sm"
-                                aria-label={intl.formatMessage({
-                                  id: "settings.modelGroups.removeMember",
-                                })}
-                                disabled={busy}
-                                onClick={() =>
-                                  handleSetMembers(
-                                    selectedGroup.groupId,
-                                    selectedMembers.filter((_, i) => i !== index),
-                                  )
-                                }
-                              >
-                                <X className="size-3.5" />
-                              </Button>
+                                  disabled={busy}
+                                  onClick={() =>
+                                    handleSetMembers(
+                                      selectedGroup.groupId,
+                                      selectedMembers.filter((_, i) => i !== memberIndex),
+                                    )
+                                  }
+                                >
+                                  <X className="size-3.5" />
+                                </Button>
+                              </div>
                             </div>
-                          </div>
-                        </li>
+                          )}
+                        </ModelGroupMemberSortableRow>
                       );
                     })}
-                  </ul>
+                  </ModelGroupMemberSortableList>
                 </div>
               ) : null}
               {selectedMembers.length === 0 ? (

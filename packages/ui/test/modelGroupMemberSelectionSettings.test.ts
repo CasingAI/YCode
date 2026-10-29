@@ -162,11 +162,42 @@ test("模型组成员行提供新选择开关、时段编辑和旧会话说明",
     /aria-label=\{intl\.formatMessage\(\{\s*id: "settings\.modelGroups\.selectable",?\s*\}\)\}/,
   );
   assert.match(section, /ModelGroupMemberScheduleDialog/);
-  assert.match(section, /memberIndex: index/);
+  // 乐观顺序可能领先权威顺序：开关、时段、移除必须落到权威下标，不能用渲染下标。
+  assert.match(section, /const memberIndex = memberIds\.indexOf\(entry\.id\)/);
+  assert.match(section, /handleSetMemberSelectable\(memberIndex, checked\)/);
+  assert.match(section, /i !== memberIndex/);
   assert.match(section, /existingSessionsHint/);
-  assert.match(section, /memberOrderSnapshot: structuredClone\(selectedGroup\.memberOrder\)/);
+  assert.match(
+    section,
+    /memberOrderSnapshot: structuredClone\(\s*selectedGroup\.memberOrder,?\s*\)/,
+  );
   assert.match(section, /prepareModelGroupMemberScheduleUpdate/);
   assert.match(section, /setModelGroupMembers\(groupId, memberOrder\)/);
+  // 成员排序改为行首独立拖拽手柄：不再有上移/下移箭头，行渲染走新的可排序组件。
+  assert.doesNotMatch(section, /ArrowUp|ArrowDown/);
+  assert.match(section, /ModelGroupMemberSortableList/);
+  assert.match(section, /ModelGroupMemberSortableRow/);
+  assert.match(section, /\{handle\}/);
+  // 列表容器由可排序组件渲染：dnd-kit 的隐藏无障碍节点与 <ul> 同级，
+  // 留 <ul> 在业务组件里会把它变成 ul > div 的非法嵌套。
+  assert.doesNotMatch(section, /<ul/);
+
+  const sortable = read("../src/settings/ModelGroupMemberSortable.tsx");
+  assert.match(sortable, /DndContext/);
+  assert.match(sortable, /KeyboardSensor/);
+  assert.match(sortable, /sortableKeyboardCoordinates/);
+  assert.match(sortable, /setActivatorNodeRef/);
+  assert.match(sortable, /GripVertical/);
+  assert.match(sortable, /memberDragHandle/);
+  assert.match(sortable, /<ul className=\{className\}>/);
+
+  // 上下移动箭头已删除，文案键同步清理，不留死键。
+  for (const locale of ["zh-CN", "en-US"]) {
+    const text = read(`../src/i18n/locales/${locale}.ts`);
+    assert.match(text, /"settings\.modelGroups\.memberDragHandle"/);
+    assert.doesNotMatch(text, /"settings\.modelGroups\.moveUp"/);
+    assert.doesNotMatch(text, /"settings\.modelGroups\.moveDown"/);
+  }
 
   const scheduleEditor = read("../src/settings/ModelGroupMemberScheduleDialog.tsx");
   assert.match(scheduleEditor, /type="time"/);
@@ -192,7 +223,7 @@ test("模型组成员行提供新选择开关、时段编辑和旧会话说明",
 
 test("模型组成员新控件使用 UI 字号 token，档位仍为只读", () => {
   const section = read("../src/settings/ModelGroupsSection.tsx");
-  const rowStart = section.indexOf("selectedMembers.map((member, index)");
+  const rowStart = section.indexOf("renderedMemberEntries.map((entry");
   const rowEnd = section.indexOf("{selectedMembers.length === 0", rowStart);
   const memberRow = section.slice(rowStart, rowEnd);
 

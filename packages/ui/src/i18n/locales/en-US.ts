@@ -2843,6 +2843,7 @@ const enUS: Record<string, string> = {
   "settings.modelGroups.scheduleEqualTimes": "Start and end times must differ.",
   "settings.modelGroups.scheduleSaveFailed": "Could not save the time windows. Your edits are still here; try again.",
   "settings.modelGroups.memberChanged": "The member has changed. Reopen the editor to continue.",
+  "settings.modelGroups.memberDragHandle": "Drag to reorder",
   "settings.modelGroups.defaultThoughtLevel": "Default",
   "settings.modelGroups.unboundThoughtLevel": "Unbound (uses current default)",
   "settings.modelGroups.unsupportedThoughtLevel":
@@ -2854,8 +2855,6 @@ const enUS: Record<string, string> = {
   "settings.modelGroups.rename": "Rename",
   "settings.modelGroups.save": "Save",
   "settings.modelGroups.cancel": "Cancel",
-  "settings.modelGroups.moveUp": "Move up",
-  "settings.modelGroups.moveDown": "Move down",
   "settings.modelGroups.removeMember": "Remove member",
   "settings.modelGroups.pickModelPlaceholder": "Search models to add…",
   "settings.modelGroups.nameRequired": "Enter a group name",
