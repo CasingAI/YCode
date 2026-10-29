@@ -2284,6 +2284,24 @@ const enUS: Record<string, string> = {
   "settings.webSearch.template.bigmodel-api": "BigModel Coding Plan",
   "settings.webSearch.template.minimax-token-plan": "MiniMax Token Plan",
   "settings.webSearch.template.deepseek": "DeepSeek",
+  "settings.webSearch.template.jina": "Jina Search API",
+  "settings.webSearch.addJina": "Add Jina",
+  "settings.webSearch.jinaSettingsOpen": "Search provider settings",
+  "settings.webSearch.jinaSettingsTitle": "{name} (Jina search provider)",
+  "settings.webSearch.jinaSettingsDescription":
+    "The API key and outbound proxy apply to this instance only; instances join the activation ordering together with the other search providers.",
+  "settings.webSearch.jinaApiKey": "API Key",
+  "settings.webSearch.jinaApiKeyHint": "Calls the s.jina.ai search endpoint, billed per successful request.",
+  "settings.webSearch.jinaGetKey": "Get an API key",
+  "settings.webSearch.jinaProxy": "Outbound proxy",
+  "settings.webSearch.jinaProxyHint":
+    "Works with the proxy configured in Network settings; you can also force the proxy or a direct connection.",
+  "settings.webSearch.jinaProxy.default": "Follow network settings",
+  "settings.webSearch.jinaProxy.proxy": "Use proxy",
+  "settings.webSearch.jinaProxy.direct": "Direct connection",
+  "settings.webSearch.jinaDeleteTitle": "Delete Jina search provider",
+  "settings.webSearch.jinaDeleteDescription":
+    "This deletes \"{name}\" together with its key and proxy settings; the active search provider falls through to the next available one.",
   "settings.httpProxySavedHint": "Network proxy settings saved. Restart the app to take effect.",
   "settings.desktopChromiumHardwareAcceleration": "Chrome hardware acceleration",
   "settings.desktopChromiumHardwareAccelerationDescription":

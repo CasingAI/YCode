@@ -265,6 +265,27 @@
           }
         },
         {
+          "templateId": "jina",
+          "templateNameMap": {
+            "zh-CN": "Jina",
+            "en-US": "Jina"
+          },
+          "config": {
+            "access": {
+              "type": "api-key",
+              "apiKeyManagementUrl": "https://jina.ai/api-keys"
+            },
+            "api": {
+              "type": "openai-chat-completions",
+              "baseUrl": "https://s.jina.ai"
+            },
+            "logo": {
+              "type": "builtin",
+              "key": "jina"
+            }
+          }
+        },
+        {
           "templateId": "qwen-alibaba-model-studio-cn",
           "templateNameMap": {
             "zh-CN": "阿里云百炼（中国）",

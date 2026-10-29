@@ -19,17 +19,25 @@ test("内置搜索源模板名单与端点表一一对应", () => {
     assert.equal(endpoint.endpoint.startsWith("https://"), true, templateId);
     assert.match(endpoint.endpoint, /^https:\/\//u);
   }
-  // 套餐内搜索源优先于按量计费的 DeepSeek。
+  // 套餐内搜索源优先于按量计费的 DeepSeek / Jina。
   assert.equal(WEB_SEARCH_PROVIDER_ENDPOINTS["zai-api"].defaultPriority, 0);
   assert.equal(WEB_SEARCH_PROVIDER_ENDPOINTS["bigmodel-api"].defaultPriority, 1);
   assert.equal(WEB_SEARCH_PROVIDER_ENDPOINTS["minimax-token-plan"].defaultPriority, 2);
   assert.equal(WEB_SEARCH_PROVIDER_ENDPOINTS.deepseek.defaultPriority, 3);
   assert.equal(WEB_SEARCH_PROVIDER_ENDPOINTS.deepseek.billing, "per-call");
+  // jina：独立搜索源模板，query 在路径上，按量计费排最后。
+  assert.equal(WEB_SEARCH_PROVIDER_ENDPOINTS.jina.defaultPriority, 4);
+  assert.equal(WEB_SEARCH_PROVIDER_ENDPOINTS.jina.billing, "per-call");
+  assert.equal(WEB_SEARCH_PROVIDER_ENDPOINTS.jina.kind, "rest");
+  assert.equal(WEB_SEARCH_PROVIDER_ENDPOINTS.jina.endpoint, "https://s.jina.ai/");
 });
 
 test("resolveWebSearchTemplateId 先认 templateId，再做 baseUrl 签名回退", () => {
   assert.equal(resolveWebSearchTemplateId({ templateId: "zai-api" }), "zai-api");
   assert.equal(resolveWebSearchTemplateId({ templateId: "deepseek" }), "deepseek");
+  assert.equal(resolveWebSearchTemplateId({ templateId: "jina" }), "jina");
+  // jina 只认 templateId：Reader Search 域名没有聊天模板与它共用，不设 baseUrl 签名。
+  assert.equal(resolveWebSearchTemplateId({ apiBaseUrl: "https://s.jina.ai" }), undefined);
   // 非 strict 之外的同名 templateId 不该命中（类型层面已约束，运行时防御）。
   assert.equal(isWebSearchCapableTemplateId("openai" as unknown as string), false);
   // baseUrl 回退：Anthropic 兼容网关签名。
@@ -68,11 +76,13 @@ test("resolveWebSearchTemplateId 先认 templateId，再做 baseUrl 签名回退
 test("deriveDefaultWebSearchProviderOrder 按固定优先级派生，同优先级内稳定排序", () => {
   const derived = deriveDefaultWebSearchProviderOrder([
     { providerId: "ds", templateId: "deepseek" },
+    { providerId: "jina-2", templateId: "jina" },
+    { providerId: "jina-1", templateId: "jina" },
     { providerId: "zai-b", templateId: "zai-api" },
     { providerId: "zai-a", templateId: "zai-api" },
     { providerId: "mm", templateId: "minimax-token-plan" },
   ]);
-  assert.deepEqual(derived, ["zai-a", "zai-b", "mm", "ds"]);
+  assert.deepEqual(derived, ["zai-a", "zai-b", "mm", "ds", "jina-1", "jina-2"]);
 });
 
 test("resolveWebSearchProviderOrder：未初始化走派生，已初始化过滤缺失并追加新候选", () => {

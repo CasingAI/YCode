@@ -4,12 +4,16 @@ import { z } from "zod";
  * 内置支持独立搜索 API 的供应商模板（docs/specs/web-search-provider-capability.md）。
  * 设置页识别与 CLI 执行解析共用这份名单，它是搜索源识别的唯一事实源；
  * 新增搜索源时只改这里与 zcode-builtin.json 的模板，不允许出现第二份名单。
+ *
+ * `jina` 是唯一的「独立搜索源」模板：不绑定聊天模型，实例只能从网络搜索设置页
+ * 手动添加（可重复）；其余四项与聊天供应商模板共用实例。
  */
 export const WEB_SEARCH_CAPABLE_PROVIDER_TEMPLATE_IDS = [
   "zai-api",
   "bigmodel-api",
   "minimax-token-plan",
   "deepseek",
+  "jina",
 ] as const;
 
 export type WebSearchCapableProviderTemplateId =
@@ -26,7 +30,7 @@ export interface WebSearchEndpointDescriptor {
   toolName?: string;
   /**
    * 未初始化排序时的派生优先级：数值越小越靠前。
-   * 套餐内计费的搜索源排前，按量计费（DeepSeek）排后。
+   * 套餐内计费的搜索源排前，按量计费（DeepSeek、Jina）排后。
    */
   defaultPriority: number;
   /** 计费归属；设置页据此展示提示文案。 */
@@ -61,6 +65,14 @@ export const WEB_SEARCH_PROVIDER_ENDPOINTS: Record<
     billing: "per-call",
     defaultPriority: 3,
     endpoint: "https://api.deepseek.com/v1/tools/search",
+    kind: "rest",
+  },
+  jina: {
+    billing: "per-call",
+    defaultPriority: 4,
+    // Reader Search API：POST {endpoint}{encodeURIComponent(query)}，query 在路径上，
+    // 选项走 body；URL 末尾的斜杠由适配器负责拼接，不在这里带。
+    endpoint: "https://s.jina.ai/",
     kind: "rest",
   },
 };

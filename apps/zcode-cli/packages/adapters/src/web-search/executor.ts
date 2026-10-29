@@ -20,6 +20,7 @@ import type { Provider, ProviderRegistryView } from "@zcode/provider";
 import { resolveMcpNetwork, type NetworkEgressEnvPolicy } from "../mcp/network.js";
 import { createNetworkProxyFetch } from "../network/proxy-fetch.js";
 import { searchWithDeepSeek } from "./deepseek-rest.js";
+import { searchWithJina } from "./jina-rest.js";
 import { searchWithMiniMax } from "./minimax-rest.js";
 import { createZhipuMcpSearchClient, type ZhipuMcpSearchClient } from "./zhipu-mcp-search.js";
 import { WebSearchProviderError, type WebSearchFetch } from "./common.js";
@@ -108,8 +109,6 @@ export function createRegistryWebSearchExecutor(options: {
       });
       // 排序外的兜底：用户从未整理过但 shared 派生与 detection 之间出现漂移时，
       // 仍按派生序保底取第一个可解析项，绝不让非空候选落到“无激活项”。
-      // 排序外的兜底：用户从未整理过但 shared 派生与 detection 之间出现漂移时，
-      // 仍按派生序保底取第一个可解析项，绝不让非空候选落到“无激活项”。
       const orderedOrDerived =
         orderedIds.length > 0 ? orderedIds : deriveDefaultWebSearchProviderOrder(candidates);
       for (const providerId of orderedOrDerived) {
@@ -139,6 +138,13 @@ export function createRegistryWebSearchExecutor(options: {
           });
         case "minimax-token-plan":
           return await searchWithMiniMax({
+            input,
+            provider,
+            fetchImpl: resolveWebSearchFetch(provider.proxyMode),
+            abortSignal: options.abortSignal,
+          });
+        case "jina":
+          return await searchWithJina({
             input,
             provider,
             fetchImpl: resolveWebSearchFetch(provider.proxyMode),

@@ -11,6 +11,7 @@ import {
   type WebSearchFetch,
 } from "../src/web-search/common.js";
 import { searchWithDeepSeek } from "../src/web-search/deepseek-rest.js";
+import { searchWithJina } from "../src/web-search/jina-rest.js";
 import { searchWithMiniMax } from "../src/web-search/minimax-rest.js";
 import { createRegistryWebSearchExecutor } from "../src/web-search/executor.js";
 
@@ -141,6 +142,79 @@ test("MiniMax 适配器：POST {q}，organic 行映射 url/title/pageAge/snippet
     ["https://minimax.example/a", "https://minimax.example/b"],
   );
   assert.equal(output.results[0]!.pageAge, "2026-09-30");
+});
+
+test("Jina 适配器：query 走路径、no-content body，data 行映射 title/description", async () => {
+  const { fetchImpl, calls } = fetchResponding(() =>
+    jsonResponse({
+      code: 200,
+      status: 20000,
+      data: [
+        { title: "Jina", url: "https://docs.jina.example/a", description: "first doc" },
+        { url: "https://docs.jina.example/b" },
+        { title: "no url", description: "skipped" },
+      ],
+    }),
+  );
+  const output = await searchWithJina({
+    input: { query: "jina search api 中文 example" },
+    provider: {
+      ...PROVIDER,
+      providerId: "personal:jina-1",
+      templateId: "jina",
+      // Jina 走 Reader Search 端点，query 在路径上；不能沿用 PROVIDER 里 deepseek 的端点。
+      endpoint: {
+        kind: "rest" as const,
+        endpoint: "https://s.jina.ai/",
+        defaultPriority: 4,
+        billing: "per-call" as const,
+      },
+      apiKey: "jina-key",
+    },
+    fetchImpl,
+  });
+  assert.equal(calls.length, 1);
+  assert.equal(
+    calls[0]!.url,
+    "https://s.jina.ai/jina%20search%20api%20%E4%B8%AD%E6%96%87%20example",
+  );
+  assert.deepEqual(calls[0]!.body, { count: 10, respondWith: "no-content" });
+  assert.equal(calls[0]!.headers.get("authorization"), "Bearer jina-key");
+  assert.deepEqual(
+    output.results.map((result) => result.url),
+    ["https://docs.jina.example/a", "https://docs.jina.example/b"],
+  );
+  assert.equal(output.results[0]!.title, "Jina");
+  assert.equal(output.results[0]!.snippet, "first doc");
+  assert.equal(output.results[1]!.snippet, undefined);
+  assert.equal(output.sources.length, 2);
+});
+
+test("Jina 适配器：非 JSON 响应报供应商错误而非抛解析异常", async () => {
+  const fetchImpl = (async () =>
+    new Response("<html>boom</html>", { status: 200 })) as unknown as WebSearchFetch;
+  await assert.rejects(
+    searchWithJina({
+      input: BASE_INPUT,
+      provider: {
+        ...PROVIDER,
+        providerId: "personal:jina-1",
+        templateId: "jina",
+        endpoint: {
+          kind: "rest" as const,
+          endpoint: "https://s.jina.ai/",
+          defaultPriority: 4,
+          billing: "per-call" as const,
+        },
+      },
+      fetchImpl,
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof WebSearchProviderError);
+      assert.match(error.message, /JSON/u);
+      return true;
+    },
+  );
 });
 
 test("finalizeSearchOutput：域名过滤、按 url 去重并截断", () => {
@@ -283,4 +357,22 @@ test("执行器执行：deepseek 走 REST 且透传 abortSignal", async () => {
   assert.equal(output.results.length, 0);
   assert.equal(calls.length, 1);
   assert.equal(calls[0]!.url, provider.endpoint.endpoint);
+});
+
+test("执行器执行：jina 实例按模板识别并走 REST 路径端点", async () => {
+  const { fetchImpl, calls } = fetchResponding(() => jsonResponse({ data: [] }));
+  const registry = fakeRegistry([
+    fakeProvider({ providerId: "j1", templateId: "jina", apiKey: "k" }),
+  ]);
+  const executor = createRegistryWebSearchExecutor({ registry, fetchImpl });
+  const provider = executor.resolveActiveProvider({ enabled: true, order: undefined });
+  assert.ok(provider);
+  assert.equal(provider.templateId, "jina");
+  assert.equal(provider.endpoint.endpoint, "https://s.jina.ai/");
+  const output = await executor.search(BASE_INPUT, provider, {
+    abortSignal: new AbortController().signal,
+  });
+  assert.equal(output.results.length, 0);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]!.url, "https://s.jina.ai/zcode%20web%20search");
 });

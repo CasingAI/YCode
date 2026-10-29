@@ -1,5 +1,5 @@
 /* eslint-disable max-lines -- 网络搜索设置页集中编排候选识别、激活序与排序写回（docs/specs/web-search-provider-capability.md）。 */
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   DndContext,
   KeyboardSensor,
@@ -25,21 +25,33 @@ import {
   GripVertical,
   KeyRound,
   PackageSearch,
+  Plus,
+  Settings2,
   TriangleAlert,
 } from "lucide-react";
 import {
   resolveWebSearchProviderOrder,
   resolveWebSearchTemplateId,
+  WEB_SEARCH_PROVIDER_ENDPOINTS,
   type WebSearchCapableProviderTemplateId,
 } from "@zcode/shared";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { Badge } from "@/components/ui/badge.js";
 import { Button } from "@/components/ui/button.js";
 import { Switch } from "@/components/ui/switch.js";
+import { logger } from "@/logger.js";
 import { useModelProviders } from "@/hooks/useModelProviders.js";
 import { useSettings } from "@/hooks/useSettingService.js";
-import { getProviderFormApiKey, getProviderFormLabel } from "@/lib/providerSettingsFormTypes.js";
+import {
+  getProviderFormApiKey,
+  getProviderFormLabel,
+  type ProviderSettingsFormProvider,
+} from "@/lib/providerSettingsFormTypes.js";
 import { SettingsGroupCard, SettingsRow } from "@/settings/SettingsPageParts.js";
+import {
+  WebSearchJinaSettingsDialog,
+  type WebSearchProxyMode,
+} from "@/settings/WebSearchJinaSettingsDialog.js";
 
 interface WebSearchCandidate {
   providerId: string;
@@ -61,12 +73,15 @@ function WebSearchCandidateRow({
   total,
   disabled,
   onMove,
+  onOpenSettings,
 }: {
   candidate: WebSearchCandidate;
   index: number;
   total: number;
   disabled: boolean;
   onMove: (fromIndex: number, toIndex: number) => void;
+  /** 仅 jina 等可实例化配置的搜索源提供；缺省不渲染设置按钮。 */
+  onOpenSettings?: () => void;
 }) {
   const { intl } = useZCodeIntl();
   const {
@@ -128,7 +143,7 @@ function WebSearchCandidateRow({
               {intl.formatMessage({ id: "settings.webSearch.noKey" })}
             </span>
           )}
-          {candidate.templateId === "deepseek" ? (
+          {WEB_SEARCH_PROVIDER_ENDPOINTS[candidate.templateId].billing === "per-call" ? (
             <span className="flex items-center gap-1">
               <KeyRound aria-hidden="true" className="size-3" />
               {intl.formatMessage({ id: "settings.webSearch.billingPerCall" })}
@@ -142,6 +157,20 @@ function WebSearchCandidateRow({
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-1">
+        {onOpenSettings ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            disabled={disabled}
+            aria-label={intl.formatMessage({ id: "settings.webSearch.jinaSettingsOpen" })}
+            title={intl.formatMessage({ id: "settings.webSearch.jinaSettingsOpen" })}
+            data-testid={`settings.webSearch.openSettings.${candidate.providerId}`}
+            onClick={onOpenSettings}
+          >
+            <Settings2 aria-hidden="true" className="size-4" />
+          </Button>
+        ) : null}
         <Button
           type="button"
           variant="ghost"
@@ -184,10 +213,11 @@ export function WebSearchSettingsSection({
 }) {
   const { intl } = useZCodeIntl();
   const { settings, update } = useSettings();
-  const { modelProviders, loading, reload } = useModelProviders({
-    workspacePath,
-    workspaceIdentity,
-  });
+  const { modelProviders, loading, reload, createPersonalProvider, saveProvider, deleteProvider } =
+    useModelProviders({
+      workspacePath,
+      workspaceIdentity,
+    });
 
   // 候选识别只读本机全局事实（个人 provider_config.json），与 CLI 执行期共用同一
   // shared 判定，保证「设置页看到的」与「运行时解析的」是同一份识别结果。
@@ -260,6 +290,95 @@ export function WebSearchSettingsSection({
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
+  // ── Jina 独立搜索源实例管理（docs/specs/web-search-provider-capability.md）──
+  // 实例即 personal provider 记录：添加 = createPersonalProvider（可重复，实例名按模板名
+  // 自动去重）；Key 走 saveProvider 稀疏 overlay，代理走 proxyModeUpdate 元数据，删除走
+  // deleteProvider。本页只编排现有写入路径，不新增持久化或第二份 Jina 配置存储。
+  const [jinaDialogProviderId, setJinaDialogProviderId] = useState<string | null>(null);
+  const [jinaSaving, setJinaSaving] = useState(false);
+
+  const jinaDialogProvider = useMemo<ProviderSettingsFormProvider | null>(
+    () => modelProviders.find((provider) => provider.providerId === jinaDialogProviderId) ?? null,
+    [jinaDialogProviderId, modelProviders],
+  );
+
+  const handleAddJina = useCallback(async () => {
+    try {
+      const created = await createPersonalProvider({ templateId: "jina" });
+      // 创建即弹设置：新实例没有 Key 不能被激活，先引导配 Key。
+      setJinaDialogProviderId(created.providerId);
+    } catch (error) {
+      logger.error("[WebSearchSettingsSection] 添加 Jina 搜索源失败", error);
+    }
+  }, [createPersonalProvider]);
+
+  const handleSaveJina = useCallback(
+    async (
+      provider: ProviderSettingsFormProvider,
+      patch: { apiKey: string; proxyMode: WebSearchProxyMode },
+    ) => {
+      setJinaSaving(true);
+      try {
+        const apiKey = patch.apiKey.trim();
+        await saveProvider({
+          ...provider,
+          personalConfig: {
+            ...provider.personalConfig,
+            // 清空保存 = 显式清除 Key（该实例回到「未配置 Key」警示态，激活时被跳过）。
+            access: { type: "api-key", ...(apiKey ? { apiKey } : {}) },
+          },
+          proxyModeUpdate: patch.proxyMode,
+        });
+        setJinaDialogProviderId(null);
+      } catch (error) {
+        logger.error("[WebSearchSettingsSection] 保存 Jina 搜索源失败", error);
+      } finally {
+        setJinaSaving(false);
+      }
+    },
+    [saveProvider],
+  );
+
+  const handleDeleteJina = useCallback(
+    async (provider: ProviderSettingsFormProvider) => {
+      setJinaSaving(true);
+      try {
+        await deleteProvider(provider.providerId);
+        setJinaDialogProviderId(null);
+      } catch (error) {
+        logger.error("[WebSearchSettingsSection] 删除 Jina 搜索源失败", error);
+      } finally {
+        setJinaSaving(false);
+      }
+    },
+    [deleteProvider],
+  );
+
+  const addJinaButton = (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      data-testid="settings.webSearch.addJina"
+      onClick={() => void handleAddJina()}
+    >
+      <Plus aria-hidden="true" className="size-4" />
+      {intl.formatMessage({ id: "settings.webSearch.addJina" })}
+    </Button>
+  );
+
+  const jinaDialog = (
+    <WebSearchJinaSettingsDialog
+      provider={jinaDialogProvider}
+      saving={jinaSaving}
+      onOpenChange={(open) => {
+        if (!open) setJinaDialogProviderId(null);
+      }}
+      onSave={handleSaveJina}
+      onDelete={handleDeleteJina}
+    />
+  );
+
   const enabledSwitch = (
     <Switch
       checked={webSearchEnabled}
@@ -291,10 +410,14 @@ export function WebSearchSettingsSection({
           <div className="max-w-md text-ui-sm leading-6 text-foreground-subtle">
             {intl.formatMessage({ id: "settings.webSearch.emptyHint" })}
           </div>
-          <Button type="button" variant="outline" onClick={onOpenModelProviderSettings}>
-            {intl.formatMessage({ id: "settings.webSearch.openProviders" })}
-          </Button>
+          <div className="flex items-center gap-2">
+            {addJinaButton}
+            <Button type="button" variant="ghost" onClick={onOpenModelProviderSettings}>
+              {intl.formatMessage({ id: "settings.webSearch.openProviders" })}
+            </Button>
+          </div>
         </div>
+        {jinaDialog}
       </div>
     );
   }
@@ -312,11 +435,14 @@ export function WebSearchSettingsSection({
         <div className="text-ui-sm text-foreground-subtle">
           {intl.formatMessage({ id: "settings.webSearch.orderHint" })}
         </div>
-        {loading ? (
-          <Button type="button" variant="ghost" size="sm" onClick={() => void reload()}>
-            {intl.formatMessage({ id: "settings.webSearch.refreshing" })}
-          </Button>
-        ) : null}
+        <div className="flex items-center gap-2">
+          {loading ? (
+            <Button type="button" variant="ghost" size="sm" onClick={() => void reload()}>
+              {intl.formatMessage({ id: "settings.webSearch.refreshing" })}
+            </Button>
+          ) : null}
+          {addJinaButton}
+        </div>
       </div>
       <SettingsGroupCard>
         <DndContext
@@ -339,12 +465,18 @@ export function WebSearchSettingsSection({
                   total={orderedCandidates.length}
                   disabled={!webSearchEnabled}
                   onMove={handleMove}
+                  onOpenSettings={
+                    candidate.templateId === "jina"
+                      ? () => setJinaDialogProviderId(candidate.providerId)
+                      : undefined
+                  }
                 />
               ))}
             </ul>
           </SortableContext>
         </DndContext>
       </SettingsGroupCard>
+      {jinaDialog}
     </div>
   );
 }

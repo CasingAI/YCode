@@ -2139,6 +2139,23 @@ const zhCN: Record<string, string> = {
   "settings.webSearch.template.bigmodel-api": "BigModel Coding Plan",
   "settings.webSearch.template.minimax-token-plan": "MiniMax Token Plan",
   "settings.webSearch.template.deepseek": "DeepSeek",
+  "settings.webSearch.template.jina": "Jina 搜索 API",
+  "settings.webSearch.addJina": "添加 Jina 搜索源",
+  "settings.webSearch.jinaSettingsOpen": "搜索源设置",
+  "settings.webSearch.jinaSettingsTitle": "{name}（Jina 搜索源）",
+  "settings.webSearch.jinaSettingsDescription":
+    "API Key 与出站代理只作用于该实例；实例与其他搜索源一起参与激活排序。",
+  "settings.webSearch.jinaApiKey": "API Key",
+  "settings.webSearch.jinaApiKeyHint": "调用 s.jina.ai 搜索端点，按成功请求计费。",
+  "settings.webSearch.jinaGetKey": "获取 API Key",
+  "settings.webSearch.jinaProxy": "出站代理",
+  "settings.webSearch.jinaProxyHint": "与「网络」分区的代理配置联动，也可强制走代理或直连。",
+  "settings.webSearch.jinaProxy.default": "跟随网络设置",
+  "settings.webSearch.jinaProxy.proxy": "走代理",
+  "settings.webSearch.jinaProxy.direct": "强制直连",
+  "settings.webSearch.jinaDeleteTitle": "删除 Jina 搜索源",
+  "settings.webSearch.jinaDeleteDescription":
+    "将删除「{name}」及其 Key 与代理配置；激活搜索源自动顺延到下一个可用项。",
   "settings.httpProxySavedHint": "网络代理设置已保存，重启应用后生效",
   "settings.desktopChromiumHardwareAcceleration": "Chrome 硬件加速",
   "settings.desktopChromiumHardwareAccelerationDescription":
