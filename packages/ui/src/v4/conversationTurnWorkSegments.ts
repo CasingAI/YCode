@@ -1,6 +1,7 @@
 import type {
   AssistantTextRow,
   ConversationRow,
+  ExecutionModelIdentity,
   TurnHeaderRow,
   UserInputRow,
   WorkSegmentUsage,
@@ -13,7 +14,7 @@ import { buildConversationFlowItems } from "@/v4/conversationTurnFlowItems.js";
 import type { AssistantWorkRow, ConversationTurnFlowItem } from "@/v4/conversationTurnFlowItems.js";
 
 export interface ConversationTurnWorkStatus {
-  state: "running" | "completed" | "interrupted";
+  state: "running" | "completed" | "interrupted" | "failed";
   durationMs?: number;
 }
 
@@ -26,6 +27,8 @@ export interface ConversationTurnWorkSegment {
   assistantFollowingRows: AssistantWorkRow[];
   assistantHistoryDefaultOpen: boolean;
   usage?: WorkSegmentUsage;
+  /** 当前视觉工作段实际发起过模型步骤的身份；顺序与去重由 CLI 投影负责。 */
+  executionModels?: readonly ExecutionModelIdentity[];
   workStatus?: ConversationTurnWorkStatus;
 }
 
@@ -35,6 +38,7 @@ export function resolveConversationTurnWorkStatus(
   isRunning: boolean,
   durationMs: number | undefined,
   isInterrupted = false,
+  isFailed = header?.state === "failed",
 ): ConversationTurnWorkStatus | undefined {
   if (header?.executionKind === "controlOnly") return undefined;
   const hasWork =
@@ -43,7 +47,8 @@ export function resolveConversationTurnWorkStatus(
     (header?.executionKind === "agent" ? durationMs !== undefined : (durationMs ?? 0) > 0);
   if (!hasWork) return undefined;
   return {
-    state: isRunning ? "running" : isInterrupted ? "interrupted" : "completed",
+    // 失败轮过去被并入 completed，信息窗口因此会把失败误报成成功完成。
+    state: isRunning ? "running" : isFailed ? "failed" : isInterrupted ? "interrupted" : "completed",
     ...(durationMs !== undefined ? { durationMs } : {}),
   };
 }
@@ -189,6 +194,7 @@ export function buildConversationTurnWorkSegments(options: {
       segmentRunning,
       segmentDurationMs,
       options.isInterrupted && segmentIndex === visualDrafts.length - 1,
+      options.header?.state === "failed" && segmentIndex === visualDrafts.length - 1,
     );
     // guide 段带 triggerRow，按 triggerEntityId 精确定位；首段没有 triggerRow，
     // 只能按下标取——协议里首段固定是 workSegments[0]（agent 轮次建轮时写入的 initial）。
@@ -230,6 +236,9 @@ export function buildConversationTurnWorkSegments(options: {
             visibleAssistantTextRow === undefined &&
             segmentFlowRows.length > 0)),
       ...(segmentFact?.usage ? { usage: segmentFact.usage } : {}),
+      ...(segmentFact?.executionModels !== undefined
+        ? { executionModels: segmentFact.executionModels }
+        : {}),
       ...(segmentWorkStatus ? { workStatus: segmentWorkStatus } : {}),
     };
   });

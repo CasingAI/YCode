@@ -351,6 +351,27 @@ nodes:
     invariants:
       - The status line renders the authoritative work-segment usage and does not subscribe to or recompute child sessions.
       - The summary is omitted while both metrics are zero.
+  - id: surface.reply-info
+    kind: ui-surface
+    label: Reply work-segment execution information
+    aliases:
+      - reply info
+      - turn info
+      - 回复信息
+      - 实际调用模型
+    codeSeeds:
+      - file: packages/ui/src/v4/ConversationTurnInfoAction.tsx
+        symbol: ConversationTurnInfoAction
+      - file: packages/ui/src/v4/conversationTurnInfo.ts
+        symbol: buildConversationTurnInfoFacts
+      - file: packages/shared/src/zcode-protocol-v4/execution-model-identity.ts
+        symbol: executionModelIdentitySchema
+      - file: apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/product-projection.ts
+        symbol: ProductProjection
+    invariants:
+      - Actual execution identities come only from runtime ModelRequest facts or persisted assistant execution metadata, never from current selection or admission intent.
+      - Each work segment lists its own distinct provider/model pairs in first-request order; missing identities remain unknown.
+      - The info dialog is a readonly local UI view, shares snapshot/delta delivery with Desktop and mobile, and does not publish private execution identities to shares.
   - id: capability.list-plans
     kind: capability
     label: Session plan recovery tool
@@ -974,6 +995,16 @@ edges:
     to: surface.work-segment-usage
     type: renders-in
     rank: must-inspect
+  - from: state.conversation-product-projection
+    to: surface.reply-info
+    type: renders-in
+    rank: must-inspect
+    condition: Runtime ModelRequest and durable assistant execution identities populate the work-segment summary for the same live and recovery delivery path.
+  - from: surface.work-segment-usage
+    to: surface.reply-info
+    type: opens-readonly-details
+    rank: must-inspect
+    condition: The independent info button opens the current work segment without toggling history or changing model selection.
   - from: state.conversation-projection
     to: surface.tool-call-activity
     type: renders-in

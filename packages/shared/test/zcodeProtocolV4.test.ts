@@ -7,6 +7,11 @@ import {
   workSegmentUsageSchema,
 } from "../src/zcode-protocol-v4/rows.js";
 import { commandPayloadSchemas } from "../src/zcode-protocol-v4/command.js";
+import {
+  executionModelIdentitySchema,
+  type ExecutionModelIdentity,
+} from "../src/zcode-protocol-v4/index.js";
+import { executionModelIdentitySchema as legacyExecutionModelIdentitySchema } from "../src/zcode-protocol/index.js";
 
 test("work segment usage accepts totals and preserves old rows without usage", () => {
   assert.deepEqual(
@@ -131,4 +136,53 @@ test("userInput 行的 admissionModelGroupIntent 可选且与具体模型并存"
     origin: "realUser",
   });
   assert.equal(legacy.success, true);
+});
+
+// 执行模型身份（docs/specs/conversation-turn-info.md）：两个字段都非空才算已知，
+// 严格对象不接受额外字段；工作段字段可选以兼容旧快照。
+test("execution model identity requires non-empty provider and model", () => {
+  assert.deepEqual(
+    executionModelIdentitySchema.parse({ providerId: "cliproxy-codex", modelId: "gpt-6-luna" }),
+    { providerId: "cliproxy-codex", modelId: "gpt-6-luna" },
+  );
+  for (const invalid of [
+    { providerId: "", modelId: "gpt-6-luna" },
+    { providerId: "cliproxy-codex", modelId: "   " },
+    { providerId: "cliproxy-codex" },
+    { providerId: 1, modelId: "gpt-6-luna" },
+    { providerId: "cliproxy-codex", modelId: "gpt-6-luna", extra: true },
+  ]) {
+    assert.equal(executionModelIdentitySchema.safeParse(invalid).success, false);
+  }
+});
+
+test("executionModels is optional and strict on work segments", () => {
+  const legacySegment = turnWorkSegmentSchema.parse({ segmentId: "turn:initial", startedAt: 0 });
+  assert.equal(legacySegment.executionModels, undefined);
+
+  const segment = turnWorkSegmentSchema.parse({
+    segmentId: "turn:initial",
+    startedAt: 0,
+    executionModels: [
+      { providerId: "provider-a", modelId: "model-shared" },
+      { providerId: "provider-b", modelId: "model-shared" },
+    ],
+  });
+  const identities: ExecutionModelIdentity[] = segment.executionModels ?? [];
+  assert.deepEqual(identities, [
+    { providerId: "provider-a", modelId: "model-shared" },
+    { providerId: "provider-b", modelId: "model-shared" },
+  ]);
+  assert.equal(
+    turnWorkSegmentSchema.safeParse({
+      segmentId: "turn:initial",
+      startedAt: 0,
+      executionModels: [{ providerId: "provider-a", modelId: "" }],
+    }).success,
+    false,
+  );
+});
+
+test("v4 and legacy protocol entrypoints expose the same execution identity contract", () => {
+  assert.equal(legacyExecutionModelIdentitySchema, executionModelIdentitySchema);
 });

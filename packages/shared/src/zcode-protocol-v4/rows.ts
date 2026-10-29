@@ -5,6 +5,7 @@ import { z } from "zod";
 import { executionOutputPreviewSchema } from "../execution-output-preview.js";
 import { modelGroupIntentSchema, modelSelectionSchema } from "../model-selection.js";
 import { timestampSchema } from "./core.js";
+import { executionModelIdentitySchema } from "./execution-model-identity.js";
 import { submissionModeSchema } from "./submission.js";
 import { backgroundResultOriginMetaSchema, workflowLaunchMetaSchema } from "./workflow-row-meta.js";
 
@@ -68,6 +69,9 @@ export const turnWorkSegmentSchema = z.object({
   endedAt: timestampSchema.optional(),
   activeMs: z.number().nonnegative().optional(),
   usage: workSegmentUsageSchema.optional(),
+  // 本段实际发起的模型步骤身份，按首次发起顺序、以 (providerId, modelId) 去重。
+  // 纯事实，只来自 ModelRequest / 持久化助手消息；缺席 = 未知，不得按当前选型回填。
+  executionModels: z.array(executionModelIdentitySchema).optional(),
 });
 export type TurnWorkSegment = z.infer<typeof turnWorkSegmentSchema>;
 

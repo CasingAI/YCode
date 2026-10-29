@@ -1559,6 +1559,26 @@ function collectTurnOutput(options: {
     if (messageEnd !== undefined) {
       turnEndedAtMs = Math.max(turnEndedAtMs, messageEnd);
     }
+    // 冷恢复的实际执行模型只来自持久化助手消息的执行身份（providerId/modelId），
+    // 与 live 的 ModelRequest 同一归约入口。缺任一字段时保持「未知」，不读用户选型
+    // 或当前 config 回填；工具-only / 无正文的消息同样记录。
+    // 旧版 compact summary 可能以 assistant + summary 标记落库，它是压缩 sidecar，
+    // 不属于本轮真实模型步骤，必须排除。
+    const executionModel =
+      message.info.summary === true ? null : assistantModelSelectionOf(message);
+    if (executionModel) {
+      push(
+        SessionEventType.ModelRequest,
+        {
+          messages: [],
+          providerId: executionModel.providerId,
+          modelId: executionModel.modelId,
+          querySource: "main_turn",
+        },
+        turnId,
+        messageCreatedAtMs(message),
+      );
+    }
     const synthesized = synthesizeAssistantParts(
       message,
       emittedCompactOperations,

@@ -273,6 +273,22 @@ export const TID_CHAT_ASSISTANT_MESSAGE = "chat-assistant-message";
 export const TID_CHAT_ASSISTANT_HISTORY_TRIGGER = "chat-assistant-history-trigger";
 /** 聊天助手消息历史折叠内容（动态后缀为 historyStateKey） */
 export const TID_CHAT_ASSISTANT_HISTORY_CONTENT = "chat-assistant-history-content";
+/** 回复工作段信息入口（动态后缀为 segment key） */
+export const TID_CHAT_TURN_INFO_TRIGGER = "chat-turn-info-trigger";
+/** 回复工作段信息弹窗（动态后缀为 segment key） */
+export const TID_CHAT_TURN_INFO_DIALOG = "chat-turn-info-dialog";
+/** 回复信息：实际执行模型列表 */
+export const TID_CHAT_TURN_INFO_MODELS = "chat-turn-info-models";
+/** 回复信息：工作状态 */
+export const TID_CHAT_TURN_INFO_STATUS = "chat-turn-info-status";
+/** 回复信息：工作时长 */
+export const TID_CHAT_TURN_INFO_WORK_DURATION = "chat-turn-info-work-duration";
+/** 回复信息：工具次数 */
+export const TID_CHAT_TURN_INFO_TOOL_CALLS = "chat-turn-info-tool-calls";
+/** 回复信息：累计思考时长 */
+export const TID_CHAT_TURN_INFO_REASONING_DURATION = "chat-turn-info-reasoning-duration";
+/** 回复信息：所属 product turn ID */
+export const TID_CHAT_TURN_INFO_TURN_ID = "chat-turn-info-turn-id";
 /** 独立后台结果轮的任务标题（动态后缀为 turn key） */
 export const TID_CHAT_BACKGROUND_RESULT_TITLE = "chat-background-result-title";
 /** 聊天工具调用块容器（动态后缀为 toolCallId） */

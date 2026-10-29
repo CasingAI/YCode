@@ -1,5 +1,6 @@
 import {
   PERMISSION_FULL_ACCESS_OPTION_ID,
+  executionModelIdentitySchema,
   submissionModeSchema,
   type SubmissionMode,
 } from "@zcode/shared/zcode-protocol-v4";
@@ -22,6 +23,7 @@ import type {
   HookRunLifecyclePayload,
   ModelCompletePayload,
   ModelNetworkStatusPayload,
+  ModelRequestPayload,
   ModelSelectedPayload,
   ModelStreamingPayload,
   ModelUsage,
@@ -1862,6 +1864,8 @@ export class ProductProjection {
         return this.onStreamRecoveryRetryStarted(event);
       case SessionEventType.ModelSelected:
         return this.onModelSelected(event);
+      case SessionEventType.ModelRequest:
+        return this.onModelRequest(event);
       case SessionEventType.ModelComplete:
         return this.onModelComplete(event);
       case SessionEventType.ToolCallScheduled:
@@ -3128,6 +3132,64 @@ export class ProductProjection {
       event.turnId === undefined ||
       String(event.turnId) === this.currentTurnId
     );
+  }
+
+  /**
+   * 工作段执行模型的唯一物化点。
+   *
+   * 事实只来自 Runtime 模型步骤开始时发布的 ModelRequest（providerId/modelId 是
+   * 实际执行身份，不是当前选型或 admission）。只接受当前会话自己的前台/子代理步骤：
+   * compact、标题生成、goal 验证等 sidecar 明确排除；旧事件缺 querySource 时沿用既有
+   * step-usage 口径（undefined 视为真实模型步骤），不伪造来源。
+   *
+   * 归属按事件时间戳解析到发起时所在工作段，因此 guide 之后迟到的旧 request 不会被
+   * 重新归到新段。同一 pair 重复投递幂等；distinct provider 的同一 modelId 保留两项。
+   */
+  private onModelRequest(event: SessionEvent): ConversationDelta[] {
+    // 事件日志可能混入其他会话的迟到帧；执行模型事实只属于本投影的会话。
+    if (String(event.sessionId) !== this.snapshot.sessionId) return [];
+    if (!this.acceptsActiveModelEvent(event)) return [];
+    const payload = event.payload as ModelRequestPayload;
+    const querySource = typeof payload.querySource === "string" ? payload.querySource : undefined;
+    if (querySource !== undefined && querySource !== "main_turn" && querySource !== "subagent") {
+      return [];
+    }
+    const parsed = executionModelIdentitySchema.safeParse({
+      providerId: payload.providerId,
+      modelId: payload.modelId,
+    });
+    if (!parsed.success) return [];
+    const identity = parsed.data;
+    const row = this.turnHeaderForEvent(event);
+    // controlOnly 轮没有 Agent 工作段，也没有真实模型步骤。
+    if (!row || row.executionKind === "controlOnly") return [];
+    const segments: TurnWorkSegment[] = row.workSegments ?? [
+      { segmentId: `${row.turnId}:initial`, startedAt: row.startedAt },
+    ];
+    const segmentIndex = resolveWorkSegmentIndex(segments, this.ms(event));
+    const segment = segments[segmentIndex];
+    if (!segment) return [];
+    const existing = segment.executionModels ?? [];
+    if (
+      existing.some(
+        (model) => model.providerId === identity.providerId && model.modelId === identity.modelId,
+      )
+    ) {
+      return [];
+    }
+    return [
+      {
+        op: "row.upserted",
+        row: {
+          ...row,
+          workSegments: segments.map((current, index) =>
+            index === segmentIndex
+              ? { ...current, executionModels: [...existing, identity] }
+              : current,
+          ),
+        },
+      },
+    ];
   }
 
   private onModelStreaming(fact: CanonicalAssistantSegmentFact): ConversationDelta[] {

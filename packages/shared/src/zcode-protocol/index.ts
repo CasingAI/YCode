@@ -24,6 +24,11 @@ export * from "../background-bash-output.js";
 export * from "../sandbox-console.js";
 // 沙盒用户 eval / 重置的命令结果（阶段8可交互面；失败态用 kind，不抛错）。
 export * from "../zcode-protocol-v4/sandbox-eval-result.js";
+// 模型步骤的实际执行身份：v4 行投影与旧协议入口共享同一契约。
+export {
+  executionModelIdentitySchema,
+  type ExecutionModelIdentity,
+} from "../zcode-protocol-v4/execution-model-identity.js";
 import { executionOutputPreviewSchema } from "../execution-output-preview.js";
 import { z } from "zod";
 export * from "../process-diagnostic.js";

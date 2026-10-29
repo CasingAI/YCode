@@ -123,6 +123,23 @@ test("分享投影不输出子代理行，也不泄漏 childSessionId 与子代�
   assert.equal(serialized.includes("toolCallCount"), true);
 });
 
+test("分享投影不公开工作段执行供应商与模型身份", () => {
+  const header = turnHeaderRow();
+  header.workSegments![0]!.executionModels = [
+    { providerId: "private-provider", modelId: "private-execution-model" },
+  ];
+  const projection = buildConversationSharePublicProjection({
+    rows: [header, userInputRow()],
+    selectedProductTurnIds: ["product-turn-1"],
+  });
+
+  const shared = projection.rows.find((row) => row.kind === "turnHeader");
+  assert.equal(shared?.kind, "turnHeader");
+  assert.equal("executionModels" in shared.workSegments![0]!, false);
+  assert.equal(JSON.stringify(projection).includes("private-provider"), false);
+  assert.equal(JSON.stringify(projection).includes("private-execution-model"), false);
+});
+
 test("没有 usage 的旧工作段原样分享，不补 0", () => {
   const header = turnHeaderRow();
   const withoutUsage = {

@@ -108,6 +108,7 @@ import {
 } from "@/v4/conversationWorkSegmentUsage.js";
 import { ConversationTurnRow, resolveAssistantCopyText } from "@/v4/ConversationTurnRow.js";
 import { ConversationHookDetailsAction } from "@/v4/ConversationHookDetailsAction.js";
+import { ConversationTurnInfoAction } from "@/v4/ConversationTurnInfoAction.js";
 import { toolCallRowToLegacyNode } from "@/v4/toolCallRowAdapter.js";
 
 interface ConversationTurnGroupProps {
@@ -655,9 +656,11 @@ function OffPeakTurnCards({
 function AssistantHistoryStatus({
   segment,
   open,
+  turnId,
 }: {
   segment: ConversationTurnWorkSegment;
   open: boolean;
+  turnId: string;
 }) {
   const { intl, locale } = useZCodeIntl();
   const durationLabel = formatConversationWorkDuration(
@@ -687,7 +690,7 @@ function AssistantHistoryStatus({
     // 只是重复分段。下方那一段（表头与首个助手块之间）仍走容器默认，两者不要一起归零。
     <div
       data-flow-gap="true"
-      className="mt-0 flex w-full border-b border-[var(--color-border)]/50 pb-1"
+      className="mt-0 flex w-full items-center border-b border-[var(--color-border)]/50 pb-1"
     >
       <CollapsibleTrigger asChild>
         <button
@@ -699,7 +702,7 @@ function AssistantHistoryStatus({
           onMouseDown={preventTimelineCollapsibleFocusScroll}
           className={cn(
             TIMELINE_COLLAPSIBLE_SCROLL_MARGIN_TOP_CLASS,
-            "group/history-message inline-flex max-w-full items-center gap-2 text-left text-ui-base text-foreground-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-input-border-focused)]",
+            "group/history-message inline-flex min-w-0 max-w-full items-center gap-2 text-left text-ui-base text-foreground-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-input-border-focused)]",
           )}
         >
           <span className="truncate">{label}</span>
@@ -717,6 +720,7 @@ function AssistantHistoryStatus({
           ) : null}
         </button>
       </CollapsibleTrigger>
+      <ConversationTurnInfoAction segment={segment} turnId={turnId} className="ml-auto shrink-0" />
     </div>
   );
 }
@@ -724,6 +728,7 @@ function AssistantHistoryStatus({
 function ConversationWorkSegmentFlow({
   segment,
   context,
+  turnId,
   onFork,
   onRetry,
   onEdit,
@@ -739,6 +744,7 @@ function ConversationWorkSegmentFlow({
 }: {
   segment: ConversationTurnWorkSegment;
   context: ConversationRowRenderContext;
+  turnId: string;
   onFork?: (target: ConversationRowTarget) => void;
   onRetry?: (target: ConversationRowTarget) => void;
   onEdit?: ConversationTurnGroupProps["onEdit"];
@@ -908,13 +914,15 @@ function ConversationWorkSegmentFlow({
 
         return (
           <Fragment key={itemKey}>
-            {showHistoryStatus ? <AssistantHistoryStatus segment={segment} open={open} /> : null}
+            {showHistoryStatus ? (
+              <AssistantHistoryStatus segment={segment} open={open} turnId={turnId} />
+            ) : null}
             {content}
           </Fragment>
         );
       })}
       {shouldShowHistoryStatus && firstAssistantFlowItemIndex < 0 ? (
-        <AssistantHistoryStatus segment={segment} open={open} />
+        <AssistantHistoryStatus segment={segment} open={open} turnId={turnId} />
       ) : null}
     </Collapsible>
   );
@@ -1041,6 +1049,7 @@ function ConversationTurnFlow({
           key={segment.key}
           segment={segment}
           context={context}
+          turnId={unit.turnId}
           onFork={onFork}
           onRetry={onRetry}
           onEdit={onEdit}

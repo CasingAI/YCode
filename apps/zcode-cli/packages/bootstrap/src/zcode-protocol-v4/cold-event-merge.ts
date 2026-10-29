@@ -189,6 +189,9 @@ const TRANSCRIPT_DERIVED_EVENT_TYPES = new Set<string>([
   SessionEventType.SessionCreated,
   SessionEventType.TurnStarted,
   SessionEventType.ModelSelected,
+  // 冷恢复从持久化助手消息的执行身份合成 ModelRequest；内存里的 live 事件是同一
+  // 事实的另一份，必须由 transcript 派生版本单独拥有，避免重复记入工作段。
+  SessionEventType.ModelRequest,
   SessionEventType.ModelStreaming,
   SessionEventType.StreamRecoveryTailDiscarded,
   SessionEventType.ModelComplete,
