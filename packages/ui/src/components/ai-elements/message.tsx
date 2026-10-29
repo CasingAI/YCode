@@ -1523,7 +1523,9 @@ export const MessageResponse = memo(
       ],
     );
     const responseClassName = cn(
-      "size-full text-ui-base leading-[1.75] tracking-wide [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
+      // `break-words` 给无空格长 token（Windows 绝对路径、长 URL）提供断行机会。
+      // overflow-wrap 可继承，行内 code 等后代无需重复加类；中文按字断行不受影响。
+      "size-full text-ui-base leading-[1.75] tracking-wide break-words [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
       className,
     );
     const fallbackClassName = cn(responseClassName, "whitespace-pre-wrap break-words");
