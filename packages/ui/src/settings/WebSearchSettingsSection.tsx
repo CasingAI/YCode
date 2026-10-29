@@ -47,6 +47,7 @@ import {
   getProviderFormLabel,
   type ProviderSettingsFormProvider,
 } from "@/lib/providerSettingsFormTypes.js";
+import { resolveActiveWebSearchCandidateId } from "@/lib/webSearchActiveCandidate.js";
 import { SettingsGroupCard, SettingsRow } from "@/settings/SettingsPageParts.js";
 import {
   WebSearchJinaSettingsDialog,
@@ -72,6 +73,7 @@ function WebSearchCandidateRow({
   index,
   total,
   disabled,
+  isActive,
   onMove,
   onOpenSettings,
 }: {
@@ -79,6 +81,7 @@ function WebSearchCandidateRow({
   index: number;
   total: number;
   disabled: boolean;
+  isActive: boolean;
   onMove: (fromIndex: number, toIndex: number) => void;
   /** 仅 jina 等可实例化配置的搜索源提供；缺省不渲染设置按钮。 */
   onOpenSettings?: () => void;
@@ -93,7 +96,6 @@ function WebSearchCandidateRow({
     transition,
     isDragging,
   } = useSortable({ id: candidate.providerId, disabled });
-  const isActive = index === 0;
 
   return (
     <li
@@ -255,6 +257,9 @@ export function WebSearchSettingsSection({
       return candidate ? [candidate] : [];
     });
   }, [candidates, settings?.webSearchProviderOrder]);
+
+  // CLI 执行器会跳过无 Key 候选；设置页的激活徽章必须指向同一搜索源。
+  const activeProviderId = resolveActiveWebSearchCandidateId(orderedCandidates);
 
   const commitOrder = useCallback(
     async (ids: readonly string[]) => {
@@ -464,6 +469,7 @@ export function WebSearchSettingsSection({
                   index={index}
                   total={orderedCandidates.length}
                   disabled={!webSearchEnabled}
+                  isActive={candidate.providerId === activeProviderId}
                   onMove={handleMove}
                   onOpenSettings={
                     candidate.templateId === "jina"
