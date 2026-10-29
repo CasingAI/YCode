@@ -6863,6 +6863,8 @@ const zhCN: Record<string, string> = {
   "webConnectionInfo.direct.fallback": "直连未建立或已中断",
   "webConnectionInfo.endpoint": "服务入口",
   "webConnectionInfo.endpoint.unknown": "未知地址",
+  "webConnectionInfo.sentBytes": "累计发送量",
+  "webConnectionInfo.receivedBytes": "累计接收量",
 };
 
 export default zhCN;

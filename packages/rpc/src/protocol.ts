@@ -233,6 +233,11 @@ export function writeProtocolMessage(msg: ProtocolMessage): VSBuffer {
  * 基础 Protocol: 在 ISocket 上加消息帧，实现 IMessagePassingProtocol。
  * 只做消息分帧，不做 ACK/重连（那是 PersistentProtocol 的事）。
  */
+export interface SocketProtocolByteObserver {
+  onSent?(bytes: number): void;
+  onReceived?(bytes: number): void;
+}
+
 export class SocketProtocol implements IMessagePassingProtocol {
   private readonly _onMessage = new Emitter<VSBuffer>();
   readonly onMessage = this._onMessage.event;
@@ -240,7 +245,10 @@ export class SocketProtocol implements IMessagePassingProtocol {
   private readonly chunkStream = new ChunkStream();
   private readonly disposables = new DisposableStore();
 
-  constructor(private socket: ISocket) {
+  constructor(
+    private socket: ISocket,
+    private readonly byteObserver?: SocketProtocolByteObserver,
+  ) {
     this.disposables.add(
       socket.onData((data) => {
         this.chunkStream.acceptChunk(data);
@@ -251,6 +259,8 @@ export class SocketProtocol implements IMessagePassingProtocol {
 
   send(buffer: VSBuffer): void {
     this.writeMessage(new ProtocolMessage(ProtocolMessageType.Regular, 0, 0, buffer));
+    // 统计只在完整帧写入成功后发生，避免失败写入被误报为已发送。
+    this.byteObserver?.onSent?.(buffer.byteLength);
   }
 
   /**
@@ -304,6 +314,7 @@ export class SocketProtocol implements IMessagePassingProtocol {
       }
 
       if (type === ProtocolMessageType.Regular) {
+        this.byteObserver?.onReceived?.(body.byteLength);
         this._onMessage.fire(body);
       }
     }

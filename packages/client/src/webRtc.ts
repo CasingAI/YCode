@@ -216,6 +216,15 @@ class OpportunityWebRtcConnection implements WebSocketConnection {
   private generation = 0;
   private targetKey: string | null = null;
   private attemptedGeneration: number | null = null;
+  /**
+   * 页面生命周期内所有 RTC 物理通道的 RPC 载荷累计值。
+   *
+   * 协商期间也会产生 Initialize、在途请求和旧会话迟到载荷；它们都是真实
+   * 业务流量，进入页面累计值，但不依赖某个 session 是否已成为当前 services。
+   */
+  private readonly rtcTraffic = { sentBytes: 0, receivedBytes: 0 };
+  private trafficPublishTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly trafficPublishIntervalMs: number;
   private rtc: RtcSession | null = null;
   private nextSessionId = 0;
   private disposed = false;
@@ -239,6 +248,7 @@ class OpportunityWebRtcConnection implements WebSocketConnection {
     this.negotiationTimeoutMs = options.negotiationTimeoutMs ?? DEFAULT_NEGOTIATION_TIMEOUT_MS;
     this.initializeTimeoutMs = options.initializeTimeoutMs ?? DEFAULT_INITIALIZE_TIMEOUT_MS;
     this.signalingHeartbeatMs = options.signalingHeartbeatMs ?? DEFAULT_SIGNALING_HEARTBEAT_MS;
+    this.trafficPublishIntervalMs = options.trafficPublishIntervalMs ?? 250;
     this.endpoint = getWebSocketOrigin(wsUrl);
 
     const fallbackSnapshot = fallback.getSnapshot();
@@ -247,6 +257,7 @@ class OpportunityWebRtcConnection implements WebSocketConnection {
       ...fallbackSnapshot,
       generation: 0,
       connectionInfo: this.connectionInfoFor(fallbackSnapshot, null),
+      traffic: fallbackSnapshot.traffic,
     };
     this.unsubscribeFallback = fallback.subscribe(this.handleFallbackChange);
   }
@@ -278,6 +289,7 @@ class OpportunityWebRtcConnection implements WebSocketConnection {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.clearTrafficPublishTimer();
     this.unsubscribeFallback();
     this.teardownCurrentRtc();
     this.fallback.dispose();
@@ -289,6 +301,7 @@ class OpportunityWebRtcConnection implements WebSocketConnection {
       nextRetryAt: null,
       services: null,
       connectionInfo: this.connectionInfoFor(this.fallback.getSnapshot(), null),
+      traffic: this.trafficSnapshot(this.fallback.getSnapshot()),
     };
     for (const listener of this.listeners) listener();
     this.listeners.clear();
@@ -310,6 +323,40 @@ class OpportunityWebRtcConnection implements WebSocketConnection {
     this.publishComposed();
     this.maybeAttemptRtc();
   };
+
+  private clearTrafficPublishTimer(): void {
+    if (this.trafficPublishTimer === null) return;
+    this.cancel(this.trafficPublishTimer);
+    this.trafficPublishTimer = null;
+  }
+
+  private scheduleTrafficPublish(): void {
+    if (this.disposed || this.trafficPublishTimer !== null) return;
+    this.trafficPublishTimer = this.schedule(() => {
+      this.trafficPublishTimer = null;
+      if (this.disposed) return;
+      this.publishTrafficOnly();
+    }, this.trafficPublishIntervalMs);
+  }
+
+  private publishTrafficOnly(): void {
+    this.snapshot = {
+      ...this.snapshot,
+      traffic: this.trafficSnapshot(this.fallback.getSnapshot()),
+    };
+    for (const listener of this.listeners) listener();
+  }
+
+  private trafficSnapshot(fallback: WebSocketConnectionSnapshot): {
+    sentBytes: number;
+    receivedBytes: number;
+  } {
+    const fallbackTraffic = fallback.traffic ?? { sentBytes: 0, receivedBytes: 0 };
+    return {
+      sentBytes: fallbackTraffic.sentBytes + this.rtcTraffic.sentBytes,
+      receivedBytes: fallbackTraffic.receivedBytes + this.rtcTraffic.receivedBytes,
+    };
+  }
 
   private publishComposed(): void {
     const fallback = this.fallback.getSnapshot();
@@ -341,6 +388,8 @@ class OpportunityWebRtcConnection implements WebSocketConnection {
       this.generation += 1;
     }
 
+    // 本次发布已经带上最新累计值，不必再等合并通知。
+    this.clearTrafficPublishTimer();
     this.snapshot = {
       status,
       generation: this.generation,
@@ -350,6 +399,7 @@ class OpportunityWebRtcConnection implements WebSocketConnection {
       services,
       lastClose: fallback.lastClose,
       connectionInfo: this.connectionInfoFor(fallback, transport),
+      traffic: this.trafficSnapshot(fallback),
     };
     for (const listener of this.listeners) listener();
   }
@@ -628,7 +678,18 @@ class OpportunityWebRtcConnection implements WebSocketConnection {
   ): void {
     const transport = createDataChannelTransport(channel);
     const socket = socketFactory(transport);
-    const protocol = new SocketProtocol(socket);
+    const protocol = new SocketProtocol(socket, {
+      onSent: (bytes) => {
+        if (this.disposed) return;
+        this.rtcTraffic.sentBytes += bytes;
+        this.scheduleTrafficPublish();
+      },
+      onReceived: (bytes) => {
+        if (this.disposed) return;
+        this.rtcTraffic.receivedBytes += bytes;
+        this.scheduleTrafficPublish();
+      },
+    });
     const client = new ChannelClient(protocol);
     const initializeListener = client.onDidInitialize(() => {
       session.rpcInitialized = true;

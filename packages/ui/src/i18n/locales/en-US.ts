@@ -7200,6 +7200,8 @@ const enUS: Record<string, string> = {
   "webConnectionInfo.direct.fallback": "Direct connection unavailable",
   "webConnectionInfo.endpoint": "Service endpoint",
   "webConnectionInfo.endpoint.unknown": "Unknown address",
+  "webConnectionInfo.sentBytes": "Total sent",
+  "webConnectionInfo.receivedBytes": "Total received",
 };
 
 export default enUS;

@@ -10,6 +10,8 @@ export interface ServiceConnectionState {
   rpcReady: boolean;
   /** Web 连接 owner 发布的只读信息；桌面连接不提供。 */
   connectionInfo?: WebConnectionInfo;
+  /** 页面生命周期内累计的 RPC 业务载荷字节数。 */
+  traffic?: { sentBytes: number; receivedBytes: number };
 }
 
 export interface RootProps {

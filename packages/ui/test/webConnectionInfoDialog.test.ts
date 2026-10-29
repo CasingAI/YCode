@@ -3,7 +3,11 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { WebConnectionInfo } from "@zcode/shared";
+import {
+  TID_WEB_CONNECTION_INFO_RECEIVED_BYTES,
+  TID_WEB_CONNECTION_INFO_SENT_BYTES,
+  type WebConnectionInfo,
+} from "@zcode/shared";
 import { ZCodeIntlProvider } from "../src/i18n/IntlProvider.js";
 import enUS from "../src/i18n/locales/en-US.js";
 import zhCN from "../src/i18n/locales/zh-CN.js";
@@ -30,16 +34,18 @@ function render({
   status = "connected",
   connectionInfo = info(),
   locale = "zh-CN" as const,
+  traffic = { sentBytes: 2_048, receivedBytes: 3 },
 }: {
   status?: ServiceConnectionStatus;
   connectionInfo?: WebConnectionInfo;
   locale?: "zh-CN" | "en-US";
+  traffic?: { sentBytes: number; receivedBytes: number };
 } = {}): string {
   return renderToStaticMarkup(
     createElement(
       ZCodeIntlProvider,
       { initialLocale: locale },
-      createElement(WebConnectionInfoContent, { status, connectionInfo }),
+      createElement(WebConnectionInfoContent, { status, connectionInfo, traffic }),
     ),
   );
 }
@@ -123,6 +129,24 @@ test("服务入口只渲染传入的已脱敏地址并允许长地址换行", ()
 test("无服务地址时显示占位，不显示空值", () => {
   const markup = render({ connectionInfo: info({ endpoint: null }) });
   assert.ok(markup.includes("未知地址"));
+});
+
+test("显示累计收发字节数并使用中英文文案", () => {
+  const chinese = render();
+  assert.match(chinese, /累计发送量/);
+  assert.match(chinese, /累计接收量/);
+  assert.match(
+    chinese,
+    new RegExp(`data-testid="${TID_WEB_CONNECTION_INFO_SENT_BYTES}"[^>]*>2\\.0 KB`),
+  );
+  assert.match(
+    chinese,
+    new RegExp(`data-testid="${TID_WEB_CONNECTION_INFO_RECEIVED_BYTES}"[^>]*>3 B`),
+  );
+
+  const english = render({ locale: "en-US" });
+  assert.match(english, /Total sent/);
+  assert.match(english, /Total received/);
 });
 
 test("英文语言包覆盖相同信息且不残留中文", () => {

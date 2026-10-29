@@ -401,6 +401,7 @@ async function bootWebRtc(
     initializeTimeoutMs: 500,
     negotiationTimeoutMs: 500,
     retryDelaysMs: [0],
+    trafficPublishIntervalMs: 0,
     webSocketFactory: (url) => new FakeWebSocket(url) as unknown as WebSocket,
     peerConnectionFactory: (config) =>
       new FakePeerConnection(config) as unknown as RtcPeerConnectionLike,
@@ -531,6 +532,7 @@ test("缺少浏览器 peer 实现时不创建 rtcId、信令或 peer，只保留
     const pending = connectViaWebRtcManaged("ws://test/ws", {
       initializeTimeoutMs: 500,
       retryDelaysMs: [0],
+      trafficPublishIntervalMs: 0,
       webSocketFactory: (url) => new FakeWebSocket(url) as unknown as WebSocket,
     });
     const fallback = FakeWebSocket.instances[0];
@@ -548,6 +550,7 @@ test("缺少浏览器 peer 实现时不创建 rtcId、信令或 peer，只保留
       directState: "disabled",
       endpoint: "ws://test",
     });
+    assert.ok((connection.getSnapshot().traffic?.receivedBytes ?? 0) > 0);
     connection.dispose();
   } finally {
     restore();
@@ -705,6 +708,44 @@ test("DataChannel 与 RPC Initialize 完成后才发布新代 services，调用�
     });
     const result = await upgraded.services?.settingService.get();
     assert.equal(result, "rtc-ok");
+  } finally {
+    connection?.dispose();
+    restore();
+  }
+});
+
+test("RTC ready 使用 DataChannel 计数且 WSS 信令不计入业务字节", async () => {
+  const restore = installFakeWebSocket();
+  let connection: Awaited<ReturnType<typeof connectViaWebRtcManaged>> | null = null;
+  try {
+    const harness = await bootWebRtc();
+    connection = harness.connection;
+    const signal = harness.signal;
+    signal.open();
+    await flush();
+    const peer = FakePeerConnection.instances[0];
+    assert.ok(peer);
+    const channel = peer.channels[0];
+    assert.ok(channel);
+    peer.completeIce();
+    await flush();
+    signal.receiveText(JSON.stringify({ version: 1, type: "answer", sdp: "v=0\\r\\nfake-answer" }));
+    await flush();
+    attachRtcServer(channel, "rtc-traffic");
+    channel.open();
+    await flush();
+    const services = connection.getSnapshot().services;
+    assert.ok(services);
+    assert.equal(await services.settingService.get(), "rtc-traffic");
+    await waitFor(5);
+
+    const snapshot = connection.getSnapshot();
+    assert.equal(snapshot.connectionInfo?.transport, "webrtc");
+    assert.ok((snapshot.traffic?.sentBytes ?? 0) > 0);
+    assert.ok((snapshot.traffic?.receivedBytes ?? 0) > 0);
+    const beforeSignalNoise = snapshot.traffic;
+    signal.receiveText(JSON.stringify({ version: 1, type: "ping" }));
+    assert.deepEqual(connection.getSnapshot().traffic, beforeSignalNoise);
   } finally {
     connection?.dispose();
     restore();

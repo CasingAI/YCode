@@ -306,6 +306,36 @@ test("远端关闭会拒绝等待中的 drain", async () => {
   await assert.rejects(drained, /closed|close/i);
 });
 
+test("SocketProtocol 按 Regular payload 字节计数，不含帧头和 KeepAlive", () => {
+  const channelA = new FakeDataChannel();
+  const channelB = new FakeDataChannel();
+  channelA.peer = channelB;
+  channelB.peer = channelA;
+  const socketA = createDataChannelSocket(channelA);
+  const socketB = createDataChannelSocket(channelB);
+  const counts = { sent: 0, received: 0 };
+  const protocolA = new SocketProtocol(socketA, {
+    onSent: (bytes) => (counts.sent += bytes),
+  });
+  const protocolB = new SocketProtocol(socketB, {
+    onReceived: (bytes) => (counts.received += bytes),
+  });
+  protocolA.onMessage(() => {});
+  protocolB.onMessage(() => {});
+
+  const utf8 = VSBuffer.fromString("连接");
+  protocolA.send(utf8);
+  protocolA.send(VSBuffer.wrap(new Uint8Array([0, 255, 1])));
+  protocolA.sendKeepAlive();
+
+  assert.equal(counts.sent, utf8.byteLength + 3);
+  assert.equal(counts.received, utf8.byteLength + 3);
+  protocolA.dispose();
+  protocolB.dispose();
+  socketA.dispose();
+  socketB.dispose();
+});
+
 test("dispose 幂等、关闭通道并取消订阅", async () => {
   const channel = new FakeDataChannel();
   const socket = createDataChannelSocket(channel);

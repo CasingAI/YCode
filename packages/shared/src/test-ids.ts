@@ -822,6 +822,10 @@ export const TID_WEB_CONNECTION_INFO_TRANSPORT = "web-connection-info-transport"
 export const TID_WEB_CONNECTION_INFO_DIRECT = "web-connection-info-direct";
 /** Web 连接信息：已脱敏服务入口行 */
 export const TID_WEB_CONNECTION_INFO_ENDPOINT = "web-connection-info-endpoint";
+/** Web 连接信息：累计发送字节行 */
+export const TID_WEB_CONNECTION_INFO_SENT_BYTES = "web-connection-info-sent-bytes";
+/** Web 连接信息：累计接收字节行 */
+export const TID_WEB_CONNECTION_INFO_RECEIVED_BYTES = "web-connection-info-received-bytes";
 
 /** 手机远控：公网临时链接区块（隧道 Provider 可选） */
 export const TID_MOBILE_REMOTE_PUBLIC_PROVIDER = "mobile-remote-public-provider";

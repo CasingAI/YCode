@@ -81,8 +81,15 @@ export function WebApp({ connection, bootstrap, platform }: WebAppProps) {
         generation: snapshot.generation,
         rpcReady: rootReady,
         connectionInfo: snapshot.connectionInfo,
+        traffic: snapshot.traffic,
       }),
-    [rootReady, snapshot.connectionInfo, snapshot.generation, snapshot.status],
+    [
+      rootReady,
+      snapshot.connectionInfo,
+      snapshot.generation,
+      snapshot.status,
+      snapshot.traffic,
+    ],
   );
   if (!hasRoot) {
     return (

@@ -1,12 +1,15 @@
 import {
   TID_WEB_CONNECTION_INFO_DIRECT,
   TID_WEB_CONNECTION_INFO_ENDPOINT,
+  TID_WEB_CONNECTION_INFO_RECEIVED_BYTES,
+  TID_WEB_CONNECTION_INFO_SENT_BYTES,
   TID_WEB_CONNECTION_INFO_STATUS,
   TID_WEB_CONNECTION_INFO_TRANSPORT,
   type WebConnectionInfo,
 } from "@zcode/shared";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import type { ServiceConnectionStatus } from "@/root/types.js";
+import { formatBytes } from "@/resource-manager/resourceUsageView.js";
 
 const STATUS_MESSAGE_IDS: Record<ServiceConnectionStatus, string> = {
   connecting: "webConnectionInfo.status.connecting",
@@ -34,9 +37,11 @@ const DIRECT_STATE_MESSAGE_IDS: Record<WebConnectionInfo["directState"], string>
 export function WebConnectionInfoContent({
   status,
   connectionInfo,
+  traffic,
 }: {
   status: ServiceConnectionStatus;
   connectionInfo?: WebConnectionInfo;
+  traffic?: { sentBytes: number; receivedBytes: number };
 }) {
   const { intl } = useZCodeIntl();
   const transport = connectionInfo?.transport ?? null;
@@ -79,6 +84,20 @@ export function WebConnectionInfoContent({
             {intl.formatMessage({ id: "webConnectionInfo.endpoint.unknown" })}
           </span>
         )}
+      </dd>
+
+      <dt className="text-foreground-subtle">
+        {intl.formatMessage({ id: "webConnectionInfo.sentBytes" })}
+      </dt>
+      <dd data-testid={TID_WEB_CONNECTION_INFO_SENT_BYTES} className="min-w-0 text-foreground">
+        {formatBytes(traffic?.sentBytes ?? 0)}
+      </dd>
+
+      <dt className="text-foreground-subtle">
+        {intl.formatMessage({ id: "webConnectionInfo.receivedBytes" })}
+      </dt>
+      <dd data-testid={TID_WEB_CONNECTION_INFO_RECEIVED_BYTES} className="min-w-0 text-foreground">
+        {formatBytes(traffic?.receivedBytes ?? 0)}
       </dd>
     </dl>
   );

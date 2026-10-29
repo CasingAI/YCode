@@ -161,6 +161,7 @@ async function openConnection(): Promise<{
   const pending = connectViaWebSocketManaged("ws://test", {
     initializeTimeoutMs: 1_000,
     retryDelaysMs: [0, 0, 0],
+    trafficPublishIntervalMs: 0,
     webSocketFactory: (url) => new FakeWebSocket(url) as unknown as WebSocket,
   });
   const socket = FakeWebSocket.instances[0];
@@ -184,6 +185,13 @@ test("managed WebSocket 在 Initialize ready 后提供 services，断线会 fail
     assert.ok(firstServices);
 
     const pending = firstServices.settingService.get();
+    await waitFor();
+    assert.ok(
+      (first.connection.getSnapshot().traffic?.sentBytes ?? 0) > 0,
+      "Initialize 后应累计发送 RPC payload 字节",
+    );
+    const sentBeforeReconnect = first.connection.getSnapshot().traffic?.sentBytes ?? 0;
+    const receivedBeforeReconnect = first.connection.getSnapshot().traffic?.receivedBytes ?? 0;
     first.socket.close();
     assert.equal(first.connection.getSnapshot().status, "reconnecting");
     assert.equal(first.connection.getSnapshot().attempt, 1);
@@ -198,7 +206,43 @@ test("managed WebSocket 在 Initialize ready 后提供 services，断线会 fail
     assert.equal(first.connection.getSnapshot().status, "connected");
     assert.equal(first.connection.getSnapshot().generation, 2);
     assert.notEqual(first.connection.getSnapshot().services, firstServices);
+    assert.ok((first.connection.getSnapshot().traffic?.sentBytes ?? 0) >= sentBeforeReconnect);
+    assert.ok(
+      (first.connection.getSnapshot().traffic?.receivedBytes ?? 0) >= receivedBeforeReconnect,
+    );
     first.connection.dispose();
+  } finally {
+    restore();
+  }
+});
+
+test("流量更新合并期间不替换 services，dispose 立即发布最终累计值", async () => {
+  const restore = installFakeWebSocket();
+  try {
+    const pending = connectViaWebSocketManaged("ws://test", {
+      initializeTimeoutMs: 1_000,
+      retryDelaysMs: [0],
+      trafficPublishIntervalMs: 1_000,
+      webSocketFactory: (url) => new FakeWebSocket(url) as unknown as WebSocket,
+    });
+    const socket = FakeWebSocket.instances[0];
+    assert.ok(socket);
+    socket.open();
+    attachServer(socket);
+    const connection = await pending;
+    const before = connection.getSnapshot();
+    const services = before.services;
+    assert.ok(services);
+
+    void services.settingService.get().catch(() => undefined);
+    await waitFor(10);
+    const during = connection.getSnapshot();
+    // 载荷已经同步累计，但还没到合并发布时刻；services 与代次不能因流量变化而重建。
+    assert.equal(during.services, before.services);
+    assert.equal(during.generation, before.generation);
+
+    connection.dispose();
+    assert.ok((connection.getSnapshot().traffic?.sentBytes ?? 0) > 0);
   } finally {
     restore();
   }
@@ -556,6 +600,7 @@ test("managed WebSocket 始终发布 disabled 直连状态和脱敏 origin", asy
       {
         initializeTimeoutMs: 1_000,
         retryDelaysMs: [0],
+        trafficPublishIntervalMs: 0,
         webSocketFactory: (url) => new FakeWebSocket(url) as unknown as WebSocket,
       },
     );
@@ -571,6 +616,14 @@ test("managed WebSocket 始终发布 disabled 直连状态和脱敏 origin", asy
       endpoint: "ws://test:8443",
     };
     assert.deepEqual(connection.getSnapshot().connectionInfo, expected);
+    // 服务端 Initialize 是 Regular RPC 载荷，接收量在握手完成时已有值；发送量要等首个业务调用。
+    assert.equal(connection.getSnapshot().traffic?.sentBytes, 0);
+    assert.ok((connection.getSnapshot().traffic?.receivedBytes ?? 0) > 0);
+    const services = connection.getSnapshot().services;
+    assert.ok(services);
+    void services.settingService.get().catch(() => undefined);
+    await waitFor(5);
+    assert.ok((connection.getSnapshot().traffic?.sentBytes ?? 0) > 0);
     // URL 的 userinfo、路径、query、hash 都不能进入连接信息。
     const serialized = JSON.stringify(connection.getSnapshot().connectionInfo);
     for (const secret of ["alice", "secret", "/socket", "token", "rtcId", "remote", "frag"]) {

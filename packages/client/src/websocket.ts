@@ -41,6 +41,8 @@ export interface WebSocketConnectionSnapshot {
    * 可选字段兼容既有快照构造者；生产 managed WebSocket 与 WebRTC 选择器始终发布。
    */
   readonly connectionInfo?: WebConnectionInfo;
+  /** RPC Regular payload 的页面生命周期累计字节数。 */
+  readonly traffic?: { readonly sentBytes: number; readonly receivedBytes: number };
 }
 
 export interface WebSocketConnection {
@@ -69,6 +71,13 @@ export interface WebSocketConnectionOptions {
   clearTimeout?: (handle: ReturnType<typeof setTimeout>) => void;
   /** 服务端通过已鉴权 server-info 声明该 WebSocket 可调用只读额度通道。 */
   cliProxyQuota?: boolean;
+  /**
+   * 仅流量变化的快照发布合并间隔。
+   *
+   * RPC 流可能在每秒产生数十条载荷；逐条通知会让整个 WebApp 随流式输出重渲染。
+   * 连接状态变化仍立即发布，这里只合并纯流量更新。
+   */
+  trafficPublishIntervalMs?: number;
 }
 
 interface ActiveConnection {
@@ -97,6 +106,7 @@ const STABLE_CONNECTION_RESET_MS = 30_000;
  * 代价是每 20 秒 13 字节的零负载帧，可以忽略。
  */
 const HEARTBEAT_INTERVAL_MS = 20_000;
+const DEFAULT_TRAFFIC_PUBLISH_INTERVAL_MS = 250;
 
 interface BrowserEventTarget {
   addEventListener(type: string, listener: () => void, options?: { once?: boolean }): void;
@@ -217,6 +227,9 @@ class ManagedWebSocketConnection implements WebSocketConnection {
   private failedAttempts = 0;
   private hasConnected = false;
   private disposed = false;
+  private readonly traffic = { sentBytes: 0, receivedBytes: 0 };
+  private trafficPublishTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly trafficPublishIntervalMs: number;
   private initialSettled = false;
   private initialResolve: (() => void) | null = null;
   private initialReject: ((error: Error) => void) | null = null;
@@ -232,12 +245,15 @@ class ManagedWebSocketConnection implements WebSocketConnection {
       options.setTimeout ??
       ((handler, timeoutMs) => setTimeout(handler, timeoutMs) as ReturnType<typeof setTimeout>);
     this.cancel = options.clearTimeout ?? ((handle) => clearTimeout(handle));
+    this.trafficPublishIntervalMs =
+      options.trafficPublishIntervalMs ?? DEFAULT_TRAFFIC_PUBLISH_INTERVAL_MS;
     this.factory = options.webSocketFactory ?? ((url) => new WebSocket(url));
     this.endpoint = getWebSocketOrigin(url);
     // 初始快照也发布连接信息；WSS 没有 WebRTC 直连能力。
     this.snapshot = {
       ...this.snapshot,
       connectionInfo: this.connectionInfoFor(this.snapshot.status),
+      traffic: this.trafficSnapshot(),
     };
     this.browserListenersAttached = false;
     this.foregroundWatch = createForegroundWatch({
@@ -295,6 +311,7 @@ class ManagedWebSocketConnection implements WebSocketConnection {
     if (this.disposed) return;
     this.disposed = true;
     this.clearRetryTimer();
+    this.clearTrafficPublishTimer();
     this.detachBrowserListeners();
     this.foregroundWatch.detach();
     const active = this.active;
@@ -402,7 +419,16 @@ class ManagedWebSocketConnection implements WebSocketConnection {
       return;
     }
 
-    const protocol = new SocketProtocol(wrapBrowserWebSocket(raw));
+    const protocol = new SocketProtocol(wrapBrowserWebSocket(raw), {
+      onSent: (bytes) => {
+        this.traffic.sentBytes += bytes;
+        this.scheduleTrafficPublish();
+      },
+      onReceived: (bytes) => {
+        this.traffic.receivedBytes += bytes;
+        this.scheduleTrafficPublish();
+      },
+    });
     const client = new ChannelClient(protocol);
     const services = new RemoteServiceAccess(client, {
       cliProxyQuota: this.options.cliProxyQuota === true,
@@ -616,6 +642,27 @@ class ManagedWebSocketConnection implements WebSocketConnection {
     this.retryTimer = null;
   }
 
+  private clearTrafficPublishTimer(): void {
+    if (this.trafficPublishTimer === null) return;
+    this.cancel(this.trafficPublishTimer);
+    this.trafficPublishTimer = null;
+  }
+
+  /** 合并高频流量通知；连接状态发布包含实时累计值，会顺带取消这次合并。 */
+  private scheduleTrafficPublish(): void {
+    if (this.disposed || this.trafficPublishTimer !== null) return;
+    this.trafficPublishTimer = this.schedule(() => {
+      this.trafficPublishTimer = null;
+      if (this.disposed) return;
+      this.snapshot = { ...this.snapshot, traffic: this.trafficSnapshot() };
+      for (const listener of this.listeners) listener();
+    }, this.trafficPublishIntervalMs);
+  }
+
+  private trafficSnapshot(): { sentBytes: number; receivedBytes: number } {
+    return { sentBytes: this.traffic.sentBytes, receivedBytes: this.traffic.receivedBytes };
+  }
+
   private connectionInfoFor(status: WebSocketConnectionStatus): WebConnectionInfo {
     return {
       // 只有 services 实际可用时才存在活动 RPC 通道；connecting/reconnecting/closed 均为 null。
@@ -626,9 +673,13 @@ class ManagedWebSocketConnection implements WebSocketConnection {
   }
 
   private publish(snapshot: WebSocketConnectionSnapshot): void {
+    // 本次发布已经带上最新累计值，不必再等合并通知。
+    this.clearTrafficPublishTimer();
+    const traffic = this.trafficSnapshot();
     this.snapshot = {
       ...snapshot,
       connectionInfo: this.connectionInfoFor(snapshot.status),
+      traffic,
     };
     for (const listener of this.listeners) listener();
   }
