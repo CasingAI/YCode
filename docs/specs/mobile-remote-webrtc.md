@@ -66,7 +66,7 @@ sequenceDiagram
 3. 正确鉴权与 origin/关联的 offer-answer 建立纯 data channel，发送 RPC、较大 payload，数据顺序一致、无媒体权限。
 4. 未鉴权、跨 Origin、未知 rtcId、重复信令、超限 SDP/peer 均拒绝；token 轮换与 stop 后旧 peer 不再可调用服务。
 5. 分片跨 SocketProtocol 帧重组正确；bufferedAmount 高水位暂停、低水位恢复，关闭拒绝 drain，超过有限队列上限回收，且不静默丢帧。
-6. WSS → RTC → WSS service generation 单调；只有当前服务收到新调用；订阅恢复；在途调用不自动重放。
+6. WSS → RTC → WSS service generation 单调；只有当前服务收到新调用；订阅恢复；在途调用不自动重放。侧栏任务列表（Controller tasks-index 订阅）必须在新 attachment 上重建并自动恢复，不能停在“暂无任务”。
 7. fallback 重连/强制前台换代/窗口关闭期间的迟到 answer、open、Initialize 不得复活 RTC；资源与计时器全部清理。
 8. 真实 Node peer 之间执行 offer-answer 与较大二进制收发，覆盖依赖实际 API；HTTP/WSS 集成测试覆盖 Origin/auth、信令和附件回收。
 9. Android Chrome/iOS Safari 真机：同 Wi-Fi，无媒体权限，直连、AP 隔离/UDP 阻断回退，锁屏/前后台/网络切换。没有真机或 UI 授权时记录未执行，不能写成已通过。

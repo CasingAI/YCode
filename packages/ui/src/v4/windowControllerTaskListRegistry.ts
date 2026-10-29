@@ -4,6 +4,7 @@ import type {
   WindowHostControllerTaskListResult,
   ZCodeTaskListQuery,
 } from "@zcode/services";
+import { getServiceAccessorConnection } from "@zcode/shared";
 import {
   CONTROLLER_TASKS_INDEX_TOPIC,
   CONTROLLER_WORKSPACES_TOPIC,
@@ -89,6 +90,7 @@ export function getWindowControllerTaskListRegistry(
   let generation = 0;
   let notificationScheduled = false;
   let frameDisposable: { dispose(): void } | null = null;
+  let attachmentUnsubscribe: (() => void) | null = null;
 
   const notifyOnce = (): void => {
     if (notificationScheduled) return;
@@ -101,10 +103,7 @@ export function getWindowControllerTaskListRegistry(
     });
   };
 
-  const stop = (): void => {
-    if (!started) return;
-    started = false;
-    generation += 1;
+  const teardown = (): void => {
     frameDisposable?.dispose();
     frameDisposable = null;
     cursors.clear();
@@ -115,6 +114,15 @@ export function getWindowControllerTaskListRegistry(
     for (const subscriptionId of ids) {
       void controller.unsubscribeControllerV4({ subscriptionId }).catch(() => {});
     }
+    attachmentUnsubscribe?.();
+    attachmentUnsubscribe = null;
+  };
+
+  const stop = (): void => {
+    if (!started) return;
+    started = false;
+    generation += 1;
+    teardown();
   };
 
   const start = (): void => {
@@ -184,6 +192,20 @@ export function getWindowControllerTaskListRegistry(
       // 同一 JavaScript 调度周期内的连续 task frame 合并成一个 renderer revision。
       notifyOnce();
     });
+    // Host 侧订阅编号只存在于旧 attachment；收到非空新 attachment 时必须丢弃旧代
+    // ownership 并在新 attachment 上重建订阅，否则 Controller 帧不会再到达本端。
+    const connection = getServiceAccessorConnection(controller);
+    if (connection) {
+      let attachment: object | null = connection.getAttachment();
+      attachmentUnsubscribe = connection.subscribe(() => {
+        if (!started) return;
+        const nextAttachment = connection.getAttachment();
+        // 重启会在同一次监听遍历里注册新监听；只有 attachment 对象真正变化才重启一次。
+        if (!nextAttachment || nextAttachment === attachment) return;
+        attachment = nextAttachment;
+        restart();
+      });
+    }
     void Promise.all(
       [CONTROLLER_WORKSPACES_TOPIC, CONTROLLER_TASKS_INDEX_TOPIC].map(async (topic) => {
         const result = await controller.subscribeControllerV4({
@@ -201,6 +223,16 @@ export function getWindowControllerTaskListRegistry(
     ).catch((error) =>
       logger.warn("[windowControllerTaskListRegistry] Controller subscribe 失败", error),
     );
+  };
+
+  const restart = (): void => {
+    // 旧代 cursor、查询缓存与订阅 ownership 先失效，再在新 attachment 上重新订阅。
+    started = false;
+    generation += 1;
+    teardown();
+    start();
+    // 缓存已清，所有消费方必须重查；同一调度周期的合并仍由 notifyOnce 负责。
+    notifyOnce();
   };
 
   const registry: WindowControllerTaskListRegistry = {
