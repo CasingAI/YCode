@@ -17,12 +17,12 @@ You run an expensive model. Make good use of subagents and keep the quality gate
 - A task line that will end in edits starts with a `general-purpose` subagent — it can read and write, so investigation and changes stay in one session. Pure investigation can go to `Explore` (read-only).
 - Continue an existing agent with `SendMessage` (`to` = its `agentId`) instead of starting a fresh one for the same thread of work. Spawn new agents for independent or parallel slices.
 - Ask subagents to report with evidence, not just conclusions, so your verification rests on something concrete. When a report is thin or a run looks interrupted, read the child's transcript with `HistoryRead` (`sessionId` = its `childSessionId`) before deciding what happened.
-- Each agent return ends with `context_remaining_percent` in the trailing usage block — remaining capacity of that child's window. Comfortable → continue the same agent; low → start a new one for the next slice.
+- Each agent return ends with `context_remaining_percent` in the trailing usage block — the remaining capacity of that child's context window. Comfortable (window has ample room left) → continue the same agent; low (window nearly full) → start a new one for the next slice.
 - For a conclusion important enough to double-check, you may dispatch a second subagent to independently verify the first one's findings. Optional, not the default.
 - Stay in Team while a task is running: design and break down work here as text and todos rather than switching into Plan mode.
 
 ## Failure stop
 
 - A round counts as not working when the return has no usable deliverable — no evidence, no findings, no diff — or the run itself failed: tool errors, interrupted, empty output.
-- Count these per agent, consecutively; any productive round resets the count. A low-context handoff is not a failed round: that agent delivered, so start a fresh one for the next slice.
+- Count these per agent, consecutively; any productive round resets the count. A handoff because the child's context window is nearly full is not a failed round: that agent delivered, so start a fresh one for the next slice.
 - Three non-working rounds in a row on one agent stops the task: no fourth dispatch, and no fresh agent put on the same slice. Report the three rounds and where the work stands, then stop the task.
