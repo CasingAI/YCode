@@ -4,7 +4,8 @@ import type { ProviderSettingsFormProvider } from "../src/lib/providerSettingsFo
 import { persistPersonalProvider } from "../src/lib/providerPersonalSave.js";
 import type { IProviderSettingsService, ProviderSettingsView } from "@zcode/services";
 
-// Primary 开关只提交 isPrimary 稀疏补丁：未触碰时不把继承标记物化进个人配置。
+// 模型展示权重保存（docs/specs/provider-primary.md）：显式修改只提交 displayMode
+// 稀疏补丁；未触碰时不把继承层级物化进个人配置。
 
 function buildProvider(
   overrides: Partial<ProviderSettingsFormProvider> = {},
@@ -14,7 +15,7 @@ function buildProvider(
     providerName: "P1",
     templateId: undefined,
     enabled: true,
-    isPrimary: false,
+    displayMode: "submenu",
     executable: true,
     hasPersonalConfig: false,
     personalConfig: {},
@@ -35,17 +36,26 @@ function stubService() {
   return { calls, service };
 }
 
-test("Primary 开关切换只提交 isPrimary，不夹带 enabled", async () => {
+test("展示权重切换只提交 displayMode，不夹带 enabled", async () => {
   const { calls, service } = stubService();
   await persistPersonalProvider({
-    provider: buildProvider({ isPrimaryUpdate: true }),
+    provider: buildProvider({ displayModeUpdate: "expanded" }),
     providerSettingsService: service,
   });
   assert.equal(calls.length, 1);
-  assert.deepEqual(calls[0]?.[2], { isPrimary: true });
+  assert.deepEqual(calls[0]?.[2], { displayMode: "expanded" });
 });
 
-test("未触碰 Primary 时不提交 metadata，避免物化继承标记", async () => {
+test("展示权重切回 submenu 也是显式写入，不下发 metadata 之外的键", async () => {
+  const { calls, service } = stubService();
+  await persistPersonalProvider({
+    provider: buildProvider({ displayModeUpdate: "other" }),
+    providerSettingsService: service,
+  });
+  assert.deepEqual(calls[0]?.[2], { displayMode: "other" });
+});
+
+test("未触碰展示权重时不提交 metadata，避免物化继承层级", async () => {
   const { calls, service } = stubService();
   await persistPersonalProvider({
     provider: buildProvider(),

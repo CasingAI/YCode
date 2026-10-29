@@ -4,8 +4,8 @@ import {
   type ZCodeProvider,
 } from "@zcode/shared";
 import type { ModelSelectionView } from "@zcode/services";
-import type { ModelSelectionGroupView } from "@zcode/provider";
-import type { ModelSelectGroup } from "@/ModelConfigSelect.js";
+import { resolveProviderDisplayMode, type ModelSelectionGroupView } from "@zcode/provider";
+import type { ModelSelectGroup, ModelSelectGroupItem } from "@/ModelConfigSelect.js";
 import { decodeCustomModelValue, encodeCustomModelValue } from "@/lib/zcodeCustomModelValue.js";
 import { shouldShowModelVisionBadge } from "@/lib/modelVisionBadge.js";
 
@@ -41,6 +41,8 @@ export interface ModelProviderGroupLabelOptions {
   startPlanBadgeLabel?: string;
   teamPlanBadgeLabel?: string;
   teamPlanFallbackLabel?: string;
+  /** 合成「其他」组的本地化标题（chat.toolbar.model.otherGroup）；displayMode=other 的供应商收纳进该组。 */
+  otherGroupLabel?: string;
 }
 
 function supportsRegistryApiFormat(
@@ -57,42 +59,74 @@ export function buildRegistryModelSelectGroups(
   view: ModelSelectionView,
   labels: ModelProviderGroupLabelOptions = {},
 ): ModelSelectGroup[] {
-  void labels;
-  const groups = view.providers.flatMap((provider) => {
+  const expandedGroups: ModelSelectGroup[] = [];
+  const submenuGroups: ModelSelectGroup[] = [];
+  // displayMode=other 的供应商不再产出独立顶层组，统一并入合成「其他」组。
+  const otherSections: ModelSelectGroup[] = [];
+  const otherItems: ModelSelectGroupItem[] = [];
+  for (const provider of view.providers) {
     if (!supportsRegistryApiFormat(selectedProvider, provider.config.api?.type)) {
-      return [];
+      continue;
     }
 
     const accountAccess = zcodeProviderAccountAccessSchema.safeParse(provider.config.access);
     // 智谱剥离：账号套餐分组展示已下线，组名一律用 provider 自身名称（见 docs/specs/zhipu-special-removal.md）。
     void accountAccess;
-    void labels;
 
-    return [
-      {
-        key: `registry-provider:${provider.providerId}`,
-        label: provider.providerName?.trim() || provider.providerId,
-        // 一级展开只看 Primary 标记：账号套餐徽章保留，但不再绑定展开。
-        ...(provider.isPrimary === true ? { directItems: true } : {}),
-        items: provider.models.map(({ modelId, config }) => ({
-          key: `registry-provider:${provider.providerId}:${modelId}`,
-          value: encodeCustomModelValue(provider.providerId, modelId),
-          name: modelId,
-          ...(shouldShowModelVisionBadge(
-            modelId,
-            config.properties?.inputFormat?.supportsImage,
-            provider.config.access,
-          )
-            ? { supportsVisionInput: true }
-            : {}),
-        })),
-      },
-    ];
+    const items = provider.models.map(({ modelId, config }) => ({
+      key: `registry-provider:${provider.providerId}:${modelId}`,
+      value: encodeCustomModelValue(provider.providerId, modelId),
+      name: modelId,
+      ...(shouldShowModelVisionBadge(
+        modelId,
+        config.properties?.inputFormat?.supportsImage,
+        provider.config.access,
+      )
+        ? { supportsVisionInput: true }
+        : {}),
+    }));
+    const group: ModelSelectGroup = {
+      key: `registry-provider:${provider.providerId}`,
+      label: provider.providerName?.trim() || provider.providerId,
+      items,
+    };
+    // 展示权重三态（docs/specs/provider-primary.md）：displayMode 优先，旧盘 isPrimary 由
+    // resolveProviderDisplayMode 派生；组间沿用传入的供应商顺序，设置页列表顺序不受影响。
+    const displayMode = resolveProviderDisplayMode(provider);
+    if (displayMode === "expanded") {
+      expandedGroups.push({ ...group, directItems: true });
+    } else if (displayMode === "other") {
+      otherSections.push(group);
+      otherItems.push(...items);
+    } else {
+      submenuGroups.push(group);
+    }
+  }
+
+  // 顺序：expanded 一级展开组 → submenu 二级菜单组 → 合成「其他」组（若有）。
+  const groups = [...expandedGroups, ...submenuGroups];
+  if (otherSections.length === 0) {
+    return groups;
+  }
+  // 「其他」组标题必须由调用方传本地化文案；不提供硬编码回退，缺参直接暴露契约缺口。
+  if (!labels.otherGroupLabel?.trim()) {
+    throw new Error(
+      "buildRegistryModelSelectGroups requires labels.otherGroupLabel when any provider uses displayMode=other",
+    );
+  }
+  groups.push({
+    key: "model-selection-other",
+    label: labels.otherGroupLabel,
+    isOtherGroup: true,
+    // 「其他」是选择器里的一级展开分区，不再是二级子菜单：标题独占一行，
+    // 内部按供应商分段平铺模型条目。
+    directItems: true,
+    // 平铺全集保证触发器按 items 命中（resolveV4ModelTriggerLabel）；分段与平铺
+    // 引用同一批 item 对象，避免两份数据不同步。
+    items: otherItems,
+    subSections: otherSections,
   });
-  // Primary 组置前，组内与组间仍沿用传入的供应商顺序；设置页列表顺序不受影响。
-  const primaryGroups = groups.filter((group) => group.directItems === true);
-  const ordinaryGroups = groups.filter((group) => group.directItems !== true);
-  return [...primaryGroups, ...ordinaryGroups];
+  return groups;
 }
 
 /**
@@ -143,7 +177,17 @@ export function withModelGroupSection(params: {
   if ((params.sectionPrimary ?? params.view?.modelGroupsPrimary === true) === true) {
     return [{ ...section, directItems: true }, ...params.registryGroups];
   }
-  return [...params.registryGroups, section];
+  // 「其他」组恒排最后（docs/specs/provider-primary.md）：「模型组」分节插在它之前，
+  // 而不是简单追加到数组尾部。
+  const otherGroupIndex = params.registryGroups.findIndex((group) => group.isOtherGroup === true);
+  if (otherGroupIndex < 0) {
+    return [...params.registryGroups, section];
+  }
+  return [
+    ...params.registryGroups.slice(0, otherGroupIndex),
+    section,
+    ...params.registryGroups.slice(otherGroupIndex),
+  ];
 }
 
 /**
@@ -159,6 +203,7 @@ export function buildSettingsFormModelSelectGroups(
     startPlanBadgeLabel: formatMessage("settings.modelProvider.connectionMode.startPlanBadge"),
     apiKeyLabel: formatMessage("settings.modelProvider.apiKey"),
     codingPlanLabel: formatMessage("settings.modelProvider.connectionMode.codingPlan"),
+    otherGroupLabel: formatMessage("chat.toolbar.model.otherGroup"),
   });
   return withModelGroupSection({
     registryGroups,
@@ -167,15 +212,6 @@ export function buildSettingsFormModelSelectGroups(
     // 表单不置顶：组恒收进二级「模型组」菜单，不跟随整节 Primary（Composer 才置顶）。
     sectionPrimary: false,
   });
-}
-
-function getRegistryAccountProviderGroupPresentation(
-  providerId: string,
-  labels: ModelProviderGroupLabelOptions,
-): Pick<ModelSelectGroup, "label" | "labelBadge"> {
-  // 智谱剥离：账号套餐分组展示已下线，保留函数签名供既有调用方兼容，统一返回 providerId 本名。
-  void labels;
-  return { label: providerId };
 }
 
 export function resolveModelDisplayName(

@@ -14,7 +14,7 @@ function provider(): ProviderSettingsFormProvider {
     providerName: "Codex",
     enabled: true,
     executable: true,
-    isPrimary: false,
+    displayMode: "submenu",
     proxyMode: "default",
     config: { group: "standard-personal" },
     personalConfig: { group: "standard-personal" },

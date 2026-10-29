@@ -18,6 +18,7 @@ import {
   type ProviderTemplateLocale,
   parseModelConfig,
   parseProviderConfig,
+  resolveProviderDisplayMode,
 } from "./config/index.js";
 import type { ProviderRegistryView } from "./registry.js";
 import {
@@ -64,7 +65,7 @@ export interface ProviderSettingsMutationTarget {
     membership?: ProviderModelMembership,
     metadata?: Pick<
       ProviderConfigRule,
-      "providerName" | "templateId" | "enabled" | "isPrimary" | "proxyMode"
+      "providerName" | "templateId" | "enabled" | "isPrimary" | "displayMode" | "proxyMode"
     >,
   ): Promise<unknown>;
   deletePersonalProvider(providerId: ProviderId): Promise<unknown>;
@@ -181,7 +182,7 @@ export interface SavePersonalModelDraftInput {
 
 export interface ProviderSettingsProviderView extends Pick<
   ProviderConfigRule,
-  "providerName" | "templateId" | "isPrimary" | "proxyMode"
+  "providerName" | "templateId" | "isPrimary" | "displayMode" | "proxyMode"
 > {
   readonly enabled: boolean;
   readonly accountState?: import("./account-provider-state.js").AccountProviderState;
@@ -241,7 +242,7 @@ export interface ModelSelectionModelView {
 
 export interface ModelSelectionProviderView extends Pick<
   ProviderConfigRule,
-  "providerName" | "templateId" | "isPrimary"
+  "providerName" | "templateId" | "isPrimary" | "displayMode"
 > {
   readonly providerId: ProviderId;
   readonly config: ProviderConfigObject;
@@ -428,7 +429,7 @@ export class ProviderSettingsFacade {
     config: ProviderConfigObject,
     metadata?: Pick<
       ProviderConfigRule,
-      "providerName" | "templateId" | "enabled" | "isPrimary" | "proxyMode"
+      "providerName" | "templateId" | "enabled" | "isPrimary" | "displayMode" | "proxyMode"
     >,
   ): Promise<ProviderSettingsView> {
     return this.#mutateProvider(providerId, "save-provider", (target) =>
@@ -776,8 +777,9 @@ export function projectModelSelectionProviderView(
     providerId: provider.providerId,
     providerName: provider.providerName,
     templateId: provider.templateId,
-    // 无快照或旧数据缺字段时按非 Primary 收进二级菜单。
+    // 无快照或旧数据缺字段时按 isPrimary 旧规则派生：isPrimary true → expanded，否则 submenu。
     isPrimary: provider.isPrimary ?? false,
+    displayMode: resolveProviderDisplayMode(provider),
     config: serializeRegistryProviderConfig(provider.config),
     models: Object.freeze(
       provider.models.map((model) =>
@@ -864,6 +866,7 @@ function createProviderSettingsView(input: {
       templateId: provider.templateId,
       enabled: provider.enabled,
       isPrimary: provider.isPrimary ?? false,
+      displayMode: resolveProviderDisplayMode(provider),
       proxyMode: provider.proxyMode,
       ...(input.accountStates?.[provider.providerId]
         ? { accountState: input.accountStates[provider.providerId] }

@@ -20,6 +20,7 @@ import {
   type ProviderTemplateMap,
   type ProviderId,
   ProviderApiConfig,
+  resolveProviderDisplayMode,
 } from "./config/index.js";
 import { resolveOwnedOrder } from "./owned-order.js";
 import { excludeDeletedModelIds } from "./model-membership.js";
@@ -166,7 +167,7 @@ export type ResolvedProviderModel = ResolvedProviderModelCandidate;
 
 export interface ResolvedProvider extends Pick<
   ProviderConfigRule,
-  "templateId" | "providerName" | "isPrimary" | "proxyMode"
+  "templateId" | "providerName" | "isPrimary" | "displayMode" | "proxyMode"
 > {
   readonly enabled: boolean;
   readonly providerId: ProviderId;
@@ -184,7 +185,7 @@ export interface ProviderModel {
 
 export interface Provider extends Pick<
   ProviderConfigRule,
-  "templateId" | "providerName" | "isPrimary" | "proxyMode"
+  "templateId" | "providerName" | "isPrimary" | "displayMode" | "proxyMode"
 > {
   readonly providerId: ProviderId;
   readonly config: RegistryProviderConfig;
@@ -341,6 +342,7 @@ export class ProviderConfigResolver {
         providerId,
         enabled,
         // 展示偏好不参与可执行判定：下方 providerExecutable 只读 enabled/权益/完整性。
+        displayMode: resolveProviderDisplayMode(rule),
         isPrimary: rule.isPrimary ?? false,
         proxyMode: rule.proxyMode,
         providerName,
@@ -376,6 +378,7 @@ export class ProviderConfigResolver {
           providerId,
           providerName,
           templateId,
+          displayMode: resolveProviderDisplayMode(rule),
           isPrimary: rule.isPrimary ?? false,
           proxyMode: rule.proxyMode,
           config: registryProviderResult.config,

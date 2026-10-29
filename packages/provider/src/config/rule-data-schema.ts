@@ -93,6 +93,13 @@ export const personalModelConfigRulesSchema = z
 export const CLI_PROXY_PROVIDER_PROXY_MODES = ["default", "proxy", "direct"] as const;
 export const providerProxyModeSchema = z.enum(CLI_PROXY_PROVIDER_PROXY_MODES);
 
+// 模型展示权重（docs/specs/provider-primary.md）：与 enabled/isPrimary 同层挂在 Provider Rule，
+// 不进执行配置体。新写入只写 displayMode；未写时按 isPrimary 旧规则派生
+//（isPrimary true → expanded，否则 submenu），派生口径统一走 resolveProviderDisplayMode。
+export const PROVIDER_DISPLAY_MODES = ["expanded", "submenu", "other"] as const;
+export const providerDisplayModeSchema = z.enum(PROVIDER_DISPLAY_MODES);
+export type ProviderDisplayMode = (typeof PROVIDER_DISPLAY_MODES)[number];
+
 // 身份、模板引用和实例名属于规则，不再成为可向执行配置叠加的叶子。
 export const providerConfigRuleSchema = z
   .object({
@@ -101,7 +108,10 @@ export const providerConfigRuleSchema = z
     providerName: idSchema.nullable().optional(),
     enabled: z.boolean().optional(),
     // 模型选择器一级展开偏好：未写视为 false，与 enabled 同层挂在 Provider Rule，不进执行配置体。
+    // 旧盘兼容字段：新写入不再产生 isPrimary，只读派生 displayMode。
     isPrimary: z.boolean().optional(),
+    // 模型展示权重：未写时按上方 isPrimary 旧规则派生，新写入只写本字段。
+    displayMode: providerDisplayModeSchema.optional(),
     proxyMode: providerProxyModeSchema.optional(),
     config: providerConfigDataSchema,
   })
@@ -198,3 +208,14 @@ export type BuiltinModelConfigRulesData = z.infer<typeof builtinModelConfigRules
 export type PersonalModelConfigRulesData = z.infer<typeof personalModelConfigRulesSchema>;
 export type ProviderConfigRuleData = z.infer<typeof providerConfigRuleSchema>;
 export type ProviderTemplateConfigRuleData = z.infer<typeof providerTemplateConfigRuleSchema>;
+
+/**
+ * 模型展示权重的唯一派生源（docs/specs/provider-primary.md「持久化与兼容」）：
+ * resolver / registry / facades / UI 一律从这里取有效展示权重，不得各自再写派生分支。
+ */
+export function resolveProviderDisplayMode(
+  rule: Pick<ProviderConfigRuleData, "displayMode" | "isPrimary">,
+): ProviderDisplayMode {
+  if (rule.displayMode !== undefined) return rule.displayMode;
+  return rule.isPrimary === true ? "expanded" : "submenu";
+}

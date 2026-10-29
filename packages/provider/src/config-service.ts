@@ -238,7 +238,7 @@ export class ProviderConfigService implements ProviderSource<ProviderConfigSnaps
     membership?: ProviderModelMembership,
     metadata?: Pick<
       ProviderConfigRule,
-      "providerName" | "templateId" | "enabled" | "isPrimary" | "proxyMode"
+      "providerName" | "templateId" | "enabled" | "isPrimary" | "displayMode" | "proxyMode"
     >,
   ): Promise<ProviderConfigLayerSnapshot> {
     assertNonEmptyId("providerId", providerId);
@@ -283,7 +283,9 @@ export class ProviderConfigService implements ProviderSource<ProviderConfigSnaps
         providerId,
         ...(metadata?.templateId === undefined ? {} : { templateId: metadata.templateId }),
         ...(metadata?.enabled === undefined ? {} : { enabled: metadata.enabled }),
-        // 展示偏好与 enabled 同层：只接受显式补丁，未写字段沿用 overlay 旧值，不碰 access。
+        // 展示权重与 enabled 同层：只接受显式补丁，未写字段沿用 overlay 旧值，不碰 access。
+        ...(metadata?.displayMode === undefined ? {} : { displayMode: metadata.displayMode }),
+        // isPrimary 仅旧盘兼容保留（只读），新写入不再产生；保留显式补丁分支以兼容历史调用方。
         ...(metadata?.isPrimary === undefined ? {} : { isPrimary: metadata.isPrimary }),
         ...(metadata?.proxyMode === undefined ? {} : { proxyMode: metadata.proxyMode }),
         ...(metadata?.providerName === undefined

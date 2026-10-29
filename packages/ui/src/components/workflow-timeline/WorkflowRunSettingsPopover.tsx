@@ -161,6 +161,7 @@ function WorkflowRunSettingsForm({
             startPlanBadgeLabel: format("settings.modelProvider.connectionMode.startPlanBadge"),
             teamPlanBadgeLabel: format("settings.modelProvider.connectionMode.teamPlanBadge"),
             teamPlanFallbackLabel: format("settings.modelProvider.connectionMode.teamPlan"),
+            otherGroupLabel: format("chat.toolbar.model.otherGroup"),
           }),
     [format, view],
   );

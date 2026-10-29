@@ -11,6 +11,7 @@ import { CHATGPT_PLAN_PROVIDER_ID, isCliProxyProviderTemplateId } from "@zcode/s
 import {
   isApiKeyAccess,
   type ProviderApiType,
+  type ProviderDisplayMode,
   type SavePersonalModelDraftInput,
 } from "@zcode/provider";
 import { logger } from "@/logger.js";
@@ -24,7 +25,7 @@ import {
   ProviderModelsSection,
 } from "./ProviderCardSections.js";
 import { ProviderEnabledToggle } from "./ProviderEnabledToggle.js";
-import { ProviderPrimaryToggle } from "./ProviderPrimaryToggle.js";
+import { ProviderDisplayModeSelect } from "./ProviderDisplayModeSelect.js";
 import { CliProxyAccountFooter } from "./CliProxyAccountFooter.js";
 import {
   CLI_PROXY_UPSTREAM_PROXY_MODES,
@@ -210,7 +211,7 @@ export function InlineEditableProviderCard({
   const [apiKeyValue, setApiKeyValue] = useState(getProviderFormApiKey(provider));
   const [apiKeyVisible, setApiKeyVisible] = useState(false);
   const [savingEnabled, setSavingEnabled] = useState(false);
-  const [savingPrimary, setSavingPrimary] = useState(false);
+  const [savingDisplayWeight, setSavingDisplayWeight] = useState(false);
   const [savingUpstreamProxy, setSavingUpstreamProxy] = useState(false);
   const authoritativeModels = useMemo(
     () => resolveVisibleProviderModelsForEdit(provider),
@@ -493,11 +494,11 @@ export function InlineEditableProviderCard({
     }
   };
 
-  const handleProviderPrimaryChange = async (isPrimary: boolean) => {
-    if (savingPrimary) return;
+  const handleDisplayWeightChange = async (mode: ProviderDisplayMode) => {
+    if (savingDisplayWeight) return;
     cancelIdleDraftSave();
-    setSavingPrimary(true);
-    // 与启用开关同理：带上未提交的连接草稿，并只提交本次显式切换的 isPrimary 补丁。
+    setSavingDisplayWeight(true);
+    // 与启用开关同理：带上未提交的连接草稿，并只提交本次显式修改的 displayMode 补丁。
     const draft =
       resolvePendingProviderDraftSave({
         provider,
@@ -507,11 +508,11 @@ export function InlineEditableProviderCard({
         now: Date.now,
       }) ?? provider;
     try {
-      await saveProviderWithCleanupGuard({ ...draft, isPrimaryUpdate: isPrimary });
+      await saveProviderWithCleanupGuard({ ...draft, displayModeUpdate: mode });
     } catch {
-      // 保存失败时界面回到服务端状态，不乐观覆盖权威 isPrimary。
+      // 保存失败时界面回到服务端状态，不乐观覆盖权威 displayMode。
     } finally {
-      setSavingPrimary(false);
+      setSavingDisplayWeight(false);
     }
   };
 
@@ -893,11 +894,12 @@ export function InlineEditableProviderCard({
           />
         ) : null}
 
-        <ProviderPrimaryToggle
-          primary={provider.isPrimary ?? false}
-          saving={savingPrimary}
-          onCheckedChange={(isPrimary) => {
-            void handleProviderPrimaryChange(isPrimary);
+        <ProviderDisplayModeSelect
+          // 投影层已用 resolveProviderDisplayMode 派生出有效三态，这里直接使用。
+          mode={provider.displayMode}
+          saving={savingDisplayWeight}
+          onModeChange={(mode) => {
+            void handleDisplayWeightChange(mode);
           }}
         />
 

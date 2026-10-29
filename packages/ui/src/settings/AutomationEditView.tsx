@@ -1558,6 +1558,7 @@ export function AutomationEditView({
         teamPlanFallbackLabel: intl.formatMessage({
           id: "settings.modelProvider.connectionMode.teamPlan",
         }),
+        otherGroupLabel: intl.formatMessage({ id: "chat.toolbar.model.otherGroup" }),
       },
       registrySelectionView: modelSelectionView,
       groupSectionLabel: intl.formatMessage({ id: "chat.toolbar.model.groupSection" }),

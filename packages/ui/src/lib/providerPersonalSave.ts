@@ -18,7 +18,7 @@ export async function persistPersonalProvider(params: {
     structuredClone(providerFields),
     params.provider.providerNameUpdate === undefined &&
       params.provider.enabledUpdate === undefined &&
-      params.provider.isPrimaryUpdate === undefined &&
+      params.provider.displayModeUpdate === undefined &&
       params.provider.proxyModeUpdate === undefined
       ? undefined
       : {
@@ -28,10 +28,10 @@ export async function persistPersonalProvider(params: {
           ...(params.provider.enabledUpdate === undefined
             ? {}
             : { enabled: params.provider.enabledUpdate }),
-          // 只提交本次显式切换的 Primary 值；未触碰时不把继承标记物化进个人配置。
-          ...(params.provider.isPrimaryUpdate === undefined
+          // 只提交本次显式修改的展示权重值；未触碰时不把继承层级物化进个人配置。
+          ...(params.provider.displayModeUpdate === undefined
             ? {}
-            : { isPrimary: params.provider.isPrimaryUpdate }),
+            : { displayMode: params.provider.displayModeUpdate }),
           ...(params.provider.proxyModeUpdate === undefined
             ? {}
             : { proxyMode: params.provider.proxyModeUpdate }),

@@ -1,4 +1,5 @@
 import type { ProviderSettingsView } from "@zcode/services";
+import { resolveProviderDisplayMode } from "@zcode/provider";
 import type { ProviderSettingsFormProvider } from "@/lib/providerSettingsFormTypes.js";
 import type { ProviderOrderView } from "@/lib/modelProviderOrdering.js";
 
@@ -18,8 +19,9 @@ function projectProviderSettingsProviders(
     templateId: provider.templateId,
     executable: provider.executable,
     enabled: provider.enabled,
-    // 未写 isPrimary 的旧个人配置视为 false，与后端投影口径一致。
-    isPrimary: provider.isPrimary ?? false,
+    // 展示权重三态（docs/specs/provider-primary.md）：displayMode 优先，旧盘 isPrimary 由
+    // resolveProviderDisplayMode 派生，与后端投影口径一致。
+    displayMode: resolveProviderDisplayMode(provider),
     proxyMode: provider.proxyMode,
     accountState: provider.accountState,
     hasPersonalConfig: provider.personalConfig !== undefined,

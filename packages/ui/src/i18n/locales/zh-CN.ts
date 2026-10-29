@@ -2579,6 +2579,7 @@ const zhCN: Record<string, string> = {
   "settings.mcp.group.plugin": "Plugin MCP 服务器",
   "settings.remoteSync.open": "同步",
   "settings.remoteSync.preflighting": "正在检查远端写入权限...",
+  "chat.toolbar.model.otherGroup": "其他",
   "settings.remoteSync.preflightTimeout":
     "远端写入检查超过 {seconds} 秒未返回。请检查远端连接后重试。",
   "settings.remoteSync.preflightFailed": "远端目标不可写：{path}。{error}",
@@ -3070,9 +3071,12 @@ const zhCN: Record<string, string> = {
   "settings.modelProvider.readyStatus": "就绪",
   "settings.modelProvider.enableProvider": "启用供应商",
   "settings.modelProvider.disableProvider": "禁用供应商",
-  "settings.modelProvider.primaryProvider": "Primary 供应商",
-  "settings.modelProvider.primaryProviderHint":
-    "在模型选择器中直接展开该供应商的模型，而不是放进二级菜单",
+  "settings.modelProvider.displayWeight": "模型展示权重",
+  "settings.modelProvider.displayWeightHint":
+    "控制该供应商的模型在选择器中的层级：一级展开、二级菜单或收进「其他」",
+  "settings.modelProvider.displayWeight.expanded": "展开显示",
+  "settings.modelProvider.displayWeight.submenu": "作为二级菜单",
+  "settings.modelProvider.displayWeight.other": "收进其他",
   "settings.modelProvider.renameProvider": "重命名",
   "settings.modelProvider.enableCurrentPlan": "启用当前套餐",
   "settings.modelProvider.enableAction": "启用",

@@ -1,56 +1,73 @@
-# Spec: Provider Primary 展示标记
+# Spec: 模型展示权重（Provider 展示分层）
 
 ## 目标
 
-让用户为每个供应商单独标记是否为 Primary，模型选择器只按该标记决定一级展开。取代账号套餐（BigModel / Start Plan 等）按 access 自动一级展开的硬编码。
+把供应商一级展示标记从布尔 Primary 扩展为三态「模型展示权重」：用户为每个供应商选择模型选择器中的展示层级——一级展开（`expanded`）、独立二级菜单（`submenu`）或收进菜单末尾的「其他」组（`other`）。取代账号套餐（BigModel / Start Plan 等）按 access 自动一级展开的硬编码，并兼容旧盘 `isPrimary` 数据。
 
 ## 产品规则
 
-- 用户在「供应商和模型」里为每个供应商单独标记是否为 Primary。
-- **未设置或关闭时一律不是 Primary**，包括智谱账号套餐（BigModel / Start Plan 等）。这会改变当前账号套餐固定一级展开的行为：升级后若用户不勾选，它们会和其他供应商一样进入二级菜单。
-- Primary 只影响模型选择器展示，不改变启用、可执行、凭据、排序设置或 Registry 成员资格。
-- 关闭供应商后 Primary 标记仍保留；重新开启后按已保存标记展开。
+- 设置项名为「模型展示权重」，每个供应商三选一：
+  - `expanded`：展开显示（一级平铺并置前）；
+  - `submenu`：作为二级菜单（缺省值）；
+  - `other`：收进其他。
+- **缺省一律 `submenu`**，包括智谱账号套餐（BigModel / Start Plan 等）。旧盘未写 `displayMode` 但 `isPrimary === true` 的供应商派生为 `expanded`（见「持久化与兼容」）。
+- 三态只影响模型选择器展示层级，不改变启用、可执行、凭据、排序设置或 Registry 成员资格。
+- 关闭供应商后权重保留；重新开启后按已保存权重展示。
 - 隐藏的 Off-Peak 供应商不出现在普通选择器，也不因本规则改变可见性。
 
-选择器展示：
+## 选择器展示规则
 
-- Primary：组标题（账号套餐仍可带「个人 / 免费」等徽章）+ 模型平铺在一级。
-- 非 Primary：组名进入带箭头的二级菜单。
-- 选择器内把 Primary 组排到前面，组内与组间仍沿用现有供应商顺序；设置页列表顺序不变。
-- 分割线跟着 Primary 一级平铺分组走：平铺分组与相邻分组之间（无论邻居是另一个平铺组还是二级菜单组）始终有分割线；二级菜单组之间沿用既有 family 连接组分隔规则，不额外加线。
+- `expanded` 组：组标题（账号套餐仍可带「个人 / 免费」等徽章）+ 模型平铺在一级，并排到选择器前部；组内与组间沿用现有供应商顺序，设置页列表顺序不变。
+- 分割线跟着 `expanded` 一级平铺分组走：平铺分组与相邻分组之间（无论邻居是另一个平铺组还是二级菜单组）始终有分割线；`submenu` 组之间沿用既有 family 连接组分隔规则，不额外加线。
+- `submenu` 组：组名进入带箭头的独立二级菜单。
+- `other` 组：供应商收进菜单末尾一个合成的「其他」分区。该分区在选择器**一级展开**（标题独占一行，不是二级子菜单），内部按供应商分段（段标题 + 该供应商的模型条目）；该「其他」分区排在所有供应商分组与「模型组」分节之后（`withModelGroupSection` 在 other 组之前插入「模型组」分节，见 [model-group.md](model-group.md)），分区前有分割线。
 
-```text
-用户切换 Primary
-  → 既有 savePersonalProviderOverlay（metadata 稀疏补丁）
-  → Personal Provider 配置原子持久化
-  → Resolver 刷新 Settings / Registry
-  → ModelSelection 投影 isPrimary
-  → 选择器按标记展开或收进二级菜单
-  ↛ 可执行性 / 账号权益 / OAuth / 凭据
-```
-
-## 状态所有者与事件顺序
+## 持久化与兼容
 
 与 [provider-disable.md](provider-disable.md) 的 `enabled` 同层：挂在 **Provider Rule**，不写进执行配置体。
 
 - 所有者：`ProviderConfigService` 的个人覆盖层（`~/.zcode/v2/provider_config.json`）。
-- 缺省：未写字段视为 `false`。
-- Overlay 合并与 `enabled` 相同：个人层覆盖内置层；内置配置不预置 Primary。
+- 新写入只写 `displayMode`，不再写 `isPrimary`。
+- 旧盘 `isPrimary` 只读兼容：不删除、不迁移、不逐组改写；不做 schemaVersion 升版（additive 可选键，先例见 `modelGroupsPrimary`）。
+- 派生规则（唯一派生源 `resolveProviderDisplayMode`，`packages/provider/src/config/rule-data-schema.ts`）：
+  1. `displayMode` 已写 → 用它；
+  2. 未写但旧 `isPrimary === true` → `expanded`；
+  3. 都没有 → `submenu`。
+- Overlay 合并与 `enabled` 相同：个人层覆盖内置层；内置配置不预置 `displayMode`。
+
+## 状态所有者与事件顺序
+
+```text
+用户切换模型展示权重
+  → 既有 savePersonalProviderOverlay（metadata 稀疏补丁，只写 displayMode）
+  → Personal Provider 配置原子持久化
+  → Resolver 刷新 Settings / Registry
+  → ModelSelection 投影 resolveProviderDisplayMode
+  → 选择器按权重展开 / 收进二级菜单 / 收进「其他」
+  ↛ 可执行性 / 账号权益 / OAuth / 凭据
+```
 
 ## 负面边界
 
 - 不删除或改写 Built-in Provider 定义。
 - 不修改 OAuth 登录、账号权益轮询或凭据存储。
-- 不把展示偏好写进 Registry 执行语义：`isPrimary` 不参与 `executable` / `selectable` / Registry 发布判定，只随视图投影透传。
+- 不把展示偏好写进 Registry 执行语义：`displayMode`（及其兼容派生输入 `isPrimary`）不参与 `executable` / `selectable` / Registry 发布判定，只随视图投影透传。
+- 不逐组迁移旧 `isPrimary`，不做 schemaVersion 升版；旧字段保留只读。
 - 不调整设置页列表顺序与拖拽顺序。
 - 不改变隐藏 Off-Peak 供应商的可见性规则。
-- 不预置任何内置 Primary；不改造 `ModelConfigSelect.tsx` 的渲染组件，只改分组输入。
+- 不预置任何内置展示权重；`ModelConfigSelect.tsx` 只为「其他」分区新增按供应商分段的平铺渲染，`expanded` / `submenu` 的既有渲染路径不变。
 
 ## 验收场景
 
-1. 全新配置：全部供应商在选择器里都是二级菜单。
-2. 勾选某第三方供应商为 Primary：其模型一级展开，并排在选择器前部。
-3. 勾选账号套餐为 Primary：外观回到现在的标题 + 徽章 + 一级模型。
-4. 刷新/重启后标记仍在；保存失败时界面回到服务端状态。
-5. 关闭供应商后它离开选择器，但 Primary 标记还在；再开启后仍按标记展开。
-6. Primary 不改变连通性、额度、启用或设置页拖拽顺序。
+1. 全新配置：全部供应商缺省 `submenu`，都在选择器里作为二级菜单。
+2. 把某供应商设为 `expanded`：其模型一级展开、排在选择器前部，平铺分组与相邻分组之间有分割线。
+3. 把某供应商设为 `other`：其模型收进菜单末尾合成的「其他」分区；该分区在一级展开（标题独占一行，不是二级子菜单），内部按供应商分段（段标题 + 该供应商的模型条目）；「其他」分区排在所有供应商分组与「模型组」分节之后，组前有分割线。
+4. 设回 `submenu`：恢复独立二级菜单。
+5. 刷新/重启后权重仍在；保存失败时界面回到服务端状态。
+6. 旧盘 `isPrimary === true` 升级后：未写 `displayMode` 时仍按 `expanded` 一级展开；一旦写入 `displayMode` 即以新字段为准。
+7. 三态不改变连通性、额度、启用或设置页拖拽顺序。
+
+## 验证
+
+- 后端持久化、派生与投影：`packages/provider/test/providerPrimary.test.ts`
+- 选择器分组与分割线：`packages/ui/test/providerPrimaryGroups.test.ts`

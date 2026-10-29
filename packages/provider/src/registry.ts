@@ -1,4 +1,5 @@
 import type { ModelId, ProviderId } from "./config/index.js";
+import { resolveProviderDisplayMode } from "./config/index.js";
 import type { Provider, ProviderModel } from "./resolver.js";
 import type { ModelSelection } from "@zcode/shared/model-selection";
 
@@ -166,6 +167,8 @@ function freezeView(revision: number, providers: readonly Provider[]): ProviderR
       providerName: provider.providerName,
       templateId: provider.templateId,
       isPrimary: provider.isPrimary ?? false,
+      // 展示权重随视图透传：旧盘 isPrimary 在这里统一按派生源折算成三态。
+      displayMode: resolveProviderDisplayMode(provider),
       config: provider.config,
       models: Object.freeze(
         provider.models.map((model) =>

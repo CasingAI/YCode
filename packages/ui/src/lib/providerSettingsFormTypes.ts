@@ -1,4 +1,4 @@
-import { isApiKeyAccess } from "@zcode/provider";
+import { isApiKeyAccess, type ProviderDisplayMode } from "@zcode/provider";
 import type {
   ConfigValidationIssue,
   AccountProviderState,
@@ -10,15 +10,17 @@ import type {
 /** 设置页面在一次编辑会话中使用的 Provider 状态。 */
 export interface ProviderSettingsFormProvider extends Pick<
   ProviderSettingsProviderView,
-  "providerName" | "templateId" | "isPrimary" | "proxyMode"
+  "providerName" | "templateId" | "displayMode" | "proxyMode"
 > {
   providerId: string;
+  /** 投影层已按 resolveProviderDisplayMode 派生出有效三态，表单内必有值。 */
+  displayMode: ProviderDisplayMode;
   /** 仅本次显式改名的补丁；其他编辑不得把继承名称物化成个人配置。 */
   providerNameUpdate?: string | null;
   /** 仅本次显式开关的外层补丁；普通字段编辑不复制继承启停值。 */
   enabledUpdate?: boolean;
-  /** 仅本次显式 Primary 开关的外层补丁；普通字段编辑不复制继承标记。 */
-  isPrimaryUpdate?: boolean;
+  /** 仅本次显式修改「模型展示权重」的外层补丁；普通字段编辑不复制继承展示层级。 */
+  displayModeUpdate?: ProviderDisplayMode;
   /** 仅本次显式修改的 Provider 上游代理模式补丁（由支持该设置的 Provider 消费）。 */
   proxyModeUpdate?: "default" | "proxy" | "direct" | undefined;
   enabled: boolean;

@@ -71,6 +71,17 @@ export interface ModelSelectGroup {
   label: string;
   labelBadge?: string;
   directItems?: boolean;
+  /**
+   * 合成「其他」组标记（docs/specs/provider-primary.md）：displayMode=other 的供应商统一收纳；
+   * 该组是一级展开分区（directItems），不是二级子菜单。
+   */
+  isOtherGroup?: boolean;
+  /**
+   * 「其他」组内部按供应商分段（docs/specs/provider-primary.md）：每段是一个完整
+   * ModelSelectGroup（key 为 registry-provider:<id>，label 为供应商名）；段 items 与
+   * 平铺 items 引用同一批对象。存在分段时按段渲染，不再平铺 items。
+   */
+  subSections?: readonly ModelSelectGroup[];
   selectedOptionKey?: string;
   connectionOptions?: ModelSelectConnectionOption[];
   items: ModelSelectGroupItem[];
@@ -105,13 +116,17 @@ function shouldRenderModelGroupSeparator(
   previousGroup:
     | Pick<ModelSelectGroup, "connectionOptions" | "directItems" | "key" | "labelBadge">
     | undefined,
-  currentGroup: Pick<ModelSelectGroup, "connectionOptions" | "directItems" | "key" | "labelBadge">,
+  currentGroup: Pick<
+    ModelSelectGroup,
+    "connectionOptions" | "directItems" | "key" | "labelBadge"
+  >,
 ): boolean {
   if (!previousGroup) {
     return false;
   }
-  // 分割线跟着 Primary 一级平铺组走：平铺组与相邻分组之间（前、后不分）
-  // 始终有分割线；二级菜单组之间不因本规则加线，沿用原 family 连接组规则。
+  // 分割线跟着一级平铺组走：平铺组与相邻分组之间（前、后不分）始终有分割线；
+  // 二级菜单组之间不因本规则加线，沿用原 family 连接组规则。
+  // 合成「其他」组也是一级平铺组（docs/specs/provider-primary.md），同样适用本规则。
   if (previousGroup.directItems === true || currentGroup.directItems === true) {
     return true;
   }
@@ -395,7 +410,8 @@ export const ModelConfigSelect = memo(function ModelConfigSelectComponent({
         <span
           className={cn(
             "min-w-0 whitespace-normal break-words text-ui-base",
-            options.mutedLabel && "text-foreground-subtle",
+            // 分段标题（如「其他」分区下的供应商名）比分区标题更弱一级，字号与颜色同时收敛。
+            options.mutedLabel && "text-ui-sm text-foreground-subtle",
           )}
           title={group.label}
         >
@@ -592,6 +608,9 @@ export const ModelConfigSelect = memo(function ModelConfigSelectComponent({
                   <DropdownMenuSeparator />
                 ) : null;
                 if (group.directItems) {
+                  // 合成「其他」组内部按供应商分段展开（docs/specs/provider-primary.md）：
+                  // 段标题 + 该供应商的模型条目，段 items 与平铺 items 引用同一批对象。
+                  const subSections = group.subSections ?? [];
                   return (
                     <Fragment key={group.key}>
                       {groupSeparator}
@@ -604,9 +623,24 @@ export const ModelConfigSelect = memo(function ModelConfigSelectComponent({
                           {renderGroupLabel(group)}
                         </DropdownMenuLabel>
                         {renderProviderConnectionHeader(group)}
-                        <DropdownMenuRadioGroup value={normalizedValue}>
-                          {group.items.map((item) => renderModelItem(item))}
-                        </DropdownMenuRadioGroup>
+                        {subSections.length > 0
+                          ? subSections.map((subSection) => (
+                              <Fragment key={subSection.key}>
+                                <DropdownMenuLabel
+                                  className="flex min-h-8 items-center px-2 py-1"
+                                  data-testid={testId(TID_CHAT_MODEL_SELECT_GROUP, subSection.key)}
+                                  data-model-provider-key={subSection.key}
+                                >
+                                  {renderGroupLabel(subSection, { mutedLabel: true })}
+                                </DropdownMenuLabel>
+                                {renderModelItems(subSection.items)}
+                              </Fragment>
+                            ))
+                          : (
+                              <DropdownMenuRadioGroup value={normalizedValue}>
+                                {group.items.map((item) => renderModelItem(item))}
+                              </DropdownMenuRadioGroup>
+                            )}
                       </div>
                     </Fragment>
                   );

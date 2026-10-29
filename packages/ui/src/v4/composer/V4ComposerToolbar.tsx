@@ -295,6 +295,7 @@ function V4ComposerModelControlsImpl({
       }),
     });
     // 模型组分节（docs/specs/model-group.md）：registry 分组 + 组分节的唯一拼装入口
+      otherGroupLabel: intl.formatMessage({ id: "chat.toolbar.model.otherGroup" }),
     // 在 withModelGroupSection；整节 Primary（view.modelGroupsPrimary）时组逐条置顶一级展开。
     return withModelGroupSection({
       registryGroups,

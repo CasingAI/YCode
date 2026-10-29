@@ -1,28 +1,26 @@
-import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { ControlHintTooltip } from "@/ControlHintTooltip.js";
 import { Switch } from "@/components/ui/switch.js";
 
-export function ProviderPrimaryToggle({
+/**
+ * 模型组整节 Primary 的二元开关（docs/specs/model-group.md）。
+ * 供应商级展示层级已三态化为 ProviderDisplayModeSelect（docs/specs/provider-primary.md）；
+ * 本组件只服务 ModelGroupsSection 页底开关，label/hint 由调用方显式传入。
+ */
+export function SectionPrimaryToggle({
   primary,
   saving = false,
   onCheckedChange,
-  label: labelOverride,
-  hint: hintOverride,
-  testId = "model-provider-primary-switch",
+  label,
+  hint,
+  testId = "model-groups-primary-switch",
 }: {
   primary: boolean;
   saving?: boolean;
   onCheckedChange: (primary: boolean) => void;
-  label?: string;
-  hint?: string;
+  label: string;
+  hint: string;
   testId?: string;
 }) {
-  const { intl } = useZCodeIntl();
-  const label =
-    labelOverride ?? intl.formatMessage({ id: "settings.modelProvider.primaryProvider" });
-  const hint =
-    hintOverride ?? intl.formatMessage({ id: "settings.modelProvider.primaryProviderHint" });
-
   return (
     <div className="flex items-center justify-between gap-3 rounded-lg border border-input-border bg-input px-3 py-2">
       <div className="min-w-0">

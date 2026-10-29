@@ -2747,6 +2747,7 @@ const enUS: Record<string, string> = {
   "settings.mcp.group.plugin": "Plugin MCP servers",
   "settings.remoteSync.open": "Sync",
   "settings.remoteSync.preflighting": "Checking remote write access...",
+  "chat.toolbar.model.otherGroup": "Other",
   "settings.remoteSync.preflightTimeout":
     "Remote write check timed out after {seconds}s. Check the remote connection and try again.",
   "settings.remoteSync.preflightFailed": "Remote target is not writable: {path}. {error}",
@@ -3279,9 +3280,12 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.readyStatus": "Ready",
   "settings.modelProvider.enableProvider": "Enable provider",
   "settings.modelProvider.disableProvider": "Disable provider",
-  "settings.modelProvider.primaryProvider": "Primary provider",
-  "settings.modelProvider.primaryProviderHint":
-    "Expand this provider's models directly in the model picker instead of a submenu",
+  "settings.modelProvider.displayWeight": "Model display weight",
+  "settings.modelProvider.displayWeightHint":
+    "Choose whether this provider's models are expanded at the top level, listed as a submenu, or collapsed into Other.",
+  "settings.modelProvider.displayWeight.expanded": "Expanded",
+  "settings.modelProvider.displayWeight.submenu": "Submenu",
+  "settings.modelProvider.displayWeight.other": "In \"Other\"",
   "settings.modelProvider.renameProvider": "Rename",
   "settings.modelProvider.enableCurrentPlan": "Enable current plan",
   "settings.modelProvider.enableAction": "Enable",

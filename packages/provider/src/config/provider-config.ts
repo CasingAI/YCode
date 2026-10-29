@@ -403,7 +403,9 @@ export class ProviderConfigMap extends ConfigOverlay<ProviderConfigMap> {
               templateId: this.overlayValue(current.templateId, rule.templateId),
               providerName: this.overlayValue(current.providerName, rule.providerName),
               enabled: this.overlayValue(current.enabled, rule.enabled),
+              // isPrimary 旧盘兼容保留（只读）；新写入只产生 displayMode，overlay 同样逐层合并。
               isPrimary: this.overlayValue(current.isPrimary, rule.isPrimary),
+              displayMode: this.overlayValue(current.displayMode, rule.displayMode),
               config: current.config.overlay(rule.config),
             }
           : rule,

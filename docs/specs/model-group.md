@@ -176,6 +176,7 @@ forkAssistant → 父会话组 entry（意图 + 名快照 + 钉死 + 种子）�
 
 - 唯一拼装入口：`packages/ui/src/lib/modelSelectionGroups.ts` 的 `withModelGroupSection`（registry 分组 + 一个组分节；`buildModelGroupSelectGroups` 只做纯展示投影，为每个组产出一条 `value=model-group:<groupId>` 的条目）。`V4ComposerToolbar` 与子智能体/命令/自动化三处表单共用它，不再各自手拼。
 - `sectionPrimary`（缺省跟随 `view.modelGroupsPrimary`）只决定整节一二级，且显式覆盖值优先于视图：为 true 时把全部组平铺进一个置顶的本地化「模型组」分节（单个 `directItems` 分组），组名只出现一次、组条目之间没有分割线、分节与供应商分组之间有分割线；为 false 时整节收进一个二级「模型组」菜单。Composer 缺省跟随视图；子智能体/命令共用入口显式传 `false`。文案统一用 `chat.toolbar.model.groupSection`。停用组由 Facade 预过滤（`projectModelSelectionGroups`），展示层不再二次过滤。
+- 「模型组」分节恒排在供应商「其他」组（`other` 展示权重，见 [provider-primary.md](provider-primary.md)）之前：`withModelGroupSection` 在 other 组之前插入组分节，「其他」合成组排在分节之后。
 - 三处表单均真正支持存取：选组清掉具体模型（含档位），选具体模型清掉组意图；保存写组 ID + 组名快照，回填按组条目展示组名，组已删按失效处理提示重选。
 
 ### 编辑历史消息的组语义（specs/message-history-edit.md 规则 44）

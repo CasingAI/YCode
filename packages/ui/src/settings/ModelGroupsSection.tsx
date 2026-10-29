@@ -43,7 +43,7 @@ import {
 } from "@/settings/modelGroupMemberSelectionSettings.js";
 import type { ModelGroupDeprioritizeSchedule } from "@zcode/provider";
 import { ProviderEnabledToggle } from "@/settings/model-provider-section/ProviderEnabledToggle.js";
-import { ProviderPrimaryToggle } from "@/settings/model-provider-section/ProviderPrimaryToggle.js";
+import { SectionPrimaryToggle } from "@/settings/model-provider-section/SectionPrimaryToggle.js";
 
 function sameMemberRef(left: ModelGroupMemberRef, right: ModelGroupMemberRef): boolean {
   return left.providerId === right.providerId && left.modelId === right.modelId;
@@ -606,7 +606,7 @@ export function ModelGroupsSection() {
         )}
       </SettingsMasterDetailLayout>
       {/* 整节 Primary 放页底：决定「模型组」分节在选择器中一级展开还是收进二级，不看当前选了哪个组。 */}
-      <ProviderPrimaryToggle
+      <SectionPrimaryToggle
         primary={isModelGroupsPrimary(view?.modelGroupsPrimary)}
         saving={busy}
         onCheckedChange={(isPrimary) => void handleSetSectionPrimary(isPrimary)}
