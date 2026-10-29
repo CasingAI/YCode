@@ -88,6 +88,7 @@ import { updateAccountProviderConfig } from "./account-provider-config.js";
 import { updateModelIoPreferences } from "./model-io-preferences.js";
 import { updateOffPeakToolPolicy } from "./off-peak-tool-policy.js";
 import { updateDynamicWorkflowPolicy } from "./dynamic-workflow-policy.js";
+import { updateWebSearchPolicy } from "./web-search-policy.js";
 import { grantWorkspaceHookTrustForProtocol } from "./workspace-hook-trust.js";
 import {
   V4InteractionRegistry,
@@ -257,6 +258,9 @@ export class ZCodeProtocolAgentServer {
         dynamicWorkflowEnabled: false,
         // 定时任务（Cron）模型工具开关：缺省关闭，等 Host 同步用户 opt-in。
         automationEnabled: false,
+        // 网络搜索 Provider 策略：缺省关闭（fail-closed），等 Host 同步。
+        webSearchEnabled: false,
+        webSearchProviderOrder: undefined,
       },
       notify: (notification) => this.messageSink?.(notification),
       requestClient: (method, params, resultSchema, options) =>
@@ -649,6 +653,8 @@ export class ZCodeProtocolAgentServer {
         return await updateOffPeakToolPolicy(this.context, request.params);
       case zcodeProtocolMethods.workspaceUpdateDynamicWorkflowPolicy:
         return await updateDynamicWorkflowPolicy(this.context, request.params);
+      case zcodeProtocolMethods.workspaceUpdateWebSearchPolicy:
+        return await updateWebSearchPolicy(this.context, request.params);
       case zcodeProtocolMethods.workspaceGenerateText:
         return await this.withWorkspaceGenerateTextSignal(request, (signal) =>
           generateWorkspaceText(this.context, request.params, signal),

@@ -16,6 +16,7 @@ import {
 } from "./server-types.js";
 import { runSessionModelConfigMutation } from "../zcode-protocol-v4/model-config-mutation.js";
 import { createProviderRuntimeHeadersPort } from "./provider-runtime-headers.js";
+import { createSessionPolicyWebSearchPort } from "./web-search-port.js";
 
 export async function readWorkspacePresentation(
   context: ZCodeProtocolAgentServerContext,
@@ -79,6 +80,12 @@ export async function createWorkspaceZCodeApp(
     platform: context.deps.platform,
     providerRuntimeHeadersPort,
     chatGPTPlanTransport: createChatGPTPlanTransport(context),
+    // WebSearch 策略（开关+排序）在 app 创建/恢复边界快照绑定：已活跃会话不随后续
+    // workspace policy 写入翻转工具面，与 dynamic-workflow / off-peak 策略同构；执行器由
+    // entrypoint 按进程 Registry 装配注入；两条 app 创建路径（会话记录/连接测试）都经此收口。
+    webSearchPort:
+      options.webSearchPort ??
+      createSessionPolicyWebSearchPort({ executor: context.deps.webSearchExecutor, context }),
     runtimeConfig: {
       ...options.runtimeConfig,
       // createZCodeApp 会把 workingDirectory 规范化为执行 cwd。把协议入口的

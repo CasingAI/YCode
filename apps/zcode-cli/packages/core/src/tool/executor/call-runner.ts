@@ -423,6 +423,7 @@ async function executeToolCallImpl(
       emitEvent,
       executionPort: deps.executionPort,
       browserControlPort: deps.browserControlPort,
+      webSearchPort: deps.webSearchPort,
       browserDocumentationRoot: deps.browserDocumentationRoot,
       fileSystemPort: deps.fileSystemPort,
       httpClientPort: deps.httpClientPort,

@@ -848,7 +848,6 @@
               },
               "supportsToolCall": true,
               "supportsJsonSchemaOutput": false,
-              "supportsNativeWebSearch": false,
               "supportsMidConversationSystem": false,
               "requiresMfjsToolSchema": false
             },
@@ -3494,8 +3493,7 @@
                 "supportsPdf": true,
                 "supportsAudio": false
               },
-              "supportsJsonSchemaOutput": true,
-              "supportsNativeWebSearch": false
+              "supportsJsonSchemaOutput": true
             },
             "optionSpecs": {
               "reasoningLevel": {
@@ -3527,8 +3525,7 @@
                 "supportsPdf": false,
                 "supportsAudio": false
               },
-              "supportsJsonSchemaOutput": true,
-              "supportsNativeWebSearch": false
+              "supportsJsonSchemaOutput": true
             },
             "optionSpecs": {
               "reasoningLevel": {
@@ -3560,8 +3557,7 @@
                 "supportsPdf": false,
                 "supportsAudio": false
               },
-              "supportsJsonSchemaOutput": true,
-              "supportsNativeWebSearch": false
+              "supportsJsonSchemaOutput": true
             },
             "optionSpecs": {
               "reasoningLevel": {
@@ -3592,8 +3588,7 @@
                 "supportsPdf": false,
                 "supportsAudio": false
               },
-              "supportsJsonSchemaOutput": false,
-              "supportsNativeWebSearch": false
+              "supportsJsonSchemaOutput": false
             },
             "optionSpecs": {
               "reasoningLevel": {
@@ -3623,8 +3618,7 @@
                 "supportsPdf": false,
                 "supportsAudio": false
               },
-              "supportsJsonSchemaOutput": true,
-              "supportsNativeWebSearch": false
+              "supportsJsonSchemaOutput": true
             },
             "optionSpecs": {
               "reasoningLevel": {
@@ -3654,8 +3648,7 @@
                 "supportsPdf": false,
                 "supportsAudio": false
               },
-              "supportsJsonSchemaOutput": true,
-              "supportsNativeWebSearch": false
+              "supportsJsonSchemaOutput": true
             },
             "optionSpecs": {
               "reasoningLevel": {
@@ -3685,8 +3678,7 @@
                 "supportsPdf": false,
                 "supportsAudio": false
               },
-              "supportsJsonSchemaOutput": false,
-              "supportsNativeWebSearch": false
+              "supportsJsonSchemaOutput": false
             },
             "optionSpecs": {
               "reasoningLevel": {
@@ -3716,8 +3708,7 @@
                 "supportsPdf": false,
                 "supportsAudio": false
               },
-              "supportsJsonSchemaOutput": true,
-              "supportsNativeWebSearch": false
+              "supportsJsonSchemaOutput": true
             },
             "optionSpecs": {
               "reasoningLevel": {
@@ -3749,8 +3740,7 @@
                 "supportsPdf": false,
                 "supportsAudio": false
               },
-              "supportsJsonSchemaOutput": true,
-              "supportsNativeWebSearch": false
+              "supportsJsonSchemaOutput": true
             },
             "optionSpecs": {
               "reasoningLevel": {
@@ -3781,8 +3771,7 @@
                 "supportsPdf": false,
                 "supportsAudio": false
               },
-              "supportsJsonSchemaOutput": true,
-              "supportsNativeWebSearch": false
+              "supportsJsonSchemaOutput": true
             },
             "optionSpecs": {
               "reasoningLevel": {
@@ -3814,8 +3803,7 @@
                 "supportsPdf": false,
                 "supportsAudio": false
               },
-              "supportsJsonSchemaOutput": true,
-              "supportsNativeWebSearch": false
+              "supportsJsonSchemaOutput": true
             },
             "optionSpecs": {
               "reasoningLevel": {
@@ -3847,8 +3835,7 @@
                 "supportsPdf": false,
                 "supportsAudio": true
               },
-              "supportsJsonSchemaOutput": false,
-              "supportsNativeWebSearch": false
+              "supportsJsonSchemaOutput": false
             },
             "optionSpecs": {
               "reasoningLevel": {
@@ -3878,8 +3865,7 @@
                 "supportsPdf": false,
                 "supportsAudio": false
               },
-              "supportsJsonSchemaOutput": false,
-              "supportsNativeWebSearch": false
+              "supportsJsonSchemaOutput": false
             },
             "optionSpecs": {
               "reasoningLevel": {
@@ -3909,8 +3895,7 @@
                 "supportsPdf": false,
                 "supportsAudio": false
               },
-              "supportsJsonSchemaOutput": false,
-              "supportsNativeWebSearch": false
+              "supportsJsonSchemaOutput": false
             },
             "optionSpecs": {
               "reasoningLevel": {
@@ -3941,8 +3926,7 @@
                 "supportsPdf": false,
                 "supportsAudio": false
               },
-              "supportsJsonSchemaOutput": false,
-              "supportsNativeWebSearch": false
+              "supportsJsonSchemaOutput": false
             },
             "optionSpecs": {
               "reasoningLevel": {
@@ -3974,8 +3958,7 @@
                 "supportsPdf": false,
                 "supportsAudio": false
               },
-              "supportsJsonSchemaOutput": false,
-              "supportsNativeWebSearch": false
+              "supportsJsonSchemaOutput": false
             },
             "optionSpecs": {
               "reasoningLevel": {
@@ -4005,8 +3988,7 @@
                 "supportsPdf": false,
                 "supportsAudio": false
               },
-              "supportsJsonSchemaOutput": false,
-              "supportsNativeWebSearch": false
+              "supportsJsonSchemaOutput": false
             },
             "optionSpecs": {
               "reasoningLevel": {
@@ -4035,8 +4017,7 @@
                 "supportsPdf": false,
                 "supportsAudio": false
               },
-              "supportsJsonSchemaOutput": false,
-              "supportsNativeWebSearch": false
+              "supportsJsonSchemaOutput": false
             },
             "optionSpecs": {
               "reasoningLevel": {
@@ -4065,8 +4046,7 @@
                 "supportsPdf": false,
                 "supportsAudio": false
               },
-              "supportsJsonSchemaOutput": true,
-              "supportsNativeWebSearch": false
+              "supportsJsonSchemaOutput": true
             },
             "optionSpecs": {
               "reasoningLevel": {
@@ -4096,8 +4076,7 @@
                 "supportsPdf": false,
                 "supportsAudio": false
               },
-              "supportsJsonSchemaOutput": true,
-              "supportsNativeWebSearch": false
+              "supportsJsonSchemaOutput": true
             },
             "optionSpecs": {
               "reasoningLevel": {
@@ -4127,8 +4106,7 @@
                 "supportsPdf": false,
                 "supportsAudio": false
               },
-              "supportsJsonSchemaOutput": false,
-              "supportsNativeWebSearch": false
+              "supportsJsonSchemaOutput": false
             },
             "optionSpecs": {
               "reasoningLevel": {
@@ -4157,8 +4135,7 @@
                 "supportsPdf": false,
                 "supportsAudio": false
               },
-              "supportsJsonSchemaOutput": false,
-              "supportsNativeWebSearch": false
+              "supportsJsonSchemaOutput": false
             },
             "optionSpecs": {
               "reasoningLevel": {
@@ -4187,8 +4164,7 @@
                 "supportsPdf": false,
                 "supportsAudio": false
               },
-              "supportsJsonSchemaOutput": false,
-              "supportsNativeWebSearch": false
+              "supportsJsonSchemaOutput": false
             },
             "optionSpecs": {
               "reasoningLevel": {
@@ -4217,8 +4193,7 @@
                 "supportsPdf": true,
                 "supportsAudio": false
               },
-              "supportsJsonSchemaOutput": true,
-              "supportsNativeWebSearch": false
+              "supportsJsonSchemaOutput": true
             },
             "optionSpecs": {
               "reasoningLevel": {
@@ -4252,8 +4227,7 @@
                 "supportsPdf": false,
                 "supportsAudio": false
               },
-              "supportsJsonSchemaOutput": true,
-              "supportsNativeWebSearch": false
+              "supportsJsonSchemaOutput": true
             },
             "optionSpecs": {
               "reasoningLevel": {
@@ -4324,9 +4298,7 @@
           "apiTypeMatch": "anthropic-messages",
           "baseUrlMatch": "(?:https://api\\.anthropic\\.com/v1)",
           "config": {
-            "properties": {
-              "supportsNativeWebSearch": true
-            }
+            "properties": {}
           }
         },
         {
@@ -4345,7 +4317,6 @@
           "baseUrlMatch": "(?:https://api\\.deepseek\\.com/anthropic)",
           "config": {
             "properties": {
-              "supportsNativeWebSearch": true,
               "supportsMidConversationSystem": true
             }
           }
@@ -4368,7 +4339,6 @@
           "baseUrlMatch": "https://api\\.z\\.ai/api/anthropic/?",
           "config": {
             "properties": {
-              "supportsNativeWebSearch": true,
               "supportsMidConversationSystem": true
             }
           }
@@ -4379,7 +4349,6 @@
           "baseUrlMatch": "https://open\\.bigmodel\\.cn/api/anthropic/?",
           "config": {
             "properties": {
-              "supportsNativeWebSearch": true,
               "supportsMidConversationSystem": true
             }
           }
@@ -4390,7 +4359,6 @@
           "baseUrlMatch": "https://zcode\\.z\\.ai/api/v1/zcode-plan/anthropic/?",
           "config": {
             "properties": {
-              "supportsNativeWebSearch": true,
               "supportsMidConversationSystem": true
             }
           }
@@ -4401,7 +4369,6 @@
           "baseUrlMatch": "https://zcode\\.z\\.ai/api/v1/off-peak/anthropic/?",
           "config": {
             "properties": {
-              "supportsNativeWebSearch": false,
               "supportsMidConversationSystem": true
             }
           }

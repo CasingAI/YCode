@@ -30,6 +30,7 @@ export * from "./interfaces/sqlite-read.port.js";
 export * from "./interfaces/automation.port.js";
 export * from "./interfaces/off-peak.port.js";
 export * from "./interfaces/mcp.port.js";
+export * from "./interfaces/web-search.port.js";
 
 export * from "./interfaces/runtime-input-presentation.js";
 

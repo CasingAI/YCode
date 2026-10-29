@@ -2262,6 +2262,28 @@ const enUS: Record<string, string> = {
   "settings.httpProxyCaCertPathDescription":
     "Optional. Set a PEM root certificate path to inject it as NODE_EXTRA_CA_CERTS for models, MCP, and command tools, and to trust it in renderer certificate verification. Restart the app to take effect.",
   "settings.httpProxyCaCertPathPlaceholder": "e.g. /Users/name/certs/root-ca.pem",
+  "settings.webSearch.title": "Web search",
+  "settings.webSearch.enabled": "Enable the web search tool",
+  "settings.webSearch.enabledDescription":
+    "When enabled, the agent's WebSearch tool runs web searches through the top-ranked search provider below.",
+  "settings.webSearch.activeBadge": "Active",
+  "settings.webSearch.orderHint":
+    "Drag or use the arrows to reorder. The first provider is activated.",
+  "settings.webSearch.noKey": "No API key configured",
+  "settings.webSearch.billingPerCall": "Regular API key · billed per successful request",
+  "settings.webSearch.billingPlan": "Plan key · included in plan quota",
+  "settings.webSearch.moveUp": "Move up",
+  "settings.webSearch.moveDown": "Move down",
+  "settings.webSearch.dragHandle": "Drag to reorder",
+  "settings.webSearch.refreshing": "Refresh provider list",
+  "settings.webSearch.emptyTitle": "No search-capable providers yet",
+  "settings.webSearch.emptyHint":
+    "Add a Z.ai Coding Plan, BigModel Coding Plan, MiniMax Token Plan or DeepSeek provider with an API key and it will appear here automatically.",
+  "settings.webSearch.openProviders": "Open provider settings",
+  "settings.webSearch.template.zai-api": "Z.ai Coding Plan",
+  "settings.webSearch.template.bigmodel-api": "BigModel Coding Plan",
+  "settings.webSearch.template.minimax-token-plan": "MiniMax Token Plan",
+  "settings.webSearch.template.deepseek": "DeepSeek",
   "settings.httpProxySavedHint": "Network proxy settings saved. Restart the app to take effect.",
   "settings.desktopChromiumHardwareAcceleration": "Chrome hardware acceleration",
   "settings.desktopChromiumHardwareAccelerationDescription":

@@ -2118,6 +2118,27 @@ const zhCN: Record<string, string> = {
   "settings.httpProxyCaCertPathDescription":
     "可选。填写 PEM 根证书路径后，会作为 NODE_EXTRA_CA_CERTS 注入模型、MCP 与命令工具，并用于渲染层证书校验。修改后需重启应用生效。",
   "settings.httpProxyCaCertPathPlaceholder": "例如 /Users/name/certs/root-ca.pem",
+  "settings.webSearch.title": "网络搜索",
+  "settings.webSearch.enabled": "启用网络搜索工具",
+  "settings.webSearch.enabledDescription":
+    "开启后 Agent 的 WebSearch 工具使用下方排第一的搜索源执行网络搜索。",
+  "settings.webSearch.activeBadge": "激活",
+  "settings.webSearch.orderHint": "拖拽或用箭头调整顺序，排第一的搜索源将被激活使用。",
+  "settings.webSearch.noKey": "未配置 API Key",
+  "settings.webSearch.billingPerCall": "普通 API Key · 按成功请求计费",
+  "settings.webSearch.billingPlan": "套餐 Key · 含在套餐额度内",
+  "settings.webSearch.moveUp": "上移",
+  "settings.webSearch.moveDown": "下移",
+  "settings.webSearch.dragHandle": "拖拽调整顺序",
+  "settings.webSearch.refreshing": "刷新供应商列表",
+  "settings.webSearch.emptyTitle": "还没有支持网络搜索的供应商",
+  "settings.webSearch.emptyHint":
+    "添加 Z.ai Coding Plan、BigModel Coding Plan、MiniMax Token Plan 或 DeepSeek 供应商并配置 API Key 后，会自动出现在这里。",
+  "settings.webSearch.openProviders": "前往供应商设置",
+  "settings.webSearch.template.zai-api": "Z.ai Coding Plan",
+  "settings.webSearch.template.bigmodel-api": "BigModel Coding Plan",
+  "settings.webSearch.template.minimax-token-plan": "MiniMax Token Plan",
+  "settings.webSearch.template.deepseek": "DeepSeek",
   "settings.httpProxySavedHint": "网络代理设置已保存，重启应用后生效",
   "settings.desktopChromiumHardwareAcceleration": "Chrome 硬件加速",
   "settings.desktopChromiumHardwareAccelerationDescription":

@@ -334,7 +334,6 @@ function createRecorderProviderRegistry(
       outputFormat: { supportsText: true },
       supportsToolCall: true,
       supportsJsonSchemaOutput: true,
-      supportsNativeWebSearch: false,
       supportsMidConversationSystem: true,
     }),
     optionSpecs: new provider.ModelOptionSpecsConfig({

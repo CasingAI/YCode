@@ -12,7 +12,6 @@ export const manualModelConfigSchema = completeModelConfigDataSchema
       .pick({
         contextWindow: true,
         supportsJsonSchemaOutput: true,
-        supportsNativeWebSearch: true,
         supportsMidConversationSystem: true,
       })
       .extend({

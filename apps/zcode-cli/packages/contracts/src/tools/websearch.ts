@@ -1,13 +1,10 @@
 // ============================================================
-// WebSearch Tool - provider-visible wrapper and internal provider-native schema definitions
+// WebSearch Tool - provider-visible wrapper and schema definitions
 // ============================================================
 
 import { z } from "zod";
 import { toToolJsonSchema } from "./json-schema.js";
-import type { ProviderNativeToolSpec, ToolContractDeclaration } from "./contract.js";
-
-const DEFAULT_MAX_USES = 8;
-const MAX_USES = 8;
+import type { ToolContractDeclaration } from "./contract.js";
 
 const WebSearchProviderInputSchema = z
   .object({
@@ -23,43 +20,17 @@ const WebSearchProviderInputSchema = z
   })
   .strict();
 
-export const WebSearchInputSchema = WebSearchProviderInputSchema.extend({
-  maxUses: z
-    .number()
-    .int()
-    .min(1)
-    .max(MAX_USES)
-    .optional()
-    .describe(
-      `Maximum provider-native searches in the internal web_search request, default ${DEFAULT_MAX_USES}`,
-    ),
-})
-  .strict()
-  .refine((input) => !(input.allowed_domains?.length && input.blocked_domains?.length), {
+export const WebSearchInputSchema = WebSearchProviderInputSchema.refine(
+  (input) => !(input.allowed_domains?.length && input.blocked_domains?.length),
+  {
     message: "allowed_domains and blocked_domains cannot both be specified",
     path: ["blocked_domains"],
-  });
+  },
+);
 
 export type WebSearchInput = z.infer<typeof WebSearchInputSchema>;
 
 export const WebSearchInputJsonSchema = toToolJsonSchema(WebSearchProviderInputSchema);
-
-export interface WebSearchProviderNativeArgs extends Record<string, unknown> {
-  allowedDomains?: string[];
-  blockedDomains?: string[];
-  maxUses?: number;
-}
-
-export function toWebSearchProviderNativeArgs(
-  input: WebSearchInput,
-  defaults: { maxUses: number },
-): WebSearchProviderNativeArgs {
-  return {
-    allowedDomains: input.allowed_domains,
-    blockedDomains: input.blocked_domains,
-    maxUses: input.maxUses ?? defaults.maxUses,
-  };
-}
 
 export const WebSearchSourceSchema = z
   .object({
@@ -75,6 +46,8 @@ export const WebSearchResultItemSchema = z
     title: z.string().optional(),
     url: z.string().min(1),
     pageAge: z.string().optional(),
+    // 独立搜索 API（DeepSeek/MiniMax 等）返回的摘要；原生 web_search 时代没有该字段。
+    snippet: z.string().optional(),
   })
   .strict();
 
@@ -113,13 +86,6 @@ export type WebSearchOutput = z.infer<typeof WebSearchOutputSchema>;
 
 export const WebSearchOutputJsonSchema = toToolJsonSchema(WebSearchOutputSchema);
 
-export const WEBSEARCH_PROVIDER_NATIVE_SPEC: ProviderNativeToolSpec = {
-  kind: "provider_native",
-  logicalName: "WebSearch",
-  providerToolName: "web_search",
-  fallback: "disabled",
-};
-
 export const WEBSEARCH_TOOL_CONTRACT: ToolContractDeclaration = {
   capability: "web_search",
   executionMode: "client",
@@ -128,7 +94,7 @@ export const WEBSEARCH_TOOL_CONTRACT: ToolContractDeclaration = {
   permission: {
     permission: "websearch",
     reason:
-      "WebSearch performs read-only provider-native web searches through an internal model request",
+      "WebSearch performs read-only web searches through the user's configured search provider API",
     riskLevel: "low",
     sideEffectScope: "network",
     needsApproval: false,

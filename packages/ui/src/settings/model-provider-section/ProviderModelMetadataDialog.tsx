@@ -340,7 +340,6 @@ export function ProviderModelMetadataDialog({
                   {(
                     [
                       "supportsJsonSchemaOutput",
-                      "supportsNativeWebSearch",
                       "supportsMidConversationSystem",
                     ] as const
                   ).map((property) => {

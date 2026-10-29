@@ -89,7 +89,6 @@ export function serializeRegistryModelConfig(
       outputFormat: { supportsText: config.properties.outputFormat.supportsText },
       supportsToolCall: config.properties.supportsToolCall,
       supportsJsonSchemaOutput: config.properties.supportsJsonSchemaOutput,
-      supportsNativeWebSearch: config.properties.supportsNativeWebSearch,
       supportsMidConversationSystem: config.properties.supportsMidConversationSystem,
     },
     optionSpecs: {
@@ -342,8 +341,8 @@ export class ProviderConfigResolver {
         providerId,
         enabled,
         // 展示偏好不参与可执行判定：下方 providerExecutable 只读 enabled/权益/完整性。
-        displayMode: resolveProviderDisplayMode(rule),
         isPrimary: rule.isPrimary ?? false,
+        displayMode: resolveProviderDisplayMode(rule),
         proxyMode: rule.proxyMode,
         providerName,
         templateId,
@@ -378,8 +377,8 @@ export class ProviderConfigResolver {
           providerId,
           providerName,
           templateId,
-          displayMode: resolveProviderDisplayMode(rule),
           isPrimary: rule.isPrimary ?? false,
+          displayMode: resolveProviderDisplayMode(rule),
           proxyMode: rule.proxyMode,
           config: registryProviderResult.config,
           models: Object.freeze(validModels),

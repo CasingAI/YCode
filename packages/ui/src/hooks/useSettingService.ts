@@ -148,7 +148,9 @@ export function useSettings() {
         typeof patch.askUserQuestionAutoResolutionEnabled === "boolean" ||
         typeof patch.modelIoRecordingEnabled === "boolean" ||
         typeof patch.modelIoFullRetentionEnabled === "boolean" ||
-        typeof patch.dynamicWorkflowEnabled === "boolean"
+        typeof patch.dynamicWorkflowEnabled === "boolean" ||
+        typeof patch.webSearchEnabled === "boolean" ||
+        patch.webSearchProviderOrder !== undefined
       ) {
         const preferences = {
           askUserQuestionAutoResolutionEnabled:
@@ -163,6 +165,15 @@ export function useSettings() {
           dynamicWorkflowEnabled:
             patch.dynamicWorkflowEnabled ??
             settingsStore.snapshot.settings?.dynamicWorkflowEnabled === true,
+          webSearchEnabled:
+            patch.webSearchEnabled ?? settingsStore.snapshot.settings?.webSearchEnabled !== false,
+          ...(patch.webSearchProviderOrder !== undefined
+            ? { webSearchProviderOrder: patch.webSearchProviderOrder }
+            : settingsStore.snapshot.settings?.webSearchProviderOrder !== undefined
+              ? {
+                  webSearchProviderOrder: settingsStore.snapshot.settings.webSearchProviderOrder,
+                }
+              : {}),
         };
         const syncResults = await Promise.allSettled([
           zcodeAgentService.syncAppRuntimePreferences(preferences),

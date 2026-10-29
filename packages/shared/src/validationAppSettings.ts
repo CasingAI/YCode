@@ -440,6 +440,11 @@ const appSettingsObjectSchema = z.object({
   sessionStorageWarningEnabled: z.boolean().default(true),
   dynamicWorkflowEnabled: z.boolean().default(false),
   automationEnabled: z.boolean().default(false),
+  // 网络搜索 Provider 体系（docs/specs/web-search-provider-capability.md）：
+  // 总开关缺省开启；排序列表字段缺省（不存在）表示用户从未整理过排序，
+  // 由 shared 的固定优先级派生默认序，显式 [] 表示用户清空候选。
+  webSearchEnabled: z.boolean().default(true),
+  webSearchProviderOrder: z.array(nonEmptyStringSchema).optional(),
   assistantSectionReadingEnabled: z.boolean().default(false),
   // YCode 独立数据库实验开关：默认 false 共享 ZCode 库；true 用 .ycode 全新库，不复制旧数据；重启生效。
   useIndependentDatabase: z.boolean().default(false),
@@ -511,6 +516,8 @@ export const appSettingsPatchSchema = z.object({
   sessionStorageWarningEnabled: z.boolean().optional(),
   dynamicWorkflowEnabled: z.boolean().optional(),
   automationEnabled: z.boolean().optional(),
+  webSearchEnabled: z.boolean().optional(),
+  webSearchProviderOrder: z.array(z.string()).optional(),
   assistantSectionReadingEnabled: z.boolean().optional(),
   useIndependentDatabase: z.boolean().optional(),
   startPlanRecommendationDismissed: z.boolean().optional(),

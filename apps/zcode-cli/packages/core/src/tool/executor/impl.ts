@@ -36,6 +36,7 @@ export class ToolExecutorImpl implements ToolExecutor {
       sessionContextPort: options.sessionContextPort,
       executionPort: options.executionPort,
       browserControlPort: options.browserControlPort,
+      webSearchPort: options.webSearchPort,
       browserDocumentationRoot: options.browserDocumentationRoot,
       fileSystemPort: options.fileSystemPort,
       httpClientPort: options.httpClientPort,

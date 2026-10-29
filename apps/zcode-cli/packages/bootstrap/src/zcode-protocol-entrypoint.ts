@@ -2,6 +2,7 @@ import { startDiskIoProtocolReporting, stopDiskIoProtocolReporting } from "./zco
 import { join } from "node:path";
 import { initializeYCodeDatabaseMode, resolveYCodeStartupDataBaseDir } from "@zcode/shared/node";
 import { createConfig, resolvePath } from "@zcode/adapters/config";
+import { createRegistryWebSearchExecutor } from "@zcode/adapters/web-search";
 import { createNodeModelSelectionFacade } from "@zcode/provider-node";
 import { createNodeLoggerFactory } from "@zcode/adapters/logging";
 import {
@@ -139,6 +140,7 @@ export async function runZCodeProtocolAgent(
   let providerRegistryRuntime:
     | Awaited<ReturnType<typeof startProcessProviderRegistryRuntime>>
     | undefined;
+  let webSearchExecutor: ReturnType<typeof createRegistryWebSearchExecutor> | undefined;
   try {
     // 数据库准备先于账号、Registry 和遥测，不把远端材料等待混进迁移门禁。
     const configResult = createConfig({ env: options.env });
@@ -253,6 +255,15 @@ export async function runZCodeProtocolAgent(
     const modelSelectionFacade = createNodeModelSelectionFacade(
       activeProviderRegistryRuntime.runtime.registryService,
     );
+    // 网络搜索执行器（docs/specs/web-search-provider-capability.md）：Registry 与
+    // 网络出口材料都是进程级事实，在这里装配一次；策略（开关+排序）由
+    // server-operations 用 context 偏好快照包装，不进入本执行器。
+    const webSearchExecutorCreated = createRegistryWebSearchExecutor({
+      registry: activeProviderRegistryRuntime.runtime.registryService,
+      env: options.env,
+      network: configResult.config.network,
+    });
+    webSearchExecutor = webSearchExecutorCreated;
     options.lifecycle?.signal.throwIfAborted();
     const server = (serverForCleanup = new ZCodeProtocolAgentServer({
       createZCodeApp: (appOptions = {}) =>
@@ -303,6 +314,7 @@ export async function runZCodeProtocolAgent(
       refreshProviderRegistry: async (reason) => {
         await activeProviderRegistryRuntime.runtime.registryService.refresh(reason);
       },
+      webSearchExecutor: webSearchExecutorCreated,
       version: options.version,
     }));
     officialMcpAuthContext = server.officialMcpAuthRequestContext;
@@ -381,6 +393,7 @@ export async function runZCodeProtocolAgent(
       mcpConnectionPool,
       sessionStore,
       providerRegistryRuntime,
+      webSearchExecutor,
     });
     stopDiskIoProtocolReporting();
     logger.info("ZCode Protocol agent shutdown completed", {

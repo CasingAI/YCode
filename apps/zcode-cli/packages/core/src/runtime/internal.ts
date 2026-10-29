@@ -83,6 +83,7 @@ export interface AgentRuntimeInternal
   modelIoDir?: string;
   providerRuntimeHeadersPort?: ProviderRuntimeHeadersPort;
   browserControlPort?: AgentRuntimeDeps["browserControlPort"];
+  webSearchPort?: AgentRuntimeDeps["webSearchPort"];
   modelRequestAdmission?: AgentRuntimeDeps["modelRequestAdmission"];
   sessionModelSelection: ModelSelection | undefined;
   /** 会话模型组状态（docs/specs/model-group.md）；undefined = 无组意图。 */

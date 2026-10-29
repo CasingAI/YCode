@@ -29,6 +29,7 @@ import { cloneModelSelection } from "../model-selection.js";
 import { applyRuntimeExecutionState } from "../execution-state.js";
 import { persistRuntimeSessionLanguage } from "../session-language.js";
 
+import type { WebSearchPort } from "@zcode/contracts";
 import { orderProviderVisibleToolContracts } from "../../tool/provider-visible-order.js";
 import { projectToolModelContract } from "../../tool/model-contract.js";
 import { rebuildContextPrefix } from "./context-refresh.js";
@@ -195,7 +196,7 @@ export function getTools(this: AgentRuntimeInternal, model?: Model): ModelToolCo
     this.cachedTools = filterRuntimeVisibleTools.call(this, this.registry.toContracts());
   }
   return this.cachedTools
-    .filter((tool) => tool.name !== "WebSearch" || shouldExposeWebSearch.call(this, model))
+    .filter((tool) => tool.name !== "WebSearch" || shouldExposeWebSearch.call(this))
     .map((tool) =>
       projectToolModelContract(tool, this.registry.get(tool.name), {
         model,
@@ -323,10 +324,19 @@ function filterRuntimeVisibleTools(
   return orderProviderVisibleToolContracts(visibleTools);
 }
 
-function shouldExposeWebSearch(this: AgentRuntimeInternal, model?: Model): boolean {
-  // 无 Model 的调用只枚举完整注册表，供持久化和 UI 元数据使用；真实执行始终传入
-  // 当前 Active Model，并只读取其冻结的完整能力事实。
-  if (!model) return true;
-  return model.properties.supportsNativeWebSearch;
+/**
+ * 网络搜索 Provider 体系（docs/specs/web-search-provider-capability.md）的工具面门控。
+ * 唯一事实：端口能解析出激活搜索源（总开关开 + 候选非空 + 激活项 Key 可用）。
+ * 与模型无关——搜索走供应商独立 API，不再依赖模型原生 web_search 能力。
+ * 端口实现保证解析廉价且同步可重入（getTools 每次过滤都会调用）。
+ */
+export function resolveWebSearchToolExposed(
+  webSearchPort: Pick<WebSearchPort, "resolveActiveProvider"> | undefined,
+): boolean {
+  return webSearchPort?.resolveActiveProvider() !== undefined;
+}
+
+function shouldExposeWebSearch(this: AgentRuntimeInternal): boolean {
+  return resolveWebSearchToolExposed(this.webSearchPort);
 }
 import { resolveExecutionState } from "@zcode/shared";

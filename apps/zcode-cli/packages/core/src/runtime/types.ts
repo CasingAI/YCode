@@ -19,6 +19,7 @@ import type {
   StableForkGoalBoundaryMetadata,
   StableForkTargetMetadata,
   SubagentExecutionFence,
+  WebSearchPort,
   WorkspaceHookBundleSnapshot,
   WorkspaceId,
 } from "@zcode/contracts";
@@ -395,6 +396,11 @@ export interface AgentRuntimeDeps {
   executionPort?: ExecutionPort;
   /** browser-use 控制端口；透传到 ToolExecutionContext.browserControlPort 供 node_repl 使用。 */
   browserControlPort?: BrowserControlPort;
+  /**
+   * 网络搜索执行端口（docs/specs/web-search-provider-capability.md）。
+   * 缺席时 WebSearch 工具不暴露；策略（开关+排序）在端口实现内实时解析。
+   */
+  webSearchPort?: WebSearchPort;
   fileSystemPort?: FileSystemPort;
   httpClientPort?: HttpClientPort;
   /** 沙盒只读 SQLite 查询端口；缺席时沙盒 sqlite 查询拒绝（实例仍可跑其余能力）。 */

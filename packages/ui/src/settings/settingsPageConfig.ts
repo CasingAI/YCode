@@ -23,6 +23,7 @@ import {
   FileSearch,
   FileCode2,
   FlaskConical,
+  Search,
 } from "lucide-react";
 import {
   isSettingsSectionEnabled,
@@ -111,6 +112,14 @@ const BASE_SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
     id: "memory",
     icon: Brain,
     titleId: "settings.memory",
+    groupId: "agentCapabilities",
+  },
+  // 网络搜索紧跟「记忆」：同属 Agent 能力开关，管理搜索源候选与激活优先级
+  // （docs/specs/web-search-provider-capability.md）。
+  {
+    id: "webSearch",
+    icon: Search,
+    titleId: "settings.webSearch.title",
     groupId: "agentCapabilities",
   },
   {

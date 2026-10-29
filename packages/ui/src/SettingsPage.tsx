@@ -82,6 +82,7 @@ import { HooksSection } from "@/settings/HooksSection.js";
 import { WorkspaceFileSearchSection } from "@/settings/WorkspaceFileSearchSection.js";
 import { FilesEditorLanguageSection } from "@/settings/FilesEditorLanguageSection.js";
 import { MemorySettingsSection } from "@/settings/MemorySettingsSection.js";
+import { WebSearchSettingsSection } from "@/settings/WebSearchSettingsSection.js";
 import { ExperimentalFeaturesSection } from "@/settings/ExperimentalFeaturesSection.js";
 import { BrowserSettingsSection } from "@/settings/BrowserSettingsSection.js";
 import { NetworkSettingsSection } from "@/settings/NetworkSettingsSection.js";
@@ -925,6 +926,8 @@ export function SettingsPage({
   const dynamicWorkflowEnabled =
     sharedSettings?.dynamicWorkflowEnabled === true;
   const automationEnabled = sharedSettings?.automationEnabled === true;
+  // 网络搜索缺省开启（docs/specs/web-search-provider-capability.md）；关闭只影响工具暴露。
+  const webSearchEnabled = sharedSettings?.webSearchEnabled !== false;
   const assistantSectionReadingEnabled =
     sharedSettings?.assistantSectionReadingEnabled === true;
   const [dataBaseDir, setDataBaseDir] = useState("");
@@ -1240,6 +1243,21 @@ export function SettingsPage({
         action: "toggle_automation",
         trigger: "switch",
         operation: () => updateSharedSettings({ automationEnabled: enabled }),
+        completed: {
+          resultSource: "shared_settings",
+          stateAfter: enabled ? "enabled" : "disabled",
+        },
+      });
+    },
+    [updateSharedSettings],
+  );
+  const handleWebSearchEnabledChange = useCallback(
+    async (enabled: boolean) => {
+      await runSettingsActionAsync({
+        featureId: "settings.webSearch",
+        action: "toggle_web_search",
+        trigger: "switch",
+        operation: () => updateSharedSettings({ webSearchEnabled: enabled }),
         completed: {
           resultSource: "shared_settings",
           stateAfter: enabled ? "enabled" : "disabled",
@@ -1879,9 +1897,6 @@ export function SettingsPage({
                   onAutoDownloadAndInstallUpdatesChange={
                     handleAutoDownloadAndInstallUpdatesChange
                   }
-                  onToolGroupingExploreEnabledChange={
-                    handleToolGroupingExploreEnabledChange
-                  }
                   onZCodeInteractionBehaviorChange={
                     handleZCodeInteractionBehaviorChange
                   }
@@ -2031,6 +2046,18 @@ export function SettingsPage({
                     onMemoryEnabledChange={handleMemoryEnabledChange}
                     projectMemoryViewerAvailable={Boolean(isDesktop)}
                     workspaceDisplayNames={memoryWorkspaceDisplayNames}
+                  />
+                </ServiceProvider>
+              ) : activeSection === "webSearch" ? (
+                <ServiceProvider services={localHostServices}>
+                  {/* 搜索源候选是本机全局事实（个人层 provider_config.json），
+                      与模型组一致使用本地 Host，不被远端 workspace 误读。 */}
+                  <WebSearchSettingsSection
+                    webSearchEnabled={webSearchEnabled}
+                    onWebSearchEnabledChange={handleWebSearchEnabledChange}
+                    workspacePath={activeWorkspacePath ?? ""}
+                    workspaceIdentity={activeWorkspaceIdentity ?? undefined}
+                    onOpenModelProviderSettings={handleOpenModelProviderSettings}
                   />
                 </ServiceProvider>
               ) : activeSection === "plugin" ? (

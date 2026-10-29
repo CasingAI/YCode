@@ -181,7 +181,6 @@ export class ModelPropertiesConfig extends ConfigOverlay<ModelPropertiesConfig> 
   readonly outputFormat?: ModelOutputFormatConfig | null;
   readonly supportsToolCall?: ModelPropertiesConfigInput["supportsToolCall"];
   readonly supportsJsonSchemaOutput?: ModelPropertiesConfigInput["supportsJsonSchemaOutput"];
-  readonly supportsNativeWebSearch?: ModelPropertiesConfigInput["supportsNativeWebSearch"];
   readonly supportsMidConversationSystem?: ModelPropertiesConfigInput["supportsMidConversationSystem"];
 
   constructor(input: ModelPropertiesConfigInput = {}) {
@@ -214,10 +213,6 @@ export class ModelPropertiesConfig extends ConfigOverlay<ModelPropertiesConfig> 
         this.supportsJsonSchemaOutput,
         next.supportsJsonSchemaOutput,
       ),
-      supportsNativeWebSearch: this.overlayValue(
-        this.supportsNativeWebSearch,
-        next.supportsNativeWebSearch,
-      ),
       supportsMidConversationSystem: this.overlayValue(
         this.supportsMidConversationSystem,
         next.supportsMidConversationSystem,
@@ -237,7 +232,6 @@ export class ModelPropertiesConfig extends ConfigOverlay<ModelPropertiesConfig> 
       outputFormat: this.outputFormat?.toJSON() ?? this.outputFormat,
       supportsToolCall: this.supportsToolCall,
       supportsJsonSchemaOutput: this.supportsJsonSchemaOutput,
-      supportsNativeWebSearch: this.supportsNativeWebSearch,
       supportsMidConversationSystem: this.supportsMidConversationSystem,
     });
   }

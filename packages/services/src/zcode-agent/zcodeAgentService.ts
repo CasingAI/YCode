@@ -109,6 +109,7 @@ import {
   type ZCodeAutomationRun,
   zcodeWorkspaceUpdateOffPeakToolPolicyResultSchema,
   zcodeWorkspaceUpdateDynamicWorkflowPolicyResultSchema,
+  zcodeWorkspaceUpdateWebSearchPolicyResultSchema,
   type AgentLaneResourceSample,
   type ProcessResourceCliLane,
   type ZCodeMcpTelemetryEvent,
@@ -1533,6 +1534,23 @@ export function createZCodeAgentService(
           );
         } catch (error) {
           // 旧 CLI 没有该 policy 方法时按关闭处理；其它错误不能吞掉设置同步失败。
+          if (!isProtocolMethodNotFoundError(error)) throw error;
+        }
+        try {
+          await params.client.request(
+            zcodeProtocolMethods.workspaceUpdateWebSearchPolicy,
+            {
+              workspace: buildWorkspaceRef(params.workspace),
+              enabled: params.preferences.webSearchEnabled !== false,
+              ...(params.preferences.webSearchProviderOrder === undefined
+                ? {}
+                : { providers: [...params.preferences.webSearchProviderOrder] }),
+            },
+            zcodeWorkspaceUpdateWebSearchPolicyResultSchema,
+          );
+        } catch (error) {
+          // 旧 CLI 没有该 policy 方法时保持缺省（无搜索源，WebSearch 不暴露）；
+          // 其它错误不能吞掉设置同步失败。
           if (!isProtocolMethodNotFoundError(error)) throw error;
         }
       });
@@ -3460,6 +3478,8 @@ export function createZCodeAgentService(
         modelIoFullRetentionEnabled: preferences.modelIoFullRetentionEnabled === true,
         dynamicWorkflowEnabled: preferences.dynamicWorkflowEnabled === true,
         automationEnabled: preferences.automationEnabled === true,
+        webSearchEnabled: preferences.webSearchEnabled !== false,
+        webSearchProviderOrder: preferences.webSearchProviderOrder,
       };
       latestAppRuntimePreferences = normalizedPreferences;
       const activeClients = [...activeClientsByWorkspaceKey.values()];

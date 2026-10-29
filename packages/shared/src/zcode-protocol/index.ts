@@ -2320,6 +2320,31 @@ export type ZCodeWorkspaceUpdateDynamicWorkflowPolicyResult = z.infer<
   typeof zcodeWorkspaceUpdateDynamicWorkflowPolicyResultSchema
 >;
 
+// 网络搜索 Provider 策略（docs/specs/web-search-provider-capability.md）：workspace 级事实，
+// 与 Dynamic Workflow 同一套 host→CLI 同步模式；旧 CLI method-not-found → host 降级忽略。
+// providers 走 optional：undefined 表示用户从未整理过排序，CLI 侧按模板固定优先级派生默认序。
+export const zcodeWorkspaceUpdateWebSearchPolicyParamsSchema = z
+  .object({
+    workspace: zcodeWorkspaceRefSchema,
+    enabled: z.boolean(),
+    providers: z.array(z.string()).max(16).optional(),
+  })
+  .strict();
+export type ZCodeWorkspaceUpdateWebSearchPolicyParams = z.infer<
+  typeof zcodeWorkspaceUpdateWebSearchPolicyParamsSchema
+>;
+
+export const zcodeWorkspaceUpdateWebSearchPolicyResultSchema = z
+  .object({
+    workspace: zcodeWorkspaceRefSchema,
+    enabled: z.boolean(),
+    providers: z.array(z.string()).max(16).optional(),
+  })
+  .strict();
+export type ZCodeWorkspaceUpdateWebSearchPolicyResult = z.infer<
+  typeof zcodeWorkspaceUpdateWebSearchPolicyResultSchema
+>;
+
 export const zcodePermissionRequestParamsSchema = z
   .object({
     requestId: nonEmptyString,
@@ -3669,6 +3694,8 @@ export const zcodeProtocolMethods = {
   workspaceUpdateOffPeakToolPolicy: "workspace/updateOffPeakToolPolicy",
   // Dynamic Workflow 会话工具开关：同 Off-Peak 的同步模式。
   workspaceUpdateDynamicWorkflowPolicy: "workspace/updateDynamicWorkflowPolicy",
+  // 网络搜索 Provider 策略：同 Dynamic Workflow 的同步模式（docs/specs/web-search-provider-capability.md）。
+  workspaceUpdateWebSearchPolicy: "workspace/updateWebSearchPolicy",
   // LLM 执行面在 CLI，直连不可行；消费仅 services 内部
   // （commit message），待 v4 workspace 查询/命令面覆盖后移除。
   workspaceGenerateText: "workspace/generateText",

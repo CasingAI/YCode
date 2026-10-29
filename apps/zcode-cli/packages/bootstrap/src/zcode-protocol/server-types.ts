@@ -11,6 +11,7 @@ import {
   type TraceContext,
 } from "@zcode/contracts";
 import type { McpTelemetryTracker } from "@zcode/adapters";
+import type { WebSearchExecutor } from "@zcode/adapters/web-search";
 import type { WorkspaceHookPolicyProvider } from "@zcode/core";
 import type { AccountProviderConfigSnapshot } from "@zcode/provider";
 import {
@@ -67,6 +68,13 @@ export interface ZCodeProtocolAgentDependencies {
   syncAccountProviderConfig?: (snapshot: AccountProviderConfigSnapshot) => Promise<boolean>;
   /** 连接测试前主动重读当前进程的 Config Source 并等待 Registry 发布。 */
   refreshProviderRegistry?: (reason: string) => Promise<void>;
+  /**
+   * 网络搜索执行器（docs/specs/web-search-provider-capability.md）。
+   * entrypoint 持有进程级 Provider Registry 才能解析搜索源端点与 Key，
+   * 因此在这里注入；server-operations 组装会话时用 context 的偏好快照包装成 WebSearchPort。
+   * 缺席时 WebSearch 工具不暴露。
+   */
+  webSearchExecutor?: WebSearchExecutor;
 }
 
 export type ZCodeProtocolAgentResolvedDependencies = ZCodeProtocolAgentDependencies & {
@@ -147,6 +155,13 @@ export interface ZCodeProtocolAgentServerContext {
      * 缺省 false：未同步或旧 Host 不认识该字段时不注册 Cron 四工具。
      */
     automationEnabled: boolean;
+    /**
+     * Host 同步的网络搜索 Provider 策略（docs/specs/web-search-provider-capability.md）。
+     * 缺省 false：未同步或旧 Host 不认识该字段时不暴露 WebSearch 工具（fail-closed）。
+     * providers 缺省表示用户从未整理过排序，执行期按模板固定优先级派生默认序。
+     */
+    webSearchEnabled: boolean;
+    webSearchProviderOrder?: string[];
   };
   // 竖切：v4 conversation 通道（订阅/帧/命令），与旧 session/* 方法并存。
   // 构造顺序问题（gateway 闭包持有 context）用可选字段收口，server 构造完立即赋值。

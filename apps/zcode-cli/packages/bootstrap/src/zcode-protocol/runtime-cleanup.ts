@@ -21,6 +21,8 @@ export async function cleanupProtocolRuntime(options: {
   mcpConnectionPool?: Pick<McpConnectionPool, "close">;
   sessionStore?: SqliteSessionStore;
   providerRegistryRuntime?: { dispose(): unknown };
+  /** 网络搜索执行器持有 MCP 连接缓存，随进程关停一并释放。 */
+  webSearchExecutor?: { dispose(): unknown };
 }): Promise<void> {
   const deadline = options.deadlineAt ?? Date.now() + DEFAULT_CLEANUP_BUDGET_MS;
   const step = async (resource: string, cleanup: () => unknown | Promise<unknown>) => {
@@ -63,6 +65,7 @@ export async function cleanupProtocolRuntime(options: {
       if (options.sessionStore) closeSessionStore(options.sessionStore);
     }),
     step("provider_registry", () => options.providerRegistryRuntime?.dispose()),
+    step("web_search_executor", () => options.webSearchExecutor?.dispose()),
     step("telemetry", () => shutdownPreparedModelTelemetry()),
   ]);
 }

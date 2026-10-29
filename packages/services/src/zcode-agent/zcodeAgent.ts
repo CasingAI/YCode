@@ -587,6 +587,12 @@ export interface ZCodeAgentAppRuntimePreferences {
   modelIoFullRetentionEnabled?: boolean;
   dynamicWorkflowEnabled?: boolean;
   automationEnabled?: boolean;
+  /**
+   * 网络搜索 Provider 策略（docs/specs/web-search-provider-capability.md）。
+   * order 走 optional：undefined 表示用户从未整理过排序，CLI 侧按模板固定优先级派生默认序。
+   */
+  webSearchEnabled?: boolean;
+  webSearchProviderOrder?: readonly string[];
 }
 
 export interface ZCodeAgentLocalRuntimeChildProcesses {

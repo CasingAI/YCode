@@ -190,6 +190,7 @@ function createRuntimeToolExecutor(
     },
     executionPort: deps.executionPort,
     browserControlPort: browserUseEnabled ? deps.browserControlPort : undefined,
+    webSearchPort: deps.webSearchPort,
     browserDocumentationRoot: browserUseEnabled
       ? runtime.config.runtimeFeatures?.browserDocumentationRoot
       : undefined,

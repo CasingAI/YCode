@@ -25,6 +25,7 @@ export const SETTINGS_SECTION_IDS = [
   "usage",
   "storage",
   "subagents",
+  "webSearch",
   "commands",
   "hooks",
   "workspaceFileSearch",

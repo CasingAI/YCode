@@ -7,7 +7,6 @@ import {
 
 const CONFIG_VALUE_FIELDS = [
   "supportsJsonSchemaOutputValue",
-  "supportsNativeWebSearchValue",
   "supportsMidConversationSystemValue",
   "reasoningLevelValuesValue",
 ] as const;

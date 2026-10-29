@@ -24,6 +24,7 @@ export * from "./sqlite-read.port.js";
 export * from "./automation.port.js";
 export * from "./mcp.port.js";
 export * from "./browser-control.port.js";
+export * from "./web-search.port.js";
 export * from "./shared.js";
 
 export * from "./permission-full-access.js";

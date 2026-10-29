@@ -73,17 +73,27 @@ export const completeModelPropertiesDataSchema = z
     outputFormat: completeModelOutputFormatDataSchema,
     supportsToolCall: z.boolean(),
     supportsJsonSchemaOutput: z.boolean(),
-    supportsNativeWebSearch: z.boolean(),
     supportsMidConversationSystem: z.boolean(),
   })
   .strict();
-export const modelPropertiesDataSchema = z
-  .object({
-    ...sparseShape(completeModelPropertiesDataSchema.shape),
-    inputFormat: modelInputFormatDataSchema.nullable().optional(),
-    outputFormat: modelOutputFormatDataSchema.nullable().optional(),
-  })
-  .strict();
+// 旧版模型元数据的 supportsNativeWebSearch 已随「网络搜索 Provider 体系」移除
+// （docs/specs/web-search-provider-capability.md）。properties 是 strict 对象，
+// 不剥键会让存量配置（内置 JSON 与个人 provider_config.json）在升级后解析失败。
+export function stripLegacyModelPropertiesKeys(value: unknown): unknown {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return value;
+  const { supportsNativeWebSearch: _removed, ...rest } = value as Record<string, unknown>;
+  return rest;
+}
+export const modelPropertiesDataSchema = z.preprocess(
+  stripLegacyModelPropertiesKeys,
+  z
+    .object({
+      ...sparseShape(completeModelPropertiesDataSchema.shape),
+      inputFormat: modelInputFormatDataSchema.nullable().optional(),
+      outputFormat: modelOutputFormatDataSchema.nullable().optional(),
+    })
+    .strict(),
+);
 
 export const completeModelOptionSpecsDataSchema = z
   .object({

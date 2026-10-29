@@ -10,6 +10,10 @@ export const appRuntimePreferencesChangedBroadcastPayloadSchema = z
     modelIoFullRetentionEnabled: z.boolean().default(false),
     dynamicWorkflowEnabled: z.boolean().default(false),
     automationEnabled: z.boolean().default(false),
+    // 网络搜索 Provider 策略（docs/specs/web-search-provider-capability.md）。
+    // order 走 optional：undefined 表示用户从未整理过排序，由消费方按固定优先级派生。
+    webSearchEnabled: z.boolean().default(true),
+    webSearchProviderOrder: z.array(z.string()).optional(),
   })
   .strict();
 

@@ -49,7 +49,6 @@ function createResponsesFixture(signal: AbortSignal) {
       outputFormat: { supportsText: true },
       supportsToolCall: true,
       supportsJsonSchemaOutput: false,
-      supportsNativeWebSearch: false,
       supportsMidConversationSystem: true,
     },
   };

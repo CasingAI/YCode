@@ -22,7 +22,6 @@ export interface ProviderModelDraftValues {
   /** 字段来源是用户意图，不依赖整份表单是否有效或数值是否恰好等于推荐。 */
   overriddenFieldsValue?: readonly string[];
   supportsJsonSchemaOutputValue?: boolean;
-  supportsNativeWebSearchValue?: boolean;
   supportsMidConversationSystemValue?: boolean;
   /** 按模型推理请求的出口代理（四态 radio，"default" 表示显式跟随全局）。 */
   proxyModeValue: ModelProxyMode;
@@ -75,7 +74,6 @@ export function createProviderModelDraftValues(
     clearPersonalConfigValue: false,
     overriddenFieldsValue: personalDraftFieldKeys(model.personalConfig),
     supportsJsonSchemaOutputValue: properties.supportsJsonSchemaOutput ?? false,
-    supportsNativeWebSearchValue: properties.supportsNativeWebSearch ?? false,
     supportsMidConversationSystemValue: properties.supportsMidConversationSystem ?? false,
     reasoningLevelValuesValue: [...(model.config.optionSpecs?.reasoningLevel?.values ?? [])],
     reasoningLevelMapValue:
@@ -87,11 +85,7 @@ export function createProviderModelDraftValues(
 
 function personalDraftFieldKeys(config: ModelConfigObject): string[] {
   const result: string[] = [];
-  for (const key of [
-    "supportsJsonSchemaOutput",
-    "supportsNativeWebSearch",
-    "supportsMidConversationSystem",
-  ] as const) {
+  for (const key of ["supportsJsonSchemaOutput", "supportsMidConversationSystem"] as const) {
     if (config.properties?.[key] != null) result.push(`${key}Value`);
   }
   if (config.optionSpecs?.reasoningLevel?.values != null) result.push("reasoningLevelValuesValue");
@@ -191,10 +185,6 @@ export function resolveProviderModelDraftCommit({
       draft.supportsJsonSchemaOutputValue ??
       currentModel.config.properties?.supportsJsonSchemaOutput ??
       false,
-    supportsNativeWebSearch:
-      draft.supportsNativeWebSearchValue ??
-      currentModel.config.properties?.supportsNativeWebSearch ??
-      false,
     supportsMidConversationSystem:
       draft.supportsMidConversationSystemValue ??
       currentModel.config.properties?.supportsMidConversationSystem ??
@@ -210,11 +200,7 @@ export function resolveProviderModelDraftCommit({
   if (draft.contextWindowValue.trim())
     assignMutable(personalProperties, "contextWindow", contextWindow);
   else deleteMutable(personalProperties, "contextWindow");
-  for (const key of [
-    "supportsJsonSchemaOutput",
-    "supportsNativeWebSearch",
-    "supportsMidConversationSystem",
-  ] as const) {
+  for (const key of ["supportsJsonSchemaOutput", "supportsMidConversationSystem"] as const) {
     if (draft.overriddenFieldsValue?.includes(`${key}Value`))
       assignMutable(personalProperties, key, effectiveProperties[key]);
   }
@@ -419,11 +405,7 @@ function buildPersonalProperties({
 }): NonNullable<ModelConfigObject["properties"]> {
   const result: Record<string, unknown> = { ...current };
   applySparseLeaf(result, "contextWindow", effective.contextWindow, inherited?.contextWindow);
-  for (const key of [
-    "supportsJsonSchemaOutput",
-    "supportsNativeWebSearch",
-    "supportsMidConversationSystem",
-  ] as const) {
+  for (const key of ["supportsJsonSchemaOutput", "supportsMidConversationSystem"] as const) {
     applyInteractiveSparseLeaf(
       result,
       key,

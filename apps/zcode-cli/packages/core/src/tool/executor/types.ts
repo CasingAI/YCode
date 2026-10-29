@@ -10,6 +10,7 @@ import type {
   EmbeddedSearchBackend,
   ExecutionPort,
   BrowserControlPort,
+  WebSearchPort,
   ExecutionShellSelection,
   AutomationPort,
   OffPeakPort,
@@ -92,6 +93,7 @@ export interface ToolExecutorOptions {
   sessionContextPort?: SessionContextControlPort;
   executionPort?: ExecutionPort;
   browserControlPort?: BrowserControlPort;
+  webSearchPort?: WebSearchPort;
   browserDocumentationRoot?: string;
   fileSystemPort?: FileSystemPort;
   httpClientPort?: HttpClientPort;
@@ -203,6 +205,7 @@ export interface ToolExecutorDeps {
   sessionContextPort?: SessionContextControlPort;
   executionPort?: ExecutionPort;
   browserControlPort?: BrowserControlPort;
+  webSearchPort?: WebSearchPort;
   browserDocumentationRoot?: string;
   fileSystemPort?: FileSystemPort;
   httpClientPort?: HttpClientPort;

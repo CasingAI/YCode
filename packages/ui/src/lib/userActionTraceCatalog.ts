@@ -90,6 +90,7 @@ export const SETTINGS_USER_ACTION_FEATURES = {
   ],
   "settings.storage": ["change_data_directory"],
   "settings.memory": ["toggle_memory", "refresh_memory", "change_memory_scope"],
+  "settings.webSearch": ["toggle_web_search", "reorder_web_search_providers"],
   "settings.browser": [
     "toggle_browser_use",
     "import_browser_data",

@@ -57,6 +57,7 @@ import type {
   DynamicWorkflowRunSessionSummary,
   ExecutionPort,
   BrowserControlPort,
+  WebSearchPort,
   FileSystemPort,
   GoalStatus,
   HttpClientPort,
@@ -177,6 +178,11 @@ export interface ZCodeAppOptions {
   onToolExecResource?: (sample: ZCodeToolExecResource) => void;
   /** browser-use 控制端口；注入后 node_repl 的 agent.browsers.* 可用。缺省则不可用。 */
   browserControlPort?: BrowserControlPort;
+  /**
+   * 网络搜索执行端口（docs/specs/web-search-provider-capability.md）。
+   * 协议宿主按进程 Registry + Host 偏好装配；缺省时 WebSearch 工具不暴露。
+   */
+  webSearchPort?: WebSearchPort;
   /** 可由协议宿主注入的进程级 node_repl Browser broker；缺省时 app 自建并拥有。 */
   nodeReplBrowserBroker?: NodeReplBrowserBroker;
   fileSystemPort?: FileSystemPort;
