@@ -1,6 +1,7 @@
 /* eslint-disable max-lines */
 import { mkdir, open, readFile, readdir, realpath, stat } from "node:fs/promises";
-import { atomicWriteTextFile } from "./atomicWriteTextFile.js";
+import { commitTextFile, writeTextFileLocked } from "./fileTextCommit.js";
+import { readTextFileWindow } from "./fileTextWindow.js";
 import { createWorkspaceFileMutator } from "./workspaceFileMutation.js";
 import { homedir } from "node:os";
 import { extname, join } from "node:path";
@@ -438,7 +439,11 @@ export function createFileService(options: CreateFileServiceOptions = {}): IFile
       return { path: workspacePath };
     },
     async writeTextFile(params: { path: string; content: string }): Promise<void> {
-      await atomicWriteTextFile(params.path, params.content);
+      // 旧接口保留，但必须与 commitTextFile 共用 canonical 路径锁，避免旁路并发。
+      await writeTextFileLocked(params.path, params.content);
+    },
+    async commitTextFile(params) {
+      return commitTextFile(params);
     },
     mutateWorkspaceEntry,
     async readTextFile(params: {
@@ -485,6 +490,15 @@ export function createFileService(options: CreateFileServiceOptions = {}): IFile
       } finally {
         await handle.close();
       }
+    },
+    async readTextFileWindow(params: {
+      path: string;
+      offset?: number;
+      length?: number;
+      expectedVersion?: string;
+    }) {
+      // 大文本窗口读独立封装；旧 readTextFile 行为保持不变。
+      return readTextFileWindow(params);
     },
     async readFileRange(params: {
       path: string;

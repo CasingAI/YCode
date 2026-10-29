@@ -1,6 +1,10 @@
 import { Save } from "lucide-react";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
-import { isFilesBufferDirty, isFilesTextBuffer } from "@/files-workbench/filesEditorModel.js";
+import {
+  canSaveFilesBuffer,
+  isFilesBufferDirty,
+  isFilesTextBuffer,
+} from "@/files-workbench/filesEditorModel.js";
 import type { FilesBuffer } from "@/files-workbench/filesEditorTypes.js";
 
 /**
@@ -17,10 +21,12 @@ export function FilesEditorTabSaveButton({
   onSave?: (bufferId: string) => void;
 }) {
   const { intl } = useZCodeIntl();
-  // 只读预览（图片等）没有可写路径，不出现保存按钮；没有未保存改动时也不出现。
+  // 只读预览、只读大文本与旧截断文本没有可写路径，不出现保存按钮；
+  // 没有未保存改动时也不出现。
   const canSave = Boolean(
     activeBuffer &&
     isFilesTextBuffer(activeBuffer) &&
+    canSaveFilesBuffer(activeBuffer) &&
     activeBuffer.path &&
     isFilesBufferDirty(activeBuffer),
   );

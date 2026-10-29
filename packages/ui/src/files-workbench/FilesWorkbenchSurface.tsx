@@ -19,6 +19,8 @@ import { FilesEditorGroupPane } from "@/files-workbench/FilesEditorGroupPane.js"
 import {
   FilesConflictDialog,
   FilesDirtyCloseDialog,
+  FilesExternalChangeReloadDialog,
+  FilesLargeTextConflictDialog,
 } from "@/files-workbench/FilesWorkbenchDialogs.js";
 import { filesExplorerWorkspaceOptions } from "@/files-workbench/filesExplorerWorkspace.js";
 import { FilesWorkbenchSaveAsDialog } from "@/files-workbench/FilesWorkbenchSaveAsDialog.js";
@@ -26,7 +28,8 @@ import { useFilesWorkbenchController } from "@/files-workbench/useFilesWorkbench
 import { useFilesEditorMenuCommands } from "@/files-workbench/useFilesEditorMenuCommands.js";
 import { useFilesEditorUntitled } from "@/files-workbench/useFilesEditorUntitled.js";
 import { useFilesEditorTabContextActions } from "@/files-workbench/useFilesEditorTabContextActions.js";
-import { filesActiveTextBuffer } from "@/files-workbench/filesActiveTextBuffer.js";
+import { filesActiveSavableBuffer } from "@/files-workbench/filesActiveSavableBuffer.js";
+import { FilesLargeTextDraftStatus } from "@/files-workbench/FilesLargeTextDraftStatus.js";
 import { FilesWorkbenchToolbar } from "@/files-workbench/FilesWorkbenchToolbar.js";
 import { FilesWorkbenchHeader } from "@/files-workbench/FilesWorkbenchHeader.js";
 import { FilesWorkbenchWindowControls } from "@/files-workbench/FilesWorkbenchWindowControls.js";
@@ -61,7 +64,8 @@ export function FilesWorkbenchSurface({
   const workspaceTabs = useTabStore(useShallow((state) => state.tabs.filter(isWorkspaceTab)));
   const [hasEnteredFiles, setHasEnteredFiles] = useState(isActiveView);
   const [revealPosition, setRevealPosition] = useState<FilesMonacoRevealPosition>();
-  const controller = useFilesWorkbenchController(hasEnteredFiles);
+  // 控制器的恢复 / watch 只跟随文件主视图是否激活；进入过文件视图不代表现在可见。
+  const controller = useFilesWorkbenchController(hasEnteredFiles, isActiveView);
   const resizeCleanupRef = useRef<(() => void) | undefined>(undefined);
 
   useEffect(() => {
@@ -110,9 +114,11 @@ export function FilesWorkbenchSurface({
   const dirtyCloseBuffer = controller.dirtyCloseBufferId
     ? findFilesBuffer({ buffers, openIds, untitledSerial: 1 }, controller.dirtyCloseBufferId)
     : undefined;
-  const saveAsBuffer = controller.saveAsBufferId
-    ? filesActiveTextBuffer(buffers, controller.saveAsBufferId)
-    : undefined;
+  const reloadConfirmBuffer = buffers.find(
+    (buffer) => buffer.id === controller.reloadConfirmBufferId,
+  );
+  // 大文件 IndexedDB 草稿状态只做投影：blocked / errors / pending 都可解释，
+  // Store 仍是编辑草稿的唯一所有者；组件内部只读快照，不复制 changes 或改写基准。
 
   const explorerOptions = useMemo(
     () => filesExplorerWorkspaceOptions(workspaceTabs),
@@ -298,6 +304,11 @@ export function FilesWorkbenchSurface({
           onSaveAs={onSaveAs}
           onFocusGroup={onFocusGroup}
           onEditorHandleChange={onEditorHandleChange}
+          onExternalChangeAction={(bufferId, action) =>
+            action === "reload"
+              ? controller.requestReloadBuffer(bufferId)
+              : controller.dismissExternalChange(bufferId)
+          }
         />
       );
     }
@@ -374,6 +385,7 @@ export function FilesWorkbenchSurface({
         />
       </FilesWorkbenchHeader>
       <FilesWorkbenchWindowControls {...{ isDesktop, isMacDesktop, isActiveView }} />
+      <FilesLargeTextDraftStatus drafts={controller.largeTextDrafts} />
       <div className="min-h-0 min-w-0 flex-1 [app-region:no-drag]">
         {renderLayoutNode(layout.root)}
       </div>
@@ -384,14 +396,24 @@ export function FilesWorkbenchSurface({
       />
       <FilesConflictDialog
         open={Boolean(controller.conflictBuffer)}
+        deleted={controller.conflictBuffer?.deleted}
         onDecide={(decision) => void controller.handleConflictDecision(decision)}
+      />
+      <FilesLargeTextConflictDialog
+        open={Boolean(controller.largeConflictBuffer)}
+        onDecide={(decision) => void controller.handleLargeConflictDecision(decision)}
+      />
+      <FilesExternalChangeReloadDialog
+        open={Boolean(reloadConfirmBuffer)}
+        name={reloadConfirmBuffer ? filesBufferTabTitle(reloadConfirmBuffer) : ""}
+        onDecide={(decision) => void controller.handleExternalReloadDecision(decision)}
       />
       <FilesWorkbenchSaveAsDialog
         controller={controller}
         isDesktop={isDesktop}
         workspaceTabs={workspaceTabs}
         pendingSaveDirectory={pendingSaveDirectory}
-        saveAsBuffer={saveAsBuffer}
+        saveAsBuffer={filesActiveSavableBuffer(buffers, controller.saveAsBufferId)}
       />
     </section>
   );

@@ -60,6 +60,7 @@ function groupProps(id: string, isFocused: boolean, populated = true): GroupProp
     onCreateUntitled: noop,
     onSave: noop,
     onSaveAs: noop,
+    onExternalChangeAction: noop,
     onFocusGroup: noop,
   };
 }

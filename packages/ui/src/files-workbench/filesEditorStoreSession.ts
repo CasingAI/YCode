@@ -2,6 +2,7 @@ import { resolveFilesBufferKind } from "@/files-workbench/filesEditorKind.js";
 import { createLayoutForOpenIds } from "@/files-workbench/filesEditorStoreLayout.js";
 import {
   createPreviewBuffer,
+  createRestoredLargeTextBuffer,
   createRestoredTextFileBuffer,
   createUntitledTextBuffer,
 } from "@/files-workbench/filesEditorModel.js";
@@ -28,6 +29,8 @@ export function restoreFilesEditorSession(
     text: draft.text,
     savedText: draft.savedText,
     workspace: draft.workspace,
+    // 旧版截断草稿必须继续标记为不可保存，不能被当成完整正文。
+    truncated: draft.truncated === true ? true : undefined,
   }));
   const draftIds = new Set(draftBuffers.map((buffer) => buffer.id));
   const restoredBuffers = uniqueOpenTabs.flatMap<FilesBuffer>((tab, index) => {
@@ -35,10 +38,30 @@ export function restoreFilesEditorSession(
     // 旧版本可能把图片 / PDF / Office 等误记为文本标签。干净标签按当前共用分类
     // 直接修正为预览，不在恢复元数据时读盘；保留原 ID 与预览标记，避免改变标签顺序。
     // 草稿在上面已优先返回，这里只处理没有草稿正文的干净标签。
-    if (
-      tab.path &&
-      (tab.kind === "preview" || (!tab.untitled && resolveFilesBufferKind(tab.path) === "preview"))
-    ) {
+    if (tab.path && tab.kind === "preview") {
+      return [
+        {
+          ...createPreviewBuffer({
+            workspace: tab.workspace,
+            path: tab.path,
+            id: tab.id,
+          }),
+          preview: tab.preview === true ? true : undefined,
+        },
+      ];
+    }
+    // 大文本只恢复元数据；首次激活时重新走统一读取决策。
+    if (tab.path && tab.kind === "large-text") {
+      return [
+        createRestoredLargeTextBuffer({
+          id: tab.id,
+          path: tab.path,
+          workspace: tab.workspace,
+          preview: tab.preview,
+        }),
+      ];
+    }
+    if (tab.path && !tab.untitled && resolveFilesBufferKind(tab.path) === "preview") {
       return [
         {
           ...createPreviewBuffer({

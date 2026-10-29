@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { FileTextSlice } from "@zcode/shared";
+import type { FileTextWindow } from "@zcode/shared";
 import type { IServiceAccessor } from "@zcode/services";
 import { ZCodeIntlProvider } from "../src/i18n/IntlProvider.js";
 import { ServiceProvider } from "../src/hooks/useServices.js";
@@ -11,7 +11,7 @@ import {
   FilesEditorStoreProvider,
   useFilesEditorStoreApi,
 } from "../src/files-workbench/FilesEditorStoreProvider.js";
-import { commitFilesEditorReadResult } from "../src/files-workbench/filesEditorFileIO.js";
+import { commitFilesEditorTextReadResult } from "../src/files-workbench/filesEditorFileIO.js";
 import { useFilesWorkbenchController } from "../src/files-workbench/useFilesWorkbenchController.js";
 import { useFilesEditorRestore } from "../src/files-workbench/useFilesEditorRestore.js";
 import {
@@ -29,22 +29,42 @@ import type {
 
 const workspace: FilesWorkspaceRef = { workspacePath: "/work" };
 
-function textSlice(path: string, content: string, isBinary = false): FileTextSlice {
+function textWindow(path: string, content: string, isBinary = false): FileTextWindow {
   return {
     path,
-    content,
+    content: isBinary ? "" : content,
     offset: 0,
     bytesRead: content.length,
+    nextOffset: content.length,
     totalBytes: content.length,
-    truncated: false,
+    version: `v-${content.length}`,
     isBinary,
+    eof: true,
+    truncated: false,
   };
 }
 
+function readResult(path: string, content: string, isBinary = false) {
+  const window = textWindow(path, content, isBinary);
+  return isBinary
+    ? { mode: "binary" as const, totalBytes: window.totalBytes, version: window.version }
+    : {
+        mode: "editable" as const,
+        text: window.content,
+        totalBytes: window.totalBytes,
+        version: window.version,
+      };
+}
+
 function servicesWith(
-  readTextFile: (args: { path: string; length: number }) => Promise<FileTextSlice>,
+  readTextFileWindow: (args: {
+    path: string;
+    offset?: number;
+    length?: number;
+    expectedVersion?: string;
+  }) => Promise<FileTextWindow>,
 ): IServiceAccessor {
-  return { fileService: { readTextFile } } as unknown as IServiceAccessor;
+  return { fileService: { readTextFileWindow } } as unknown as IServiceAccessor;
 }
 
 function renderController(services: IServiceAccessor) {
@@ -54,7 +74,7 @@ function renderController(services: IServiceAccessor) {
   };
   function Capture() {
     captured = {
-      controller: useFilesWorkbenchController(false),
+      controller: useFilesWorkbenchController(false, false),
       store: useFilesEditorStoreApi(),
     };
     return null;
@@ -119,7 +139,7 @@ test("首开未知二进制的文本候选时建立预览标签，不留下可�
   const { controller, store } = renderController(
     servicesWith(async (args) => {
       reads.push(args.path);
-      return textSlice(args.path, "\u0000\u0001binary", true);
+      return textWindow(args.path, "\u0000\u0001binary", true);
     }),
   );
 
@@ -184,7 +204,7 @@ test("恢复未知二进制时在原缓冲 ID 内转为预览，保留预览标�
     store,
     servicesWith(async (args) => {
       reads.push(args.path);
-      return textSlice(args.path, "\u0000binary", true);
+      return textWindow(args.path, "\u0000binary", true);
     }),
   );
 
@@ -244,7 +264,7 @@ test("脏草稿优先于路径分类与读盘：图片误开产生的草稿绝�
   const { controller, store } = renderController(
     servicesWith(async (args) => {
       reads += 1;
-      return textSlice(args.path, "should not be read", true);
+      return textWindow(args.path, "should not be read", true);
     }),
   );
   store.getState().hydrateSession({
@@ -283,7 +303,7 @@ test("已打开干净文本缓冲重开时按当前分类原地改为预览，�
   const { controller, store } = renderController(
     servicesWith(async (args) => {
       reads += 1;
-      return textSlice(args.path, "text", false);
+      return textWindow(args.path, "text", false);
     }),
   );
   store.getState().openBuffer(createTextFileBuffer({ workspace, path, text: "legacy text" }));
@@ -316,12 +336,12 @@ test("恢复读取期间删除路径后，旧二进制结果不得重新建立�
       tabs: [{ id, kind: "text", path, workspace }],
     }),
   );
-  let resolveRead!: (value: FileTextSlice) => void;
+  let resolveRead!: (value: FileTextWindow) => void;
   const loader = captureRestore(
     store,
     servicesWith(
       () =>
-        new Promise<FileTextSlice>((resolve) => {
+        new Promise<FileTextWindow>((resolve) => {
           resolveRead = resolve;
         }),
     ),
@@ -330,7 +350,7 @@ test("恢复读取期间删除路径后，旧二进制结果不得重新建立�
   const loading = loader.loadRestoredTextFile(id);
   await Promise.resolve();
   store.getState().applyFileMutation({ workspace, kind: "delete", path });
-  resolveRead(textSlice(path, "\u0000binary", true));
+  resolveRead(textWindow(path, "\u0000binary", true));
   await loading;
 
   const state = store.getState();
@@ -355,13 +375,13 @@ test("读取在途时编辑的文本草稿不会被迟到的文本结果覆盖",
       tabs: [{ id, kind: "text", path, workspace }],
     }),
   );
-  let resolveRead!: (value: FileTextSlice) => void;
+  let resolveRead!: (value: FileTextWindow) => void;
   let reads = 0;
   const loader = captureRestore(
     store,
     servicesWith(() => {
       reads += 1;
-      return new Promise<FileTextSlice>((resolve) => {
+      return new Promise<FileTextWindow>((resolve) => {
         resolveRead = resolve;
       });
     }),
@@ -372,7 +392,7 @@ test("读取在途时编辑的文本草稿不会被迟到的文本结果覆盖",
   await Promise.resolve();
   assert.equal(reads, 1);
   store.getState().updateText(id, "typed while loading");
-  resolveRead(textSlice(path, "disk text", false));
+  resolveRead(textWindow(path, "disk text", false));
   await loading;
 
   const buffer = store.getState().buffers[0]!;
@@ -396,13 +416,13 @@ test("读取在途时编辑的文本草稿不会被迟到的二进制结果转�
       tabs: [{ id, kind: "text", path, workspace, preview: true }],
     }),
   );
-  let resolveRead!: (value: FileTextSlice) => void;
+  let resolveRead!: (value: FileTextWindow) => void;
   let reads = 0;
   const loader = captureRestore(
     store,
     servicesWith(() => {
       reads += 1;
-      return new Promise<FileTextSlice>((resolve) => {
+      return new Promise<FileTextWindow>((resolve) => {
         resolveRead = resolve;
       });
     }),
@@ -413,7 +433,7 @@ test("读取在途时编辑的文本草稿不会被迟到的二进制结果转�
   await Promise.resolve();
   assert.equal(reads, 1);
   store.getState().updateText(id, "typed while loading");
-  resolveRead(textSlice(path, "\u0000binary", true));
+  resolveRead(textWindow(path, "\u0000binary", true));
   await loading;
 
   const buffer = store.getState().buffers[0]!;
@@ -439,11 +459,11 @@ test("target 提交按 filesWorkspaceKey 拒绝不同工作区的同路径缓冲
     loadState: "loading",
   });
 
-  const committed = commitFilesEditorReadResult({
+  const committed = commitFilesEditorTextReadResult({
     store,
     workspace: otherWorkspace,
     path,
-    result: textSlice(path, "other workspace text", false),
+    result: readResult(path, "other workspace text", false),
     targetId: id,
   });
 
@@ -465,17 +485,17 @@ test("提交读取结果保留 workspaceIdentity 与 remoteSessionId，同名路
   const path = "/work/shared/file.unknownext";
   const store = createFilesEditorStore();
 
-  commitFilesEditorReadResult({
+  commitFilesEditorTextReadResult({
     store,
     workspace: remoteWorkspace,
     path,
-    result: textSlice(path, "\u0000remote", true),
+    result: readResult(path, "\u0000remote", true),
   });
-  commitFilesEditorReadResult({
+  commitFilesEditorTextReadResult({
     store,
     workspace,
     path,
-    result: textSlice(path, "local text", false),
+    result: readResult(path, "local text", false),
   });
 
   const remoteId = filesFileBufferId(remoteWorkspace, path);

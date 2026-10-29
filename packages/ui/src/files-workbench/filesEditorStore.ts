@@ -30,24 +30,33 @@ import type { FilesPendingOpen } from "@/files-workbench/filesEditorTypes.js";
 import { createFilesEditorOpenRequestActions } from "@/files-workbench/filesEditorStoreOpenRequests.js";
 import {
   closeBufferInState,
+  completeLargeTextBufferAsTextInState,
   createUntitledTextBuffer,
   filesWorkspaceKey,
   loadTextBufferInState,
   openBufferInState,
-  persistableDrafts,
-  persistableOpenTabs,
   resolveExplorerWorkspaceKey,
+  setLargeTextTotalBytesInState,
   setTextBufferLoadStateInState,
   updateTextBuffer,
 } from "@/files-workbench/filesEditorModel.js";
+import { snapshotFilesEditorSession } from "@/files-workbench/filesEditorPersistence.js";
 import { applyFilesEditorClosePlan } from "@/files-workbench/filesEditorCloseOperations.js";
-import { convertTextBufferToPreviewInState } from "@/files-workbench/filesEditorPreviewConversion.js";
+import {
+  convertTextBufferToLargeTextInState,
+  convertTextBufferToPreviewInState,
+} from "@/files-workbench/filesEditorPreviewConversion.js";
 import type { FilesEditorClosePlan } from "@/files-workbench/filesEditorCloseOperations.js";
 import { restoreFilesEditorSession } from "@/files-workbench/filesEditorStoreSession.js";
 import {
   applyFilesEditorFileMutation,
   type FilesEditorFileMutation,
 } from "@/files-workbench/filesEditorFileMutations.js";
+import { disposeStaleLargeTextWindows } from "@/files-workbench/filesEditorLargeTextWindows.js";
+import {
+  createFilesLargeTextEditActions,
+  type FilesLargeTextEditActions,
+} from "@/files-workbench/filesLargeTextDraftActions.js";
 import type {
   FilesBuffer,
   FilesEditorFocusRequest,
@@ -64,7 +73,7 @@ const EMPTY_STATE: FilesEditorState = {
   untitledSerial: 1,
 };
 
-export interface FilesEditorStoreState extends FilesEditorState {
+export interface FilesEditorStoreState extends FilesEditorState, FilesLargeTextEditActions {
   lastFileMutation?: FilesEditorFileMutation;
   applyFileMutation: (mutation: FilesEditorFileMutation) => void;
   layout: FilesEditorLayoutState;
@@ -90,8 +99,27 @@ export interface FilesEditorStoreState extends FilesEditorState {
    * 读取结果证明该路径是二进制时，在原 ID 内转为预览缓冲。
    * 布局、标签顺序和焦点保持不变；脏草稿不会被转换。
    */
-  convertTextBufferToPreview: (id: string) => void;
-  restoreTextContent: (id: string, params: { text: string; truncated?: boolean }) => void;
+  convertTextBufferToPreview: (id: string, params?: { allowDirty?: boolean }) => void;
+  /**
+   * 读取决策证明磁盘文件已超过可编辑阈值时，在原 ID 内改为只读大文本缓冲。
+   * 常规打开/恢复保留脏草稿；保存冲突里用户选择「使用磁盘」时传 allowDirty。
+   */
+  convertTextBufferToLargeText: (
+    id: string,
+    params?: { totalBytes?: number; readonlyReason?: "encoding"; allowDirty?: boolean },
+  ) => void;
+  /** 大文本恢复决策发现磁盘已回到 ≤ 8 MiB：原 ID 内转为完整可编辑文本。 */
+  completeLargeTextAsText: (id: string, params: { text: string }) => void;
+  /** 大文本决策拿到首窗后补全只读元数据；不保存窗口正文。 */
+  setLargeTextTotalBytes: (
+    id: string,
+    totalBytes: number | undefined,
+    readonlyReason?: "encoding",
+  ) => void;
+  restoreTextContent: (
+    id: string,
+    params: { text: string; truncated?: boolean; version?: string },
+  ) => void;
   markSaved: (
     id: string,
     params: {
@@ -99,6 +127,8 @@ export interface FilesEditorStoreState extends FilesEditorState {
       text: string;
       workspace: FilesWorkspaceRef;
       preserveCurrentText?: boolean;
+      /** 本次保存得到的磁盘版本；写入普通文本运行时 diskVersion。 */
+      version?: string;
     },
   ) => void;
   createUntitled: (workspace: FilesWorkspaceRef) => string;
@@ -129,7 +159,7 @@ export interface FilesEditorStoreState extends FilesEditorState {
 }
 
 export function createFilesEditorStore() {
-  return create<FilesEditorStoreState>()((set, get) => ({
+  const store = create<FilesEditorStoreState>()((set, get) => ({
     ...EMPTY_STATE,
     layout: createEmptyFilesEditorLayout(`files-group-${createUuid()}`),
 
@@ -281,8 +311,20 @@ export function createFilesEditorStore() {
       set((state) => setTextBufferLoadStateInState(state, id, loadState));
     },
 
-    convertTextBufferToPreview: (id) => {
-      set((state) => convertTextBufferToPreviewInState(state, id));
+    convertTextBufferToPreview: (id, params) => {
+      set((state) => convertTextBufferToPreviewInState(state, id, params));
+    },
+
+    convertTextBufferToLargeText: (id, params) => {
+      set((state) => convertTextBufferToLargeTextInState(state, id, params));
+    },
+
+    completeLargeTextAsText: (id, params) => {
+      set((state) => completeLargeTextBufferAsTextInState(state, id, params));
+    },
+
+    setLargeTextTotalBytes: (id, totalBytes, readonlyReason) => {
+      set((state) => setLargeTextTotalBytesInState(state, id, totalBytes, readonlyReason));
     },
 
     restoreTextContent: (id, params) => {
@@ -304,6 +346,8 @@ export function createFilesEditorStore() {
             path: params.path,
             untitled: false,
             title,
+            externalChange: undefined,
+            ...(params.version === undefined ? undefined : { diskVersion: params.version }),
           });
         }
         const closed = closeBufferInState(state, id);
@@ -316,6 +360,7 @@ export function createFilesEditorStore() {
           text,
           savedText: params.text,
           workspace: params.workspace,
+          diskVersion: params.version,
         };
         const next = openBufferInState(closed, savedBuffer);
         const targetAlreadyVisible =
@@ -363,6 +408,8 @@ export function createFilesEditorStore() {
 
     ...createFilesEditorOpenRequestActions(set),
 
+    ...createFilesLargeTextEditActions(set, get),
+
     editorFocusRequestId: 0,
     clearEditorFocusRequest: (requestId) => {
       set((state) =>
@@ -379,18 +426,7 @@ export function createFilesEditorStore() {
       }));
     },
 
-    snapshotSession: (): FilesPersistedSession => {
-      const state = get();
-      const openTabs = persistableOpenTabs(state);
-      return {
-        version: 1,
-        explorerWorkspaceKey: state.explorerWorkspaceKey,
-        activeId: state.activeId,
-        openFileIds: openTabs.map((tab) => tab.id),
-        openTabs,
-        drafts: persistableDrafts(state),
-      };
-    },
+    snapshotSession: (): FilesPersistedSession => snapshotFilesEditorSession(get()),
 
     resolveExplorerKey: (workspaceKeys) =>
       resolveExplorerWorkspaceKey({
@@ -398,6 +434,11 @@ export function createFilesEditorStore() {
         workspaceKeys,
       }),
   }));
+
+  store.subscribe((state, previous) => {
+    disposeStaleLargeTextWindows(state, previous);
+  });
+  return store;
 }
 
 export type FilesEditorStore = ReturnType<typeof createFilesEditorStore>;

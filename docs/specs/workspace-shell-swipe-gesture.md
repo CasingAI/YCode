@@ -12,6 +12,7 @@
 
 ### 适用范围
 
+- **只在任务主视图的会话阅读面生效。** 外壳主视图必须是 `tasks`，且工作区主视图是会话阅读面 `chat`。文件主视图（含文件树、Monaco、空态）、设置、自动化与插件商店都不启用本手势。文件编辑面的横向手势、滚动条拖动与文本选择全部归编辑器；不读取 Monaco 内部滚动状态，也不把 Monaco 内部节点加入让位选择器。
 - **只在抽屉形态生效。** 宽视口（≥768px）侧栏是内联列，本来就常驻可见，没有「打开」这回事。判定读 `resolveWorkspaceSidebarPresentation()`，与外壳形态同源。
 - **只在侧栏收起时生效。** 侧栏已展开时它是覆盖在内容之上的模态层，遮罩吃掉全部触摸事件，手势无从谈起。
 - **只认触摸。** 手势走 touch 事件，鼠标拖拽不触发——鼠标拖拽在会话里是选择文本的既有语义，不能抢。
@@ -44,6 +45,7 @@
    - **必须用 `composedPath()`，不能用 `closest()`。** 代码块的滚动容器在 `@pierre/diffs` 的 Shadow DOM 里，事件在 shadow 树外被重定向到宿主，`closest()` 看不见内部节点。
    - **判「内容确实超宽」而不是「容器有 overflow-x」。** 代码块默认不换行（`wrapLongLines` 默认 false），但用户开了「自动换行」后内容就不再超宽——此时滑动应当打开侧栏。开了换行的代码块不该因为「长得像滚动容器」而一直被排除。
    - 这条用运行时判定而不是给每个组件挨个打标记，以后新增横向滚动元素自动生效。
+6. **文件编辑面在订阅层整体排除。** 文件主视图不启用本手势，因此从 Monaco 最左侧、编辑器滚动条或文本选区起手的右滑都不会打开侧栏；不要为了判定去读取 Monaco 的 `scrollWidth` / `scrollLeft` 或内部滚动 DOM。任务会话里的代码块等仍按第 5 条让位。
 
 ### 触发时机
 
@@ -58,18 +60,19 @@
 ## 状态所有者与事件顺序
 
 ```
-触摸序列
-  └─ touchstart（shell 根）
-       ├─ 记录起点 clientX/clientY
-       └─ 让位判定：composedPath 上有输入区 / 终端 / Side Pane / 侧栏 / 可横向滚动容器 → 整个序列作废
-  └─ touchmove（shell 根）
-       ├─ 未锁定且位移 < 8px → 继续观察
-       ├─ 锁定为纵向或向左 → 整个序列作废
-       └─ 锁定为横向 → 继续累计净右移量
-  └─ touchend
-       └─ 净右移量 ≥ max(96px, 视口宽 × 25%) → 请求打开侧栏
-            └─ useAppPanels 的 showSidebar() → setIsSidebarVisible(true)
-                 └─ 抽屉按既有 200ms translate-x 滑入 + 遮罩淡入
+启用条件：抽屉形态 && 侧栏收起 && 外壳主视图 tasks && 工作区主视图 chat
+  └─ 触摸序列
+       └─ touchstart（shell 根）
+            ├─ 记录起点 clientX/clientY
+            └─ 让位判定：composedPath 上有输入区 / 终端 / Side Pane / 侧栏 / 可横向滚动容器 → 整个序列作废
+       └─ touchmove（shell 根）
+            ├─ 未锁定且位移 < 8px → 继续观察
+            ├─ 锁定为纵向或向左 → 整个序列作废
+            └─ 锁定为横向 → 继续累计净右移量
+       └─ touchend
+            └─ 净右移量 ≥ max(96px, 视口宽 × 25%) → 请求打开侧栏
+                 └─ useAppPanels 的 showSidebar() → setIsSidebarVisible(true)
+                      └─ 抽屉按既有 200ms translate-x 滑入 + 遮罩淡入
 ```
 
 - `isSidebarVisible` 仍是显隐的唯一状态源，归属 `packages/ui/src/hooks/useAppPanels.ts`。本条规范只增加一个**幂等**的写入口 `showSidebar()`：滑动语义是「打开」而不是「翻转」，不能复用 `handleToggleSidebar()`——那会在侧栏已展开时被解释成「关闭」。
@@ -80,7 +83,7 @@
 - `packages/ui/src/app-shell/workspaceShellSwipeGesture.ts`：手势判定的纯函数，不读 DOM——方向锁定、阈值计算、是否达阈值、是否算横向滚动容器，以及手势状态机（`createSwipeGestureState` / `advanceSwipeGesture`）。状态机单独抽出来是为了能被 `node --test` 直接覆盖：接线部分在 hook 的 effect 闭包里，没有 DOM 就跑不起来。
 - `packages/ui/src/app-shell/useWorkspaceSidebarSwipe.ts`：把纯函数接到真实触摸事件上，订阅目标为 shell 根元素；让位区域的选择器常量 `WORKSPACE_SWIPE_BLOCKED_SELECTOR` 也在这里。
 - `packages/ui/src/hooks/useAppPanels.ts`：新增 `showSidebar()`，幂等地把侧栏置为可见。
-- `packages/ui/src/app-shell/WorkspaceShellLayout.tsx`：在抽屉形态且侧栏收起时启用手势订阅；新增 `data-workspace-side-pane-wrapper="true"` 标记，供让位判定排除右侧覆盖层。
+- `packages/ui/src/app-shell/WorkspaceShellLayout.tsx`：仅在「抽屉形态 && 侧栏收起 && 外壳主视图 `tasks` && 工作区主视图 `chat`」时启用手势订阅；文件主视图、设置、自动化与插件商店不订阅。新增 `data-workspace-side-pane-wrapper="true"` 标记，供让位判定排除右侧覆盖层。
 
 ## 已知限制
 
@@ -101,7 +104,9 @@
 8. 宽视口（1280px）下在会话里右滑：什么也不发生，侧栏本来就是内联列常驻可见。
 9. 桌面窄窗口（约 700px）下用触摸屏右滑：侧栏打开；用鼠标右键拖拽选择文本：走浏览器原生选择，侧栏不打开。
 10. 侧栏用右滑打开后，点击浮层里的切换按钮仍能收起，且按钮屏幕坐标不跳。
-11. `pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed` 通过；新增的 `node --test` 用例通过。
+11. 文件主视图（320px / 430px，含空态与已打开大文本）在文件树、Monaco 最左侧、编辑器滚动条和文本选区上大幅右滑：侧栏都不打开；Monaco 的横向滚动、滚动条拖动与文本选择保持原语义，且判定过程不读取 Monaco 内部滚动 DOM。
+12. 设置、自动化与插件商店里大幅右滑：侧栏不打开；切回任务会话阅读面后同一手势恢复。
+13. `pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed` 通过；新增的 `node --test` 用例通过。
 
 验收命令（沿用仓库既有约定，`.js` 说明符指向 `.ts` 源文件）：
 

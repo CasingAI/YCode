@@ -119,7 +119,7 @@ function ActiveFilesWorkbenchMenuBar(props: ActiveMenuProps) {
       role="toolbar"
       aria-label={`${getDesktopMenuMessage(locale, desktopMenuMessageIds.file)} / ${getDesktopMenuMessage(locale, desktopMenuMessageIds.edit)}`}
       data-files-workbench-menu=""
-      className="flex h-9 shrink-0 items-center gap-0.5 border-b border-border px-1 [app-region:no-drag]"
+      className="flex h-full min-w-0 flex-1 items-center gap-0.5 px-1 [app-region:no-drag]"
     >
       {(["file", "edit"] as const).map((menu) => (
         <FilesWorkbenchMenuDropdown

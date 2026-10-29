@@ -23,7 +23,7 @@ test("Desktop不保留标题行、拖动行或页内菜单，标签可直接从�
   assert.equal(childMounts, 0);
 });
 
-test("活跃Web保留48px导航避让及页内菜单，始终不声明窗口drag", () => {
+test("活跃Web只有一条48px导航行，页内菜单与全局按钮同排且始终不声明窗口drag", () => {
   const markup = renderToStaticMarkup(
     createElement(FilesWorkbenchHeader, {
       isDesktop: false,
@@ -31,11 +31,15 @@ test("活跃Web保留48px导航避让及页内菜单，始终不声明窗口drag
       children: createElement("button", null, "menu-sentinel"),
     }),
   );
-  assert.match(markup, /data-files-workbench-titlebar=""/);
-  assert.match(markup, /h-12/);
+  assert.match(markup, /data-files-workbench-header=""/);
+  assert.match(markup, /class="flex h-12 shrink-0 items-stretch/);
   assert.match(markup, /app-region:no-drag/);
-  assert.match(markup, /aria-hidden="true"/);
-  assert.match(markup, /<\/div><button>menu-sentinel<\/button>/);
+  assert.match(markup, /padding-left:var\(--files-workbench-header-leading-inset, 0px\)/);
+  assert.match(markup, /padding-right:var\(--files-workbench-header-trailing-inset, 0px\)/);
+  assert.match(markup, /<button>menu-sentinel<\/button>/);
+  assert.doesNotMatch(markup, /h-9/);
+  assert.doesNotMatch(markup, /data-files-workbench-titlebar/);
+  assert.doesNotMatch(markup, /aria-hidden="true"/);
   assert.doesNotMatch(markup, /\[app-region:drag\]/);
   assert.doesNotMatch(markup, /data-files-workbench-drag-region|window-controls/);
 });

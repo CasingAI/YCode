@@ -1546,6 +1546,56 @@ const enUS: Record<string, string> = {
   "filesWorkbench.loadingFile": "Loading file…",
   "filesWorkbench.loadFileError": "Could not load this file.",
   "filesWorkbench.retryLoadFile": "Retry",
+  "filesWorkbench.largeText.toolbar": "Large file browser",
+  "filesWorkbench.largeText.readonly": "Read only",
+  "filesWorkbench.largeText.fragment": "Fragment",
+  "filesWorkbench.largeText.start": "Go to start of file",
+  "filesWorkbench.largeText.startShort": "Start",
+  "filesWorkbench.largeText.previous": "Previous chunk",
+  "filesWorkbench.largeText.next": "Next chunk",
+  "filesWorkbench.largeText.nextShort": "Next",
+  "filesWorkbench.largeText.end": "Go to end of file",
+  "filesWorkbench.largeText.endShort": "End",
+  "filesWorkbench.largeText.refresh": "Refresh",
+  "filesWorkbench.largeText.retry": "Retry",
+  "filesWorkbench.largeText.loading": "Loading chunk…",
+  "filesWorkbench.largeText.empty": "Large text chunk",
+  "filesWorkbench.largeText.total": "{size} total ({bytes} bytes)",
+  "filesWorkbench.largeText.totalOnly": "File size {size} ({bytes} bytes)",
+  "filesWorkbench.largeText.position.head": "Start of file",
+  "filesWorkbench.largeText.position.middle": "Middle of file",
+  "filesWorkbench.largeText.position.tail": "End of file",
+  "filesWorkbench.largeText.position.empty": "Empty file",
+  "filesWorkbench.largeText.searchScoped": "Search covers the current chunk only",
+  "filesWorkbench.largeText.searchPlaceholder": "Search in current chunk",
+  "filesWorkbench.largeText.search": "Search",
+  "filesWorkbench.largeText.searchPrevious": "Previous match",
+  "filesWorkbench.largeText.searchNoMatch": "No match in the current window",
+  "filesWorkbench.largeText.searchResult": "Match {index} of {count}",
+  "filesWorkbench.largeText.noWholeFileLineNumbers": "No whole-file line numbers",
+  "filesWorkbench.largeText.percent": "Percent",
+  "filesWorkbench.largeText.percentSlider": "Jump by file byte percentage",
+  "filesWorkbench.largeText.offset": "Byte offset",
+  "filesWorkbench.largeText.go": "Go",
+  "filesWorkbench.largeText.changed":
+    "The file changed on disk. An older chunk is still shown; refresh to load the new version.",
+  "filesWorkbench.largeText.binary": "The file is now binary and cannot be shown as a text chunk.",
+  "filesWorkbench.largeText.offline":
+    "The workspace connection is unavailable. Retry still uses this workspace.",
+  "filesWorkbench.largeText.loadFailed": "Could not read this chunk.",
+  "filesWorkbench.largeText.editorLabel": "Large text chunk",
+  "filesWorkbench.largeText.encodingReadonly":
+    "The file contains UTF-8 bytes that cannot be decoded losslessly. Invalid chunks are read-only; other chunks remain editable and can be saved.",
+  "filesWorkbench.largeText.windowDecodingErrors":
+    "This chunk contains UTF-8 bytes that cannot be decoded losslessly and shows replacement characters. No whole-file error position is implied.",
+  "filesWorkbench.largeText.editorInitFailed": "Could not initialize the large text chunk editor.",
+  "filesWorkbench.largeText.editable": "Editable",
+  "filesWorkbench.largeText.dirty": "Unsaved",
+  "filesWorkbench.largeText.saving": "Saving…",
+  "filesWorkbench.largeText.dirtyExternalChange":
+    "The file changed on disk; saving will report a conflict.",
+  "filesWorkbench.largeText.encodingBlockReadonly":
+    "The file contains UTF-8 bytes that cannot be decoded losslessly. This chunk is read-only; other chunks remain editable and can be saved.",
   "filesWorkbench.newFile": "New file",
   "filesWorkbench.newUntitledFile": "New untitled file",
   "filesWorkbench.save": "Save",
@@ -1560,6 +1610,44 @@ const enUS: Record<string, string> = {
     "Disk contents differ from the editor. Overwrite with the editor, or reload from disk.",
   "filesWorkbench.conflictOverwrite": "Overwrite with editor",
   "filesWorkbench.conflictReload": "Use disk",
+  "filesWorkbench.conflictDeletedTitle": "The file was deleted",
+  "filesWorkbench.conflictDeletedDescription":
+    "The file was deleted from disk. Recreate writes the editor content to a new file; Cancel keeps the draft.",
+  "filesWorkbench.conflictRecreate": "Recreate",
+  "filesWorkbench.conflictReloadDiscard": "Discard and reload",
+  "filesWorkbench.largeTextConflictDescription":
+    "Large-file patches are based on the previous version and cannot be applied to a new one. Cancel keeps the draft; Discard drops it and reloads from disk.",
+  "filesWorkbench.externalChange.changed": "File changed on disk: {name}",
+  "filesWorkbench.externalChange.deleted": "File deleted on disk: {name}",
+  "filesWorkbench.externalChange.reload": "Reload",
+  "filesWorkbench.externalChange.keep": "Keep draft",
+  "filesWorkbench.externalReloadTitle": "Reload {name}?",
+  "filesWorkbench.externalReloadDescription":
+    "Disk contents changed. Reloading drops the current unsaved edits; Keep draft continues with the current draft.",
+  "filesWorkbench.largeTextDraft.pending": "Saving large-file draft: {name}",
+  "filesWorkbench.largeTextDraft.blocked.versionMismatch":
+    "The file version changed, so the draft for {name} is based on an older version and cannot be applied.",
+  "filesWorkbench.largeTextDraft.blocked.missing":
+    "The file was deleted, so the draft for {name} cannot be applied.",
+  "filesWorkbench.largeTextDraft.blocked.binary":
+    "The file is now binary, so the draft for {name} cannot be applied.",
+  "filesWorkbench.largeTextDraft.blocked.identityMismatch":
+    "The draft for {name} does not match this tab's identity and cannot be applied.",
+  "filesWorkbench.largeTextDraft.blocked.probeFailed":
+    "The disk version could not be confirmed, so the draft for {name} has not been restored.",
+  "filesWorkbench.largeTextDraft.blocked.renameTargetRetained":
+    "The Save As target already has a draft; the source draft for {name} is kept.",
+  "filesWorkbench.largeTextDraft.error.unavailable":
+    "IndexedDB is unavailable, so the draft for {name} was not saved.",
+  "filesWorkbench.largeTextDraft.error.quota":
+    "Storage is full, so the draft for {name} was not saved.",
+  "filesWorkbench.largeTextDraft.error.failed": "Could not save the draft: {name}",
+  "filesWorkbench.largeTextDraft.retry": "Retry",
+  "filesWorkbench.largeTextDraft.discard": "Discard draft",
+  "filesWorkbench.largeTextDraft.discardTitle": "Discard large-file draft?",
+  "filesWorkbench.largeTextDraft.discardDescription":
+    "This deletes the unrestored draft for {name} and cannot be undone.",
+  "filesWorkbench.largeTextDraft.discardConfirm": "Discard and delete",
   "filesWorkbench.dirtyCloseTitle": "Save changes to {name}?",
   "filesWorkbench.dirtyCloseSave": "Save",
   "filesWorkbench.dirtyCloseDiscard": "Don't save",

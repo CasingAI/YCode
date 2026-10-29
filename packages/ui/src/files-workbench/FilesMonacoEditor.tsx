@@ -209,6 +209,9 @@ export function FilesMonacoEditor({
       editor = monaco.editor.create(containerRef.current, {
         model,
         automaticLayout: true,
+        // 旧会话可能留下被 256 KiB 截断的文本缓冲；这种缓冲禁止编辑，避免把片段保存回整份文件。
+        readOnly: buffer.truncated === true,
+        domReadOnly: buffer.truncated === true,
         minimap: { enabled: false },
         fontSize: 13,
         theme: monacoTheme,
@@ -260,7 +263,14 @@ export function FilesMonacoEditor({
       editorRef.current = null;
       editor?.dispose();
     };
-  }, [applyPendingFocusRequest, buffer.id, buffer.path, buffer.workspace, monacoTheme]);
+  }, [
+    applyPendingFocusRequest,
+    buffer.id,
+    buffer.path,
+    buffer.truncated,
+    buffer.workspace,
+    monacoTheme,
+  ]);
 
   useEffect(() => {
     let disposed = false;

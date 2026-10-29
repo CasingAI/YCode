@@ -1,9 +1,16 @@
 export type {
+  CommitTextFileParams,
+  CommitTextFileResult,
   FileBinaryPreview,
   FileEntry,
   FileMediaPreview,
   FileStat,
+  FileTextCommitErrorCode,
+  FileTextPatch,
   FileTextSlice,
+  FileTextWindow,
+  FileTextWindowErrorCode,
+  FileTextWrite,
   FileWatchEvent,
   WorkspaceFileEntry,
   SystemInfo,
@@ -29,7 +36,16 @@ export type {
   PersistedWorkspaceSessionEntry,
 } from "./protocol.js";
 export type { WorkspacePurpose } from "./workspacePurpose.js";
-export { DEFAULT_LOCALE } from "./protocol.js";
+export {
+  DEFAULT_LOCALE,
+  FILE_TEXT_COMMIT_CONFLICT_CODE,
+  FILE_TEXT_INVALID_PATCH_CODE,
+  FILE_TEXT_NOT_FILE_CODE,
+  FILE_TEXT_WINDOW_CHANGED_CODE,
+  FILE_TEXT_WINDOW_INVALID_RANGE_CODE,
+  FILE_TEXT_WINDOW_MAX_BYTES,
+  FILE_TEXT_WINDOW_NOT_FILE_CODE,
+} from "./protocol.js";
 export {
   ZCODE_VERSION,
   ZCODE_UPSTREAM_VERSION,

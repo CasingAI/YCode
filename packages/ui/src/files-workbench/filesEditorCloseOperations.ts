@@ -49,7 +49,8 @@ export function planFilesEditorCloseTargets(
       viewIdsToRemove.push(view.id);
       continue;
     }
-    if (isFilesBufferDirty(buffer)) {
+    // saveToken 持有该缓冲的保存生命周期；即使当前 UI 判定 clean 也不能批量关闭。
+    if ((buffer.kind === "large-text" && buffer.saveToken) || isFilesBufferDirty(buffer)) {
       dirtyBufferId = buffer.id;
       break;
     }
@@ -97,7 +98,12 @@ export function applyFilesEditorClosePlan(
 ): Pick<FilesEditorState, "buffers" | "openIds" | "activeId"> & {
   layout: FilesEditorLayoutState;
 } {
-  const closedBufferIds = new Set(plan.bufferIdsToClose);
+  const closedBufferIds = new Set(
+    plan.bufferIdsToClose.filter((bufferId) => {
+      const buffer = findFilesBuffer(state, bufferId);
+      return !(buffer?.kind === "large-text" && buffer.saveToken);
+    }),
+  );
   let nextLayout = layout;
   for (const bufferId of closedBufferIds) {
     nextLayout = removeFilesEditorViewsForBuffer(nextLayout, bufferId);

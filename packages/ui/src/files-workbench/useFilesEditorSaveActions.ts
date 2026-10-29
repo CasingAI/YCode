@@ -1,28 +1,31 @@
 import { useCallback, useRef } from "react";
 import {
+  canSaveFilesBuffer,
   findFilesBuffer,
   isFilesBufferDirty,
-  isFilesTextBuffer,
+  isFilesLargeTextBuffer,
 } from "@/files-workbench/filesEditorModel.js";
-import { filesActiveTextBuffer } from "@/files-workbench/filesActiveTextBuffer.js";
+import { filesActiveSavableBuffer } from "@/files-workbench/filesActiveSavableBuffer.js";
 import type { FilesEditorStore } from "@/files-workbench/filesEditorStore.js";
-import type { FilesTextBuffer } from "@/files-workbench/filesEditorTypes.js";
+import type { FilesBuffer } from "@/files-workbench/filesEditorTypes.js";
+import type { FilesSaveBufferRequestOptions } from "@/files-workbench/filesEditorSaveIO.js";
 
 /**
  * 文件编辑器的保存动作：保存当前文件、另存为、全部保存。
  *
  * 「全部保存」按打开顺序逐个保存脏文件，遇到需要用户处理的冲突或另存为就暂停，
  * 用户处理完再续接；用户取消或保存失败即停止，剩余文件保持未保存。
+ * 大文件只提交有效块补丁，与普通文本共用同一条保存入口。
  */
 
 export interface FilesEditorSaveActions {
-  /** 保存当前激活的文本文件；没有可保存的文本文件时不做任何事。 */
+  /** 保存当前激活的可保存文件；没有可保存缓冲时不做任何事。 */
   saveActiveFile: () => Promise<boolean>;
-  /** 保存指定标签（标签栏保存按钮、标签右键用）；不是可保存的文本文件时不做任何事。 */
+  /** 保存指定标签（标签栏保存按钮、标签右键用）。 */
   saveBufferById: (bufferId: string) => void;
-  /** 另存为当前激活的文本文件；没有可保存的文本文件时不做任何事。 */
+  /** 另存为当前激活的可保存文件。 */
   saveActiveFileAs: () => boolean;
-  /** 另存为指定标签（标签右键用）；不是文本文件时不做任何事。 */
+  /** 另存为指定标签（标签右键用）。 */
   saveBufferAs: (bufferId: string) => boolean;
   /** 全部保存：按打开顺序逐个保存脏文件。 */
   saveAllFiles: () => Promise<void>;
@@ -34,10 +37,7 @@ export interface FilesEditorSaveActions {
 
 export function useFilesEditorSaveActions(options: {
   store: FilesEditorStore;
-  saveTextBuffer: (
-    buffer: FilesTextBuffer,
-    options?: { force?: boolean; path?: string },
-  ) => Promise<boolean>;
+  saveTextBuffer: (buffer: FilesBuffer, options?: FilesSaveBufferRequestOptions) => Promise<boolean>;
   setSaveAsBufferId: (bufferId: string | undefined) => void;
 }): FilesEditorSaveActions {
   const { store, saveTextBuffer, setSaveAsBufferId } = options;
@@ -45,7 +45,7 @@ export function useFilesEditorSaveActions(options: {
   const saveAllQueueRef = useRef<string[] | undefined>(undefined);
 
   const saveActiveFile = useCallback(async () => {
-    const buffer = filesActiveTextBuffer(store.getState().buffers, store.getState().activeId);
+    const buffer = filesActiveSavableBuffer(store.getState().buffers, store.getState().activeId);
     if (!buffer) {
       return false;
     }
@@ -55,7 +55,7 @@ export function useFilesEditorSaveActions(options: {
   const saveBufferById = useCallback(
     (bufferId: string) => {
       const buffer = findFilesBuffer(store.getState(), bufferId);
-      if (!buffer || !isFilesTextBuffer(buffer)) return;
+      if (!buffer || !canSaveFilesBuffer(buffer)) return;
       void saveTextBuffer(buffer);
     },
     [saveTextBuffer, store],
@@ -64,9 +64,13 @@ export function useFilesEditorSaveActions(options: {
   const saveBufferAs = useCallback(
     (bufferId: string) => {
       const buffer = findFilesBuffer(store.getState(), bufferId);
-      if (!buffer || !isFilesTextBuffer(buffer)) {
+      if (
+        !buffer ||
+        (isFilesLargeTextBuffer(buffer) ? !buffer.edit : !canSaveFilesBuffer(buffer))
+      ) {
         return false;
       }
+      // 大文件只要已建立编辑基准就可另存为；clean 大文件用空补丁流式复制。
       setSaveAsBufferId(buffer.id);
       return true;
     },
@@ -74,7 +78,7 @@ export function useFilesEditorSaveActions(options: {
   );
 
   const saveActiveFileAs = useCallback(() => {
-    const buffer = filesActiveTextBuffer(store.getState().buffers, store.getState().activeId);
+    const buffer = filesActiveSavableBuffer(store.getState().buffers, store.getState().activeId);
     if (!buffer) {
       return false;
     }
@@ -94,7 +98,7 @@ export function useFilesEditorSaveActions(options: {
     }
     saveAllQueueRef.current = queue.slice(1);
     const buffer = findFilesBuffer(store.getState(), next);
-    if (!buffer || !isFilesTextBuffer(buffer)) {
+    if (!buffer || !canSaveFilesBuffer(buffer)) {
       await processSaveAllQueue();
       return;
     }
@@ -113,7 +117,7 @@ export function useFilesEditorSaveActions(options: {
     const state = store.getState();
     const pending = state.openIds.filter((id) => {
       const buffer = findFilesBuffer(state, id);
-      return Boolean(buffer && isFilesTextBuffer(buffer) && isFilesBufferDirty(buffer));
+      return Boolean(buffer && canSaveFilesBuffer(buffer) && isFilesBufferDirty(buffer));
     });
     if (pending.length === 0) {
       return;

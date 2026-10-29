@@ -13,11 +13,9 @@ import {
   advanceSwipeGesture,
   createSwipeGestureState,
 } from "../src/app-shell/workspaceShellSwipeGesture.js";
+import { WORKSPACE_SWIPE_BLOCKED_SELECTOR } from "../src/app-shell/useWorkspaceSidebarSwipe.js";
 
-async function loadSource(
-  relativePath: string,
-  scriptKind: ts.ScriptKind,
-): Promise<ts.SourceFile> {
+async function loadSource(relativePath: string, scriptKind: ts.ScriptKind): Promise<ts.SourceFile> {
   const text = await readFile(new URL(relativePath, import.meta.url), "utf8");
   return ts.createSourceFile(
     relativePath.split("/").pop() ?? relativePath,
@@ -63,10 +61,48 @@ const swipeHookSource = await loadSource(
   ts.ScriptKind.TS,
 );
 
-function createSwipeHarness(params?: {
-  isBlockedByPath?: boolean;
-  viewportWidthPx?: number;
-}) {
+const layoutSource = await loadSource(
+  "../src/app-shell/WorkspaceShellLayout.tsx",
+  ts.ScriptKind.TSX,
+);
+
+/** 从真实外壳源码抽出手势订阅的 isEnabled 表达式并执行，避免只匹配源码文本。 */
+function loadSwipeEnabledPredicate(): (params: {
+  sidebarPresentation: "drawer" | "inline";
+  isSidebarPanelVisible: boolean;
+  shellPrimaryView: "tasks" | "files" | "settings";
+  workspaceMainView: string;
+}) => boolean {
+  let initializer: ts.Expression | undefined;
+  const visit = (node: ts.Node) => {
+    if (
+      ts.isCallExpression(node) &&
+      node.expression.getText(layoutSource) === "useWorkspaceSidebarSwipe"
+    ) {
+      const options = node.arguments[0];
+      if (options && ts.isObjectLiteralExpression(options)) {
+        for (const property of options.properties) {
+          if (
+            ts.isPropertyAssignment(property) &&
+            property.name.getText(layoutSource) === "isEnabled"
+          ) {
+            initializer = property.initializer;
+          }
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(layoutSource);
+  assert.ok(initializer, "找不到 useWorkspaceSidebarSwipe 的 isEnabled 表达式");
+  const { outputText } = ts.transpileModule(
+    `const predicate = (params) => { const { sidebarPresentation, isSidebarPanelVisible, shellPrimaryView, workspaceMainView } = params; return (${initializer.getText(layoutSource)}); };`,
+    { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } },
+  );
+  return new Function(`${outputText}\nreturn predicate;`)();
+}
+
+function createSwipeHarness(params?: { isBlockedByPath?: boolean; viewportWidthPx?: number }) {
   const sessionRef = { current: null as unknown };
   const opened: number[] = [];
   const onOpenSidebarRef = {
@@ -92,11 +128,7 @@ function createSwipeHarness(params?: {
     "handleTouchMove",
     bindings,
   );
-  const handleTouchEnd = bindCallback<() => void>(
-    swipeHookSource,
-    "handleTouchEnd",
-    bindings,
-  );
+  const handleTouchEnd = bindCallback<() => void>(swipeHookSource, "handleTouchEnd", bindings);
   const handleTouchCancel = bindCallback<() => void>(
     swipeHookSource,
     "handleTouchCancel",
@@ -205,10 +237,49 @@ test("大视口需要更大的位移：视口越宽阈值越高", () => {
   assert.equal(wideEnough.opened.length, 1);
 });
 
-const appPanelsSource = await loadSource(
-  "../src/hooks/useAppPanels.ts",
-  ts.ScriptKind.TS,
-);
+test("手势订阅只属于抽屉收起态的任务会话阅读面", () => {
+  const isEnabled = loadSwipeEnabledPredicate();
+  const base = {
+    sidebarPresentation: "drawer" as const,
+    isSidebarPanelVisible: false,
+    shellPrimaryView: "tasks" as const,
+    workspaceMainView: "chat",
+  };
+  assert.equal(isEnabled(base), true);
+  // 文件编辑面（含 Monaco、滚动条和文本选区）在订阅层整体排除。
+  assert.equal(isEnabled({ ...base, shellPrimaryView: "files" }), false);
+  assert.equal(isEnabled({ ...base, shellPrimaryView: "settings" }), false);
+  assert.equal(isEnabled({ ...base, workspaceMainView: "automations" }), false);
+  assert.equal(isEnabled({ ...base, workspaceMainView: "plugin-store" }), false);
+  // 宽视口内联侧栏没有「打开」语义；抽屉已展开时遮罩接管触摸。
+  assert.equal(isEnabled({ ...base, sidebarPresentation: "inline" }), false);
+  assert.equal(isEnabled({ ...base, isSidebarPanelVisible: true }), false);
+});
+
+test("切入文件主视图后同一个触摸序列不会在任务保活层外打开侧栏", () => {
+  const isEnabled = loadSwipeEnabledPredicate();
+  const files = isEnabled({
+    sidebarPresentation: "drawer",
+    isSidebarPanelVisible: false,
+    shellPrimaryView: "files",
+    workspaceMainView: "chat",
+  });
+  assert.equal(files, false);
+
+  // 让位链路仍保留：任务会话里的输入区、终端、Side Pane 与表格滚动条继续归各自表面。
+  for (const marker of [
+    '[data-workspace-sidebar-panel="true"]',
+    '[data-v4-composer-dock="true"]',
+    '[data-workspace-terminal-frame="true"]',
+    '[data-workspace-side-pane-wrapper="true"]',
+    "[data-markdown-table-virtual-scroll-track]",
+  ]) {
+    assert.ok(WORKSPACE_SWIPE_BLOCKED_SELECTOR.split(",").includes(marker));
+  }
+  assert.doesNotMatch(WORKSPACE_SWIPE_BLOCKED_SELECTOR, /monaco|scrollLeft/i);
+});
+
+const appPanelsSource = await loadSource("../src/hooks/useAppPanels.ts", ts.ScriptKind.TS);
 
 test("showSidebar 是幂等置位，不是翻转", () => {
   const calls: unknown[] = [];

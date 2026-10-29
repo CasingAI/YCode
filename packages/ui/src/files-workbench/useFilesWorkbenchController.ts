@@ -1,48 +1,55 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { logger } from "@/logger.js";
 import { toast } from "@/components/ui/toast.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useBaseWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
 import { useRemoteWorkspaceSessionStore } from "@/store/remoteWorkspaceSessionStore.js";
 import { useTabStore } from "@/store/TabStoreProvider.js";
 import { isWorkspaceTab } from "@/store/tabStore.js";
-import { FILE_VIEWER_MAX_TEXT_BYTES } from "@/lib/codeViewer.js";
-import { resolveFilesBufferKind } from "@/files-workbench/filesEditorKind.js";
 import {
-  createPreviewBuffer,
-  detectFilesSaveConflict,
+  filesWorkspaceKey,
   findFilesBuffer,
-  findFilesFileBuffer,
   isFilesBufferDirty,
-  isFilesTextBuffer,
 } from "@/files-workbench/filesEditorModel.js";
+import {
+  saveFilesTextBuffer,
+  type FilesSaveBufferRequestOptions,
+} from "@/files-workbench/filesEditorSaveIO.js";
+import {
+  resolveFilesCloseAfterDiscard,
+  resolveFilesCloseAfterSave,
+} from "@/files-workbench/filesEditorCloseAfterSave.js";
+import { isFilesTextReadMissingError } from "@/files-workbench/filesEditorTextReader.js";
+import { reloadFilesBufferFromDisk } from "@/files-workbench/filesEditorDiskReload.js";
 import { writeFilesEditorSession } from "@/files-workbench/filesEditorPersistence.js";
 import { disposeFilesMonacoModel } from "@/files-workbench/filesMonacoModels.js";
 import { findFilesEditorView } from "@/files-workbench/filesEditorLayout.js";
 import { useFilesEditorCloseActions } from "@/files-workbench/useFilesEditorCloseActions.js";
+import { useFilesEditorDiskSync } from "@/files-workbench/useFilesEditorDiskSync.js";
+import { useFilesEditorFileConflicts } from "@/files-workbench/useFilesEditorFileConflicts.js";
+import { useFilesLargeTextDraftPersistence } from "@/files-workbench/useFilesLargeTextDraftPersistence.js";
+import { filesLargeTextDraftOwner } from "@/files-workbench/filesLargeTextDraftStorage.js";
+import { useFilesWorkbenchOpen } from "@/files-workbench/useFilesWorkbenchOpen.js";
 import { useFilesEditorSaveActions } from "@/files-workbench/useFilesEditorSaveActions.js";
 import { useFilesEditorRestore } from "@/files-workbench/useFilesEditorRestore.js";
+import { useFilesLargeTextReopen } from "@/files-workbench/useFilesLargeTextReopen.js";
 import { resolveFilesWorkspaceServices } from "@/files-workbench/filesWorkspaceFileService.js";
-import {
-  commitFilesEditorReadResult,
-  readCurrentFilesEditorPath,
-  runFilesEditorFileOperation,
-} from "@/files-workbench/filesEditorFileIO.js";
 import {
   useFilesEditorStore,
   useFilesEditorStoreApi,
 } from "@/files-workbench/FilesEditorStoreProvider.js";
 import type {
+  FilesBuffer,
   FilesDirtyCloseDecision,
-  FilesOpenMode,
-  FilesPendingOpen,
-  FilesSaveConflictDecision,
-  FilesTextBuffer,
   FilesWorkspaceRef,
 } from "@/files-workbench/filesEditorTypes.js";
 
-export function useFilesWorkbenchController(restoreEnabled: boolean) {
+export type { FilesSaveConflictState } from "@/files-workbench/useFilesEditorFileConflicts.js";
+export type SaveBufferOptions = FilesSaveBufferRequestOptions;
+
+export function useFilesWorkbenchController(hasEnteredFiles: boolean, isActiveView: boolean) {
+  // 持久化 owner 在首次进入文件工作台后持续运行；watch 只随可见状态启停。
+  const restoreEnabled = hasEnteredFiles;
   const store = useFilesEditorStoreApi();
   const baseServices = useBaseWorkspaceServices();
   const { intl } = useZCodeIntl();
@@ -51,7 +58,13 @@ export function useFilesWorkbenchController(restoreEnabled: boolean) {
   const pendingOpen = useFilesEditorStore((state) => state.pendingOpen);
   const [saveAsBufferId, setSaveAsBufferId] = useState<string | undefined>();
   const [dirtyCloseBufferId, setDirtyCloseBufferId] = useState<string | undefined>();
-  const [conflictBuffer, setConflictBuffer] = useState<FilesTextBuffer | undefined>();
+  const savingIdsRef = useRef(new Set<string>());
+  const reloadSeqRef = useRef(new Map<string, number>());
+  const saveTextBufferRef = useRef<
+    ((buffer: FilesBuffer, options?: SaveBufferOptions) => Promise<boolean>) | undefined
+  >(undefined);
+  const resumeAfterResolvedSaveRef = useRef<() => void>(() => undefined);
+  const stopAfterFailedSaveRef = useRef<() => void>(() => undefined);
 
   const resolveServices = useCallback(
     (workspace: FilesWorkspaceRef) =>
@@ -68,6 +81,39 @@ export function useFilesWorkbenchController(restoreEnabled: boolean) {
     writeFilesEditorSession(store.getState().snapshotSession());
   }, [store]);
 
+  /**
+   * 大文件块补丁草稿的持久化 owner 接线。
+   *
+   * enabled 只跟随 restoreEnabled，不跟文件界面可见性：界面切走时仍要继续记录草稿。
+   * probe 用当前磁盘版本 / 总字节做恢复拦截，版本不一致只 blocked，不改编辑基准。
+   */
+  const largeTextDrafts = useFilesLargeTextDraftPersistence({
+    store,
+    enabled: restoreEnabled,
+    probeFile: async (buffer) => {
+      try {
+        const window = await resolveServices(buffer.workspace).fileService.readTextFileWindow({
+          path: buffer.path,
+          offset: 0,
+          length: 4,
+        });
+        if (window.isBinary) return { kind: "binary" };
+        return { kind: "present", version: window.version, totalBytes: window.totalBytes };
+      } catch (error) {
+        return isFilesTextReadMissingError(error) ? { kind: "missing" } : { kind: "failed" };
+      }
+    },
+  });
+  const discardLargeTextDraft = useCallback(
+    async (bufferId: string) => {
+      await largeTextDrafts.discardBlockedDraft(bufferId);
+      await largeTextDrafts.flush();
+    },
+    [largeTextDrafts],
+  );
+
+  const isBufferSaving = useCallback((bufferId: string) => savingIdsRef.current.has(bufferId), []);
+
   const { loadRestoredTextFile, isRestoreLoadTracked } = useFilesEditorRestore({
     store,
     restoreEnabled,
@@ -75,159 +121,117 @@ export function useFilesWorkbenchController(restoreEnabled: boolean) {
     resolveServices,
   });
 
-  const openExistingPath = useCallback(
-    async (
-      workspace: FilesWorkspaceRef,
-      path: string,
-      mode: FilesOpenMode = "keep",
-      request?: FilesPendingOpen,
-    ) => {
-      if (request && store.getState().pendingOpenInFlight !== request) return;
-      const previousOpenIds = store.getState().openIds;
-      const existing = findFilesFileBuffer(store.getState(), workspace, path);
-      if (existing) {
-        // 内存里的干净文本缓冲可能来自旧版本错误的元数据；重开时按当前共用分类纠正。
-        // 脏草稿绝不转换：未保存正文优先于路径推断。
-        if (
-          isFilesTextBuffer(existing) &&
-          existing.path &&
-          !isFilesBufferDirty(existing) &&
-          resolveFilesBufferKind(existing.path) === "preview"
-        ) {
-          store.getState().convertTextBufferToPreview(existing.id);
-          disposeFilesMonacoModel(existing.id);
-        }
-        const current = findFilesBuffer(store.getState(), existing.id) ?? existing;
-        store.getState().openBuffer(current, mode);
-        persist();
-        if (isFilesTextBuffer(current)) {
-          const latest = findFilesBuffer(store.getState(), existing.id);
-          if (
-            latest &&
-            isFilesTextBuffer(latest) &&
-            (latest.loadState === "unloaded" ||
-              latest.loadState === "error" ||
-              (latest.loadState === "loading" && !isRestoreLoadTracked(latest.id)))
-          ) {
-            // A tab can be re-opened while its restored buffer is still empty.
-            // Never leave a stale `loading` flag blocking retries after competing opens.
-            if (latest.loadState === "loading") {
-              store.getState().setTextLoadState(latest.id, "unloaded");
-            }
-            void loadRestoredTextFile(latest.id);
-          }
-        }
-        return;
-      }
-      const kind = resolveFilesBufferKind(path);
-      if (kind === "preview") {
-        store.getState().openBuffer(createPreviewBuffer({ workspace, path }), mode);
-      } else {
-        try {
-          const slice = await readCurrentFilesEditorPath({
-            store,
-            workspace,
-            path,
-            request,
-            read: () =>
-              resolveServices(workspace).fileService.readTextFile({
-                path,
-                length: FILE_VIEWER_MAX_TEXT_BYTES,
-              }),
-            // 未知扩展名不能只凭路径当作文本：读取结果标为二进制时建立只读预览，
-            // 不留下可保存的空文本缓冲。初次打开与恢复共用同一提交路径。
-            accept: (result) =>
-              commitFilesEditorReadResult({
-                store,
-                workspace,
-                path,
-                result,
-                mode,
-              }),
-          });
-          if (slice === null) return;
-        } catch (error) {
-          logger.warn("[files-workbench] 打开文件失败", { path, error });
-          return;
-        }
-      }
-      const nextOpenIds = new Set(store.getState().openIds);
-      for (const id of previousOpenIds) {
-        if (!nextOpenIds.has(id)) {
-          disposeFilesMonacoModel(id);
-        }
-      }
-      persist();
+  const reopenLargeTextFile = useFilesLargeTextReopen({
+    store,
+    persist,
+    resolveServices,
+  });
+
+  const openExistingPath = useFilesWorkbenchOpen({
+    store,
+    persist,
+    resolveServices,
+    loadRestoredTextFile,
+    isRestoreLoadTracked,
+    reopenLargeTextFile,
+  });
+
+  /**
+   * 用磁盘内容替换缓冲（冲突重载 / 外部变化重载 / 用户显式放弃草稿）。
+   *
+   * `allowDirty=false` 时读取完成后如果出现新输入就放弃提交，避免自动重载
+   * 清掉用户刚输入的正文。所有分支共用同一份完整读取决策。
+   */
+  const reloadBufferFromDisk = useCallback(
+    async (bufferId: string, options?: { allowDirty?: boolean }): Promise<boolean> => {
+      const buffer = findFilesBuffer(store.getState(), bufferId);
+      if (!buffer || !buffer.path) return false;
+      const sequence = (reloadSeqRef.current.get(bufferId) ?? 0) + 1;
+      reloadSeqRef.current.set(bufferId, sequence);
+      return reloadFilesBufferFromDisk({
+        store,
+        bufferId,
+        allowDirty: options?.allowDirty,
+        fileService: resolveServices(buffer.workspace).fileService,
+        isCurrentRequest: () => reloadSeqRef.current.get(bufferId) === sequence,
+        persist,
+      });
     },
-    [loadRestoredTextFile, persist, resolveServices, store],
+    [persist, resolveServices, store],
   );
 
+  const {
+    conflictBuffer,
+    largeConflictBuffer,
+    reloadConfirmBufferId,
+    showConflict,
+    requestReloadBuffer,
+    dismissExternalChange,
+    handleConflictDecision,
+    handleLargeConflictDecision,
+    handleExternalReloadDecision,
+  } = useFilesEditorFileConflicts({
+    store,
+    saveTextBufferRef,
+    resumeAfterResolvedSaveRef,
+    stopAfterFailedSaveRef,
+    reloadBufferFromDisk,
+    discardLargeTextDraft,
+  });
+
   const saveTextBuffer = useCallback(
-    async (buffer: FilesTextBuffer, options?: { force?: boolean; path?: string }) => {
+    async (buffer: FilesBuffer, options?: SaveBufferOptions) => {
+      if (buffer.kind === "preview") return false;
+      if (savingIdsRef.current.has(buffer.id)) {
+        toast(intl.formatMessage({ id: "workspaceFileTree.actions.busy" }), {
+          variant: "warning",
+        });
+        return false;
+      }
       const path = options?.path ?? buffer.path;
       if (!path) {
         setSaveAsBufferId(buffer.id);
         return false;
       }
-      return runFilesEditorFileOperation(
-        buffer.workspace,
-        async () => {
-          const current = findFilesBuffer(store.getState(), buffer.id);
-          if (!current || !isFilesTextBuffer(current) || current.path !== buffer.path) return false;
-          const fileService = resolveServices(buffer.workspace).fileService;
-          let diskText: string | undefined;
-          try {
-            const slice = await fileService.readTextFile({
-              path,
-              length: FILE_VIEWER_MAX_TEXT_BYTES,
-            });
-            diskText = slice.content;
-          } catch {
-            diskText = undefined;
-          }
-          if (
-            !options?.force &&
-            detectFilesSaveConflict({
-              currentText: buffer.text,
-              savedText: buffer.savedText,
-              diskText,
-            }) === "conflict"
-          ) {
-            setConflictBuffer(buffer);
-            return false;
-          }
-          try {
-            await fileService.writeTextFile({ path, content: buffer.text });
-          } catch (error) {
-            // 写盘失败必须让用户看见：静默失败会表现为「按了保存但文件没变」。
-            // 失败后不标记已保存，标签继续保持未保存态，关闭流程也不会继续。
-            logger.error("[files-workbench] 保存文件失败", { path, error });
-            toast(intl.formatMessage({ id: "filesWorkbench.saveFailed" }, { path }), {
+      savingIdsRef.current.add(buffer.id);
+      try {
+        return await saveFilesTextBuffer({
+          store,
+          buffer,
+          path,
+          force: options?.force,
+          observedVersion: options?.observedVersion,
+          targetVersion: options?.targetVersion,
+          recreate: options?.recreate,
+          fileService: resolveServices(buffer.workspace).fileService,
+          onConflict: showConflict,
+          onSaveFailed: (failedPath) =>
+            toast(intl.formatMessage({ id: "filesWorkbench.saveFailed" }, { path: failedPath }), {
               variant: "warning",
-            });
-            return false;
-          }
-          const latest = findFilesBuffer(store.getState(), buffer.id);
-          if (!latest || !isFilesTextBuffer(latest) || latest.path !== buffer.path) return false;
-          store.getState().markSaved(buffer.id, {
-            path,
-            text: buffer.text,
-            workspace: buffer.workspace,
-            preserveCurrentText: true,
-          });
-          if (path !== buffer.path) {
-            disposeFilesMonacoModel(buffer.id);
-          }
-          persist();
-          return true;
-        },
-        () =>
-          toast(intl.formatMessage({ id: "workspaceFileTree.actions.busy" }), {
-            variant: "warning",
-          }),
-      );
+            }),
+          onBusy: () =>
+            toast(intl.formatMessage({ id: "workspaceFileTree.actions.busy" }), {
+              variant: "warning",
+            }),
+          onSaved: ({ path: savedPath, previousPath }) => {
+            if (savedPath !== previousPath) {
+              disposeFilesMonacoModel(buffer.id);
+              // SaveAs 已提交成功：按旧 workspace/path owner 精确清理草稿，
+              // API 会等待旧 key 的在途写入并保护仍被其他打开缓冲持有的 identity。
+              if (buffer.kind === "large-text") {
+                void largeTextDrafts.discardCommittedDraft(
+                  filesLargeTextDraftOwner(buffer, previousPath ?? buffer.path),
+                );
+              }
+            }
+            persist();
+          },
+        });
+      } finally {
+        savingIdsRef.current.delete(buffer.id);
+      }
     },
-    [intl, persist, resolveServices, store],
+    [intl, largeTextDrafts, persist, resolveServices, showConflict, store],
   );
 
   const closeBuffer = useCallback(
@@ -236,21 +240,68 @@ export function useFilesWorkbenchController(restoreEnabled: boolean) {
       if (!buffer) {
         return;
       }
+      // 保存中的 buffer 不能因当前瞬间看起来 clean 而关闭；大文件 token 是 Store
+      // 的跨分屏租约，普通文本则由 controller 的 saving 集合保护关闭动作。
+      if (savingIdsRef.current.has(id) || (buffer.kind === "large-text" && buffer.saveToken)) {
+        return;
+      }
+      const closeSnapshot = {
+        bufferRef: buffer,
+        id: buffer.id,
+        path: buffer.path,
+        kind: buffer.kind,
+        text: buffer.kind === "text" ? buffer.text : undefined,
+        savedText: buffer.kind === "text" ? buffer.savedText : undefined,
+        diskVersion: buffer.kind === "text" ? buffer.diskVersion : undefined,
+        revision: buffer.kind === "large-text" ? buffer.edit?.revision : undefined,
+        baseVersion: buffer.kind === "large-text" ? buffer.edit?.baseVersion : undefined,
+        baseTotalBytes: buffer.kind === "large-text" ? buffer.edit?.baseTotalBytes : undefined,
+        workspaceKey: filesWorkspaceKey(buffer.workspace),
+      };
       if (isFilesBufferDirty(buffer) && decision !== "discard" && decision !== "save") {
         setDirtyCloseBufferId(id);
         return;
       }
-      if (decision === "save" && isFilesTextBuffer(buffer)) {
+      if (decision === "save") {
         const saved = await saveTextBuffer(buffer);
-        if (!saved) {
+        if (!saved) return;
+        const afterSave = resolveFilesCloseAfterSave(store.getState().buffers, id);
+        if (afterSave !== "close") {
+          if (afterSave === "prompt") setDirtyCloseBufferId(id);
           return;
         }
       }
+      // discardLargeTextDraft 会 await IndexedDB；保存 token 持有者不能让后台
+      // 删除持久化后再关闭，所以只对未进入保存的 large 草稿执行清理。
+      if (decision === "discard" && buffer.kind === "large-text") {
+        await discardLargeTextDraft(id);
+      }
+      const latest = findFilesBuffer(store.getState(), id);
+      if (savingIdsRef.current.has(id)) return;
+      if (decision === "discard") {
+        if (resolveFilesCloseAfterDiscard(latest ? [latest] : [], closeSnapshot) !== "close") {
+          if (latest && isFilesBufferDirty(latest)) setDirtyCloseBufferId(id);
+          return;
+        }
+      } else if (
+        !latest ||
+        latest.kind !== closeSnapshot.kind ||
+        latest.path !== closeSnapshot.path ||
+        filesWorkspaceKey(latest.workspace) !== closeSnapshot.workspaceKey ||
+        isFilesBufferDirty(latest) ||
+        (latest.kind === "large-text" && latest.saveToken)
+      ) {
+        if (latest && isFilesBufferDirty(latest)) setDirtyCloseBufferId(id);
+        return;
+      }
+      // 对所有 Store 关闭入口共同保护：异步存储清理前再出现保存 token 时，
+      // closeBufferInState 会拒绝删除 owner；只有确认真的移除后才释放编辑器模型。
       store.getState().closeBuffer(id);
+      if (findFilesBuffer(store.getState(), id)) return;
       disposeFilesMonacoModel(id);
       persist();
     },
-    [persist, saveTextBuffer, store],
+    [discardLargeTextDraft, persist, saveTextBuffer, store],
   );
 
   const {
@@ -294,6 +345,14 @@ export function useFilesWorkbenchController(restoreEnabled: boolean) {
     stopSaveAll,
   } = useFilesEditorSaveActions({ store, saveTextBuffer, setSaveAsBufferId });
 
+  useFilesEditorDiskSync({
+    store,
+    enabled: restoreEnabled && (isActiveView ?? true),
+    isSavingBuffer: isBufferSaving,
+    resolveServices,
+    onAutoReload: reloadBufferFromDisk,
+  });
+
   /** 关闭当前聚焦编辑器组的活动标签（macOS ⌘W 语义）。 */
   const closeActiveEditorView = useCallback(() => {
     const target = activeEditorView();
@@ -320,59 +379,20 @@ export function useFilesWorkbenchController(restoreEnabled: boolean) {
     })();
   }, [openExistingPath, pendingOpen, store]);
 
-  const handleConflictDecision = useCallback(
-    async (decision: FilesSaveConflictDecision | "cancel") => {
-      const buffer = conflictBuffer;
-      setConflictBuffer(undefined);
-      if (!buffer) return;
-      if (decision === "cancel") {
-        cancelPendingClose();
-        stopSaveAll();
-        return;
-      }
-      let resolved = false;
-      if (decision === "overwrite") {
-        resolved = await saveTextBuffer(buffer, { force: true });
-      } else if (buffer.path) {
-        try {
-          const slice = await resolveServices(buffer.workspace).fileService.readTextFile({
-            path: buffer.path,
-            length: FILE_VIEWER_MAX_TEXT_BYTES,
-          });
-          store.getState().updateText(buffer.id, slice.content);
-          store.getState().markSaved(buffer.id, {
-            path: buffer.path,
-            text: slice.content,
-            workspace: buffer.workspace,
-          });
-          persist();
-          resolved = true;
-        } catch (error) {
-          logger.warn("[files-workbench] 冲突后重载失败", { path: buffer.path, error });
-        }
-      }
-      if (!resolved) {
-        // 保存失败：关闭流程与全部保存都就此停止，剩余文件保持未保存。
-        // 待续接的关闭也一并取消——文件没能保存，关掉就等于丢内容。
-        cancelPendingClose();
-        stopSaveAll();
-        return;
-      }
-      resumePendingClose();
-      void resumeSaveAll();
-    },
-    [
-      cancelPendingClose,
-      conflictBuffer,
-      persist,
-      resolveServices,
-      resumePendingClose,
-      resumeSaveAll,
-      saveTextBuffer,
-      stopSaveAll,
-      store,
-    ],
-  );
+  const resumeAfterResolvedSave = useCallback(() => {
+    resumePendingClose();
+    void resumeSaveAll();
+  }, [resumePendingClose, resumeSaveAll]);
+
+  const stopAfterFailedSave = useCallback(() => {
+    cancelPendingClose();
+    stopSaveAll();
+  }, [cancelPendingClose, stopSaveAll]);
+
+  // 冲突 hook 通过 ref 调用稍后定义的保存 / 续接动作，避免声明顺序循环。
+  saveTextBufferRef.current = saveTextBuffer;
+  resumeAfterResolvedSaveRef.current = resumeAfterResolvedSave;
+  stopAfterFailedSaveRef.current = stopAfterFailedSave;
 
   const handleDirtyCloseDecision = useCallback(
     async (decision: FilesDirtyCloseDecision) => {
@@ -397,10 +417,17 @@ export function useFilesWorkbenchController(restoreEnabled: boolean) {
     setSaveAsBufferId,
     dirtyCloseBufferId,
     conflictBuffer,
+    largeConflictBuffer,
+    reloadConfirmBufferId,
     resolveServices,
     openExistingPath,
     loadRestoredTextFile,
     saveTextBuffer,
+    reloadBufferFromDisk,
+    requestReloadBuffer,
+    largeTextDrafts,
+    dismissExternalChange,
+    isBufferSaving,
     saveActiveFile,
     saveBufferById,
     saveActiveFileAs,
@@ -419,6 +446,8 @@ export function useFilesWorkbenchController(restoreEnabled: boolean) {
     cancelPendingClose,
     persist,
     handleConflictDecision,
+    handleLargeConflictDecision,
+    handleExternalReloadDecision,
     handleDirtyCloseDecision,
   };
 }

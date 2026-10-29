@@ -525,12 +525,17 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
   const sidebarPresentation = resolveWorkspaceSidebarPresentation({
     isNarrowViewport,
   });
-  // 窄视口下大幅右滑打开侧栏。只在抽屉形态且侧栏收起时启用：
+  // 窄视口下大幅右滑打开侧栏。只在抽屉形态、侧栏收起且处于任务会话阅读面时启用：
   // 宽视口侧栏是内联列常驻可见，没有「打开」这回事；侧栏已展开时它是模态
-  // 覆盖层，遮罩会吃掉全部触摸事件。规则见 workspace-shell-swipe-gesture.md。
+  // 覆盖层，遮罩会吃掉全部触摸事件。文件编辑面（含 Monaco、滚动条与文本选区）、
+  // 设置、自动化与插件商店都不订阅本手势。规则见 workspace-shell-swipe-gesture.md。
   useWorkspaceSidebarSwipe({
     shellElementRef: workspaceShellRef,
-    isEnabled: sidebarPresentation === "drawer" && !isSidebarPanelVisible,
+    isEnabled:
+      sidebarPresentation === "drawer" &&
+      !isSidebarPanelVisible &&
+      shellPrimaryView === "tasks" &&
+      workspaceMainView === "chat",
     onOpenSidebar: handleShowSidebar,
   });
   // Side Pane 遮罩的可见态：与面板的开合判据（下方 useAnimatedResizablePanel 的 open、

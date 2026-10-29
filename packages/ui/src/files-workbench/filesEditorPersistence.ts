@@ -1,4 +1,6 @@
+import { persistableDrafts, persistableOpenTabs } from "@/files-workbench/filesEditorModel.js";
 import type {
+  FilesEditorState,
   FilesPersistedDraft,
   FilesPersistedOpenTab,
   FilesPersistedSession,
@@ -42,10 +44,17 @@ function parseOpenTab(value: unknown): FilesPersistedOpenTab | undefined {
     return undefined;
   }
   const tab = value as Partial<FilesPersistedOpenTab>;
-  if (typeof tab.id !== "string" || (tab.kind !== "text" && tab.kind !== "preview")) {
+  if (
+    typeof tab.id !== "string" ||
+    (tab.kind !== "text" && tab.kind !== "preview" && tab.kind !== "large-text")
+  ) {
     return undefined;
   }
   if (!isWorkspaceRef(tab.workspace)) {
+    return undefined;
+  }
+  // 大文本只持久化路径与 kind；没有路径的条目无法恢复。
+  if (tab.kind === "large-text" && (typeof tab.path !== "string" || !tab.path)) {
     return undefined;
   }
   return {
@@ -80,6 +89,8 @@ function parseDraft(value: unknown): FilesPersistedDraft | undefined {
     savedText: draft.savedText,
     workspace: draft.workspace,
     untitled: draft.untitled === true,
+    // 未知旧草稿不丢正文；只额外保留旧版截断标记，避免恢复后被误判为完整可保存。
+    truncated: draft.truncated === true ? true : undefined,
   };
 }
 
@@ -149,6 +160,22 @@ export function readFilesEditorSession(
   } catch {
     return undefined;
   }
+}
+
+/**
+ * 只持久化标签与完整文本草稿；大文件块补丁由 IndexedDB 单独备份，
+ * 不进入 localStorage session。
+ */
+export function snapshotFilesEditorSession(state: FilesEditorState): FilesPersistedSession {
+  const openTabs = persistableOpenTabs(state);
+  return {
+    version: 1,
+    explorerWorkspaceKey: state.explorerWorkspaceKey,
+    activeId: state.activeId,
+    openFileIds: openTabs.map((tab) => tab.id),
+    openTabs,
+    drafts: persistableDrafts(state),
+  };
 }
 
 export function writeFilesEditorSession(

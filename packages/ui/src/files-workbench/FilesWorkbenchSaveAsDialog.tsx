@@ -1,5 +1,5 @@
 import { filesWorkspaceKey } from "@/files-workbench/filesEditorModel.js";
-import type { FilesTextBuffer } from "@/files-workbench/filesEditorTypes.js";
+import type { FilesBuffer } from "@/files-workbench/filesEditorTypes.js";
 import {
   isFilesWorkspaceLocalTarget,
   type FilesWorkspaceServiceTab,
@@ -22,7 +22,11 @@ export function FilesWorkbenchSaveAsDialog({
   isDesktop: boolean;
   workspaceTabs: readonly FilesWorkspaceServiceTab[];
   pendingSaveDirectory?: string;
-  saveAsBuffer?: FilesTextBuffer;
+  /**
+   * 当前另存为目标：完整文本或大文件。调用方用 `filesActiveSavableBuffer`
+   * 过滤预览、未读盘与旧截断草稿；大文件目标仍然使用同一套原生路径对话框。
+   */
+  saveAsBuffer?: FilesBuffer;
 }) {
   const allowNativePath = Boolean(
     isDesktop &&

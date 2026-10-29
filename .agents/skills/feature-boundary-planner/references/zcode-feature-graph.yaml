@@ -686,6 +686,12 @@ nodes:
       - Monaco
       - workspace files
       - explorer
+      - large-text
+      - large editable
+      - 分块编辑
+      - block edit
+      - 固定块编辑
+      - read-only block
     label: Workspace Files primary view
     codeSeeds:
       - file: packages/ui/src/app-shell/WorkspaceShellPrimaryTabBar.tsx
@@ -694,6 +700,12 @@ nodes:
         symbol: WorkspaceFileTree
       - file: packages/services/src/file/file.ts
         symbol: IFileService
+      - file: packages/services/src/file/fileTextWindow.ts
+        symbol: readTextFileWindow
+      - file: packages/ui/src/files-workbench/filesEditorTextReader.ts
+        symbol: resolveFilesTextReadMode
+      - file: packages/ui/src/files-workbench/filesEditorTypes.ts
+        symbol: FilesLargeTextBuffer
     invariants:
       - Files is a shell primary view (tasks | files | settings), not a Side Pane tab and not a
         third overlay on the workspace.
@@ -701,6 +713,19 @@ nodes:
         workspaces and do not follow the dropdown.
       - Isolation uses workspaceIdentity?.trim() || workspacePath; writes go through IFileService,
         never a renderer-local filesystem.
+      - Text windows use only IFileService.readTextFileWindow as the typed range read; the same
+        protocol serves <=8 MiB complete reads and canonical 256 KiB block reads. The 8 MiB threshold
+        selects the full-text model or the fixed-block model; it is not an edit-capability limit.
+        Valid code points align backward; invalid bytes keep the requested offset so block boundaries
+        remain exact and never overlap.
+      - Above 8 MiB, text stays editable block by block; only a block whose exact raw bytes fail
+        UTF-8 is read-only. commitTextFile patches never touch those blocks and stream untouched
+        bytes verbatim.
+      - All text writes go through IFileService.commitTextFile; the renderer never owns a filesystem
+        write path or a partial write. Large-text drafts keep edits in FilesEditorStore, not in the
+        range store, and persist to IndexedDB only as patch records.
+      - The drawer-opening right swipe is limited to tasks + chat; the file editor and Monaco
+        never subscribe, including their left edge, scrollbars, and text selections.
   - id: surface.files-explorer
     kind: ui-surface
     label: Files primary-view explorer
@@ -741,6 +766,34 @@ nodes:
     invariants:
       - Create, rename, copy, move and permanent delete validate workspace boundaries on the Host;
         mutations are serialized and invalidate derived file search data.
+  - id: service.files-text-commit
+    kind: service
+    label: Host text commit with cooperative version guard
+    aliases:
+      - commitTextFile
+      - 文本提交
+      - FILE_TEXT_COMMIT_CONFLICT
+      - FILE_TEXT_INVALID_PATCH
+      - 文件写锁
+    codeSeeds:
+      - file: packages/services/src/file/file.ts
+        symbol: IFileService
+      - file: packages/services/src/file/fileService.ts
+        symbol: createFileService
+      - file: packages/services/src/file/atomicWriteTextFile.ts
+        symbol: atomicWriteTextFile
+      - file: packages/shared/src/node/atomicFileLock.ts
+        symbol: acquireFileLock
+    invariants:
+      - commitTextFile is the only UI write entry. Full writes create / overwrite; patches replace
+        ranges expressed in the expectedVersion source bytes for fixed-block edits.
+      - expectedVersion null requires a nonexistent target and allows only full. Save As guards both
+        the source version and the target version; a changed or deleted source is rejected.
+      - The Host canonicalizes paths, acquires the existing shared node locks for source and target
+        in sorted order, streams a bounded temp file, fsyncs, rechecks versions, then atomically
+        renames. Null create uses link(temp, target) and fails rather than degrading.
+      - Untouched source bytes in a patch commit are copied verbatim. External programs do not
+        participate in the lock; the check-to-rename window is narrow, never an absolute CAS.
   - id: state.workspace-file-actions
     kind: state-owner
     label: Window file clipboard and file-operation admission
@@ -757,6 +810,8 @@ nodes:
       - Monaco editor tabs
       - 文件编辑器
       - 文件菜单
+      - 48px 顶带
+      - Web file top band
       - 另存为
       - 使用系统对话框
     codeSeeds:
@@ -768,6 +823,10 @@ nodes:
         symbol: FilesWorkbenchSaveAsDialog
       - file: packages/ui/src/files-workbench/FilesWorkbenchMenuBar.tsx
         symbol: FilesWorkbenchMenuBar
+      - file: packages/ui/src/files-workbench/FilesWorkbenchHeader.tsx
+        symbol: FilesWorkbenchHeader
+      - file: packages/ui/src/files-workbench/filesWorkbenchHeaderChrome.ts
+        symbol: resolveFilesWorkbenchHeaderChrome
       - file: packages/ui/src/files-workbench/useFilesWorkbenchTabChrome.ts
         symbol: useFilesWorkbenchTabChrome
       - file: packages/ui/src/PreviewPane.tsx
@@ -778,6 +837,14 @@ nodes:
       - Native Save As chooses a path only for the current Desktop local workspace; remote identities
         and sessions keep the built-in browser. Confirmation reuses the same save owner, and cancelled
         or stale native results never write files or stop the pending save queue.
+      - Web and mobile remote render one 48px header row where File / Edit shares the global
+        `data-workspace-caption-actions` row, no separate 36px empty or menu row follows, and the
+        36px tab strip is the next row. Desktop keeps the native menu and no in-page row.
+      - Header avoidance is DOM-derived from the actual caption-action and trailing-control
+        rectangles; it writes local CSS insets only, never store or persistence.
+      - When the active buffer is large-text, the group renders the fixed-block editor; the range
+        store supplies only the current disk original block while FilesEditorStore owns edits. The
+        sidebar swipe gesture is not wired here.
       - Desktop tabs start at the workbench top without a dedicated caption or drag row.
         Window drag stays in the global left chrome; Windows/Linux controls occupy only the
         upper-right corner. Actual rectangle collisions project insets only to intersecting tabs;
@@ -790,14 +857,87 @@ nodes:
   - id: state.files-editor-buffers
     kind: state-owner
     label: Files editor buffers and open tabs
+    codeSeeds:
+      - file: packages/ui/src/files-workbench/filesEditorStore.ts
+        symbol: createFilesEditorStore
+      - file: packages/ui/src/files-workbench/FilesEditorStoreProvider.tsx
+        symbol: useFilesEditorStore
+      - file: packages/ui/src/files-workbench/filesEditorTypes.ts
+        symbol: FilesLargeTextBuffer
+      - file: packages/ui/src/files-workbench/filesEditorModel.ts
+        symbol: canSaveFilesBuffer
+      - file: packages/ui/src/files-workbench/filesEditorPersistence.ts
+        symbol: writeFilesEditorSession
     invariants:
       - Buffer identity is workspace key plus path; untitled buffers have their own id until save.
-      - Dirty close confirms save / discard / cancel. External disk conflicts are detected only
-        on save, not as live reload.
+      - Dirty close confirms save / discard / cancel. Clean normal text may auto-reload after an
+        active watch or reactivation probe; dirty text only surfaces externalChange, never rebases
+        or overwrites the draft, and a deleted path is never auto-recreated.
       - A workbench group has at most one preview tab; single-click replaces it, double-click or
         edit pins it. Semantic TypeScript validation is off in this editor.
       - Successful rename and move migrate all affected paths without clearing dirty text. Deleted
         dirty files become untitled drafts; stale reads cannot reintroduce removed paths.
+      - Normal text buffers carry runtime diskVersion and externalChange; large-text buffers carry
+        baseVersion, totalBytes, block changes and whole-buffer undo/redo. Large blocks are keyed by
+        step = 256 KiB - 4 in original file coordinates so edits never overlap.
+      - Large-text patch drafts persist asynchronously to IndexedDB, never localStorage. Restore
+        applies them only when baseVersion equals the current disk version; otherwise they are kept
+        and marked not applicable.
+      - canSaveFilesBuffer includes loaded normal text and large-text buffers with effective block
+        changes; invalid UTF-8 blocks cannot produce patches and no partial window is ever written.
+  - id: surface.files-large-text-viewer
+    kind: ui-surface
+    label: Files large-text fixed-block editor
+    aliases:
+      - large-text viewer
+      - large editable
+      - 分块编辑
+      - block editor
+      - byte window viewer
+    codeSeeds:
+      - file: packages/ui/src/files-workbench/FilesLargeTextViewer.tsx
+        symbol: FilesLargeTextViewer
+      - file: packages/ui/src/hooks/useFilesLargeTextWindow.ts
+        symbol: useFilesLargeTextWindow
+      - file: packages/ui/src/files-workbench/filesLargeTextWindowStore.ts
+        symbol: acquireFilesLargeTextWindow
+      - file: packages/ui/src/files-workbench/filesLargeTextNavigation.ts
+        symbol: resolveFilesLargeTextNavigationOffset
+    invariants:
+      - The range store owns exactly one current disk original block per buffer and replaces it on
+        navigation; it never holds user edits, history or a full-file cache.
+      - Blocks use step = 256 KiB - 4 in original file coordinates, advance at most 3 bytes past a
+        straddling valid code point, never scan arbitrary invalid bytes, and never overlap. Every
+        block comes from readTextFileWindow.
+      - FilesEditorStore owns block changes, dirty state and whole-buffer undo/redo, shared by all
+        splits; switching blocks or hiding the view never drops edits.
+      - Search, range and position labels are current-block only, with no full-file search, line
+        numbers or error location.
+      - A block whose exact bytes fail UTF-8 is read-only and displays replacement characters; the
+        other blocks remain editable, and no save entry writes that block or replacement text back.
+  - id: state.files-large-text-drafts
+    kind: state-owner
+    label: IndexedDB large-file patch drafts
+    aliases:
+      - large file draft
+      - IndexedDB patch draft
+      - 大文件草稿
+      - baseVersion
+    codeSeeds:
+      - file: packages/ui/src/files-workbench/filesEditorPersistence.ts
+        symbol: writeFilesEditorSession
+      - file: packages/ui/src/files-workbench/filesEditorTypes.ts
+        symbol: FilesLargeTextBuffer
+      - file: packages/ui/src/files-workbench/filesEditorSaveIO.ts
+        symbol: saveFilesTextBuffer
+    invariants:
+      - Large-file changes persist asynchronously to IndexedDB and never enter localStorage; the
+        localStorage session keeps only tab metadata and ordinary text drafts.
+      - A stored draft is keyed by workspace identity plus path and records baseVersion, totalBytes
+        and block changes, but not full file text, the current window or undo history.
+      - A draft applies only when the restored baseVersion matches the current on-disk version;
+        otherwise it is kept and marked not applicable rather than rebased.
+      - The runtime owner remains FilesEditorStore; IndexedDB is persistence, not a source of truth.
   - id: surface.workspace-shell-primary-tabs
     kind: ui-surface
     label: Workspace shell primary tab bar
@@ -1248,6 +1388,46 @@ edges:
   - from: surface.files-editor-workbench
     to: state.files-editor-buffers
     type: edits-draft
+    rank: must-inspect
+  - from: surface.files-editor-workbench
+    to: surface.files-large-text-viewer
+    type: renders-editable-blocks
+    rank: must-inspect
+    condition: The active large-text buffer renders fixed blocks; the range store supplies only the
+      current disk original block while FilesEditorStore owns edits, history and dirty state.
+  - from: surface.files-large-text-viewer
+    to: state.files-editor-buffers
+    type: edits-block-draft
+    rank: must-inspect
+    condition: Editor text becomes block changes in FilesEditorStore; the viewer never mutates the
+      range store's current disk original block.
+  - from: surface.files-large-text-viewer
+    to: service.files-text-commit
+    type: commits-through
+    rank: must-inspect
+    condition: Large edits become patches in original file coordinates; no force-apply to a newer
+      disk version and no full-file rewrite.
+  - from: service.files-text-commit
+    to: state.files-editor-buffers
+    type: reconciles-after-success
+    rank: must-inspect
+    condition: Only the returned path/version/totalBytes updates baseVersion and clears changes,
+      history and IndexedDB; the UI never derives a version.
+  - from: state.files-editor-buffers
+    to: state.files-large-text-drafts
+    type: persists-async
+    rank: must-inspect
+    condition: Only block patch drafts go to IndexedDB; localStorage keeps tab metadata and ordinary
+      text drafts, and restore requires the same baseVersion.
+  - from: state.files-editor-buffers
+    to: service.files-text-commit
+    type: commits-through
+    rank: must-inspect
+    condition: FilesEditorStore owns the draft and version; commitTextFile owns the lock, atomic
+      temp swap, conflict result and new version.
+  - from: capability.workspace-files-editor
+    to: service.files-text-commit
+    type: writes-through
     rank: must-inspect
   - from: state.files-editor-buffers
     to: capability.workspace-identity

@@ -10,21 +10,26 @@ import { FilesEditorTabBar } from "@/files-workbench/FilesEditorTabBar.js";
 import type {
   FilesEditorStatusHandle,
   FilesEditorStatusState,
+  FilesEditorStatusLanguage,
 } from "@/files-workbench/filesMonacoStatusHandle.js";
-import type { FilesEditorStatusLanguage } from "@/files-workbench/filesMonacoStatusHandle.js";
 import type {
   FilesEditorGotoTarget,
   FilesEditorStatusMarker,
 } from "@/files-workbench/filesEditorStatusModel.js";
 import type { FilesEditorTabEntry } from "@/files-workbench/filesEditorTabAnimation.js";
 import { isFilesPreviewBuffer, isFilesTextBuffer } from "@/files-workbench/filesEditorModel.js";
+import { FilesLargeTextViewer } from "@/files-workbench/FilesLargeTextViewer.js";
+import { FilesEditorExternalChangeBanner } from "@/files-workbench/FilesEditorExternalChangeBanner.js";
 import type {
   FilesBuffer,
   FilesEditorFocusRequest,
   FilesMonacoOpenPath,
   FilesMonacoRevealPosition,
 } from "@/files-workbench/filesEditorTypes.js";
-import { filesEditorSplitEdgeAtPoint } from "@/files-workbench/filesEditorDropZone.js";
+import {
+  filesEditorDropEdgeAtEvent,
+  filesEditorDropOverlayClass,
+} from "@/files-workbench/filesEditorGroupDrop.js";
 import {
   FILES_EDITOR_VIEW_DRAG_MIME,
   isFilesEditorViewDrag,
@@ -41,26 +46,6 @@ const FilesMonacoEditor = lazy(async () => {
   const module = await import("@/files-workbench/FilesMonacoEditor.js");
   return { default: module.FilesMonacoEditor };
 });
-
-function getDropEdge(event: DragEvent<HTMLDivElement>): FilesEditorSplitEdge | undefined {
-  const target = event.target;
-  if (target instanceof HTMLElement && target.closest('[role="tablist"]')) return undefined;
-  const rect = event.currentTarget.getBoundingClientRect();
-  return filesEditorSplitEdgeAtPoint(event.clientX, event.clientY, rect);
-}
-
-function dropOverlayClass(edge: FilesEditorSplitEdge): string {
-  switch (edge) {
-    case "left":
-      return "inset-y-0 left-0 w-1/2 border-r-2";
-    case "right":
-      return "inset-y-0 right-0 w-1/2 border-l-2";
-    case "top":
-      return "inset-x-0 top-0 h-1/2 border-b-2";
-    case "bottom":
-      return "inset-x-0 bottom-0 h-1/2 border-t-2";
-  }
-}
 
 export function FilesEditorGroupPane({
   group,
@@ -93,6 +78,7 @@ export function FilesEditorGroupPane({
   onSaveAs,
   onFocusGroup,
   onEditorHandleChange,
+  onExternalChangeAction,
 }: {
   group: FilesEditorGroup;
   buffers: readonly FilesBuffer[];
@@ -135,6 +121,8 @@ export function FilesEditorGroupPane({
     handle: FilesEditorStatusHandle | null,
     bufferId?: string,
   ) => void;
+  /** 外部变化提示条动作：重载先经 controller 确认，保留只清除提示。 */
+  onExternalChangeAction: (bufferId: string, action: "reload" | "dismiss") => void;
 }) {
   const { intl } = useZCodeIntl();
   const { settings, update } = useSettings();
@@ -153,12 +141,16 @@ export function FilesEditorGroupPane({
   );
   const activeEntry = tabs.find((entry) => entry.viewId === group.activeViewId) ?? tabs[0];
   const activeBuffer = activeEntry?.buffer;
+  // 只有真正进入过文件视图才挂载编辑器；外壳与提示条不依赖重量级编辑器挂载。
+  const editorBuffer = hasEnteredFiles ? activeBuffer : undefined;
   // 状态栏句柄由 Monaco 编辑器交出；这里只订阅快照并转发命令。
   const [statusBinding, setStatusBinding] = useState<{
     bufferId: string;
     handle: FilesEditorStatusHandle;
   } | null>(null);
   // 文本标签切到预览/另一文本时，不能让菜单和状态栏继续使用上一张标签的句柄。
+  // 大文本块编辑器也交出同形句柄供菜单撤销 / 重做 / 查找使用，
+  // 但它不提供全文件行号 / 语言等状态栏信息，因此不显示普通 status bar。
   const statusHandle = statusBinding?.bufferId === activeBuffer?.id ? statusBinding?.handle : null;
   const [statusState, setStatusState] = useState<FilesEditorStatusState | null>(null);
   const [statusLanguages, setStatusLanguages] = useState<FilesEditorStatusLanguage[]>([]);
@@ -178,6 +170,7 @@ export function FilesEditorGroupPane({
     return statusHandle.subscribe(setStatusState);
   }, [statusHandle]);
   // 句柄上报给文件工作台：菜单命令据此找到「聚焦组」的编辑器。
+  // 大文件同样上报，Store 的 saveToken guards 会拒绝保存中的撤销 / 重做。
   useEffect(() => {
     onEditorHandleChange?.(group.id, statusHandle ?? null, activeBuffer?.id);
   }, [activeBuffer?.id, group.id, onEditorHandleChange, statusHandle]);
@@ -266,7 +259,7 @@ export function FilesEditorGroupPane({
     event.preventDefault();
     event.stopPropagation();
     event.dataTransfer.dropEffect = "move";
-    const edge = getDropEdge(event);
+    const edge = filesEditorDropEdgeAtEvent(event);
     setDropEdge((current) => (current === edge ? current : edge));
   };
 
@@ -279,7 +272,7 @@ export function FilesEditorGroupPane({
       setDropEdge(undefined);
       return;
     }
-    const edge = getDropEdge(event);
+    const edge = filesEditorDropEdgeAtEvent(event);
     if (edge) {
       // Dragging a tab onto an edge moves that view into the new split. The
       // tab-bar split button deliberately uses copy mode, but a drag must not
@@ -333,11 +326,15 @@ export function FilesEditorGroupPane({
         onSave={onSave}
         onSaveAs={onSaveAs}
       />
+      <FilesEditorExternalChangeBanner
+        buffer={editorBuffer}
+        onReload={() => editorBuffer && onExternalChangeAction(editorBuffer.id, "reload")}
+        onKeep={() => editorBuffer && onExternalChangeAction(editorBuffer.id, "dismiss")}
+      />
       <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden [app-region:no-drag]">
-        {hasEnteredFiles &&
-        activeBuffer &&
-        isFilesTextBuffer(activeBuffer) &&
-        (activeBuffer.loadState === "unloaded" || activeBuffer.loadState === "loading") ? (
+        {editorBuffer &&
+        isFilesTextBuffer(editorBuffer) &&
+        (editorBuffer.loadState === "unloaded" || editorBuffer.loadState === "loading") ? (
           <div
             className="flex h-full items-center justify-center gap-2 text-ui-sm text-foreground-subtle"
             role="status"
@@ -349,10 +346,9 @@ export function FilesEditorGroupPane({
             />
             <span>{intl.formatMessage({ id: "filesWorkbench.loadingFile" })}</span>
           </div>
-        ) : hasEnteredFiles &&
-          activeBuffer &&
-          isFilesTextBuffer(activeBuffer) &&
-          activeBuffer.loadState === "error" ? (
+        ) : editorBuffer &&
+          isFilesTextBuffer(editorBuffer) &&
+          editorBuffer.loadState === "error" ? (
           <div
             className="flex h-full flex-col items-center justify-center gap-2 text-center text-ui-sm text-foreground-subtle"
             role="alert"
@@ -361,16 +357,23 @@ export function FilesEditorGroupPane({
             <button
               type="button"
               className="rounded-md border border-border px-2 py-1 text-ui-sm hover:bg-surface-hover"
-              onClick={() => void loadRestoredTextFile(activeBuffer.id)}
+              onClick={() => void loadRestoredTextFile(editorBuffer.id)}
             >
               {intl.formatMessage({ id: "filesWorkbench.retryLoadFile" })}
             </button>
           </div>
-        ) : hasEnteredFiles && activeBuffer && isFilesTextBuffer(activeBuffer) ? (
+        ) : editorBuffer?.kind === "large-text" ? (
+          <FilesLargeTextViewer
+            buffer={editorBuffer}
+            active={isActiveView}
+            onEditorStatusHandleChange={onStatusHandleChange}
+            onReloadRequested={() => onExternalChangeAction(editorBuffer.id, "reload")}
+          />
+        ) : editorBuffer && isFilesTextBuffer(editorBuffer) ? (
           <Suspense fallback={null}>
             <FilesMonacoEditor
-              buffer={activeBuffer}
-              onChange={(text) => onChange(activeBuffer.id, text)}
+              buffer={editorBuffer}
+              onChange={(text) => onChange(editorBuffer.id, text)}
               onOpenPath={onOpenPath}
               revealPosition={revealPosition}
               onRevealPositionApplied={onRevealPositionApplied}
@@ -379,18 +382,18 @@ export function FilesEditorGroupPane({
               onStatusHandleChange={onStatusHandleChange}
             />
           </Suspense>
-        ) : hasEnteredFiles && activeBuffer && isFilesPreviewBuffer(activeBuffer) ? (
+        ) : editorBuffer && isFilesPreviewBuffer(editorBuffer) ? (
           <PreviewPane
             source={{
               type: "file",
-              title: activeBuffer.title,
-              path: activeBuffer.path,
-              workspacePath: activeBuffer.workspace.workspacePath,
-              workspaceIdentity: activeBuffer.workspace.workspaceIdentity,
-              workspaceRemoteSessionId: activeBuffer.workspace.workspaceRemoteSessionId,
+              title: editorBuffer.title,
+              path: editorBuffer.path,
+              workspacePath: editorBuffer.workspace.workspacePath,
+              workspaceIdentity: editorBuffer.workspace.workspaceIdentity,
+              workspaceRemoteSessionId: editorBuffer.workspace.workspaceRemoteSessionId,
             }}
-            workspacePath={activeBuffer.workspace.workspacePath}
-            onClose={() => onClose(activeBuffer.id, activeEntry.viewId)}
+            workspacePath={editorBuffer.workspace.workspacePath}
+            onClose={() => onClose(editorBuffer.id, activeEntry?.viewId ?? "")}
             variant="workbench"
           />
         ) : (
@@ -399,7 +402,7 @@ export function FilesEditorGroupPane({
           </p>
         )}
       </div>
-      {statusHandle && statusState ? (
+      {activeBuffer?.kind !== "large-text" && statusHandle && statusState ? (
         <FilesEditorStatusBar
           state={statusState}
           languages={statusLanguages}
@@ -417,7 +420,7 @@ export function FilesEditorGroupPane({
           aria-hidden="true"
           className={cn(
             "pointer-events-none absolute z-20 border-brand bg-brand/10",
-            dropOverlayClass(dropEdge),
+            filesEditorDropOverlayClass(dropEdge),
           )}
         />
       ) : null}

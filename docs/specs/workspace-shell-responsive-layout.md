@@ -30,7 +30,7 @@
 ### 窄视口：侧栏抽屉
 
 - 侧栏从左侧滑入，覆盖在会话列之上，宽度 `min(85vw, 320px)`。
-- **抽屉形态下还多一条打开路径：会话界面里的大幅右滑。** 手势与浮层里的切换按钮并存，浮层按钮始终是唯一可点的开关。判定、让位规则与提交时机见 `workspace-shell-swipe-gesture.md`。
+- **抽屉形态下还多一条打开路径：任务会话阅读面里的大幅右滑。** 手势与浮层里的切换按钮并存，浮层按钮始终是唯一可点的开关。文件主视图（含 Monaco、文件树、空态）、设置、自动化与插件商店不启用手势。判定、让位规则与提交时机见 `workspace-shell-swipe-gesture.md`。
 - 展开/收起由 `translate-x` 表达，**抽屉宽度不随显隐变化**；宽度若同时归零，展开就变成挤压动画。
 - **过渡属性必须与实际位移属性同源。** 抽屉用 `translate-x-0` / `-translate-x-full` 位移，也就是 CSS `transform`，因此过渡必须落在 `transition-transform` 上。`left` 被 `left-0` 钉死、整条生命周期从不变化，`transition-[left]` 过渡的是一个不动的属性——抽屉照样瞬移，现象是「手机上抽屉进出场没有动画」。过渡类因此与位移类收在同一个判定函数里（对照 Side Pane：`transition-[right]` 与 `right-*` 同函数），避免两处分头改就对不上。
 - **遮罩在抽屉形态下常驻挂载，显隐由透明度过渡表达。** 判定 `shouldRenderWorkspaceSidebarBackdrop()` 只看形态，不读显隐；`resolveWorkspaceOverlayBackdropClassName()` 给出 200ms ease-out 的 `transition-opacity`（与抽屉的 translate 滑动同参数），展开态 `opacity-100`、收起态 `pointer-events-none opacity-0`，组件上再叠 `inert` 收掉焦点。遮罩若按显隐挂卸，抽屉在滑、遮罩却瞬切，覆盖层的进出会显得「很硬」。隐藏态必须惰性：`opacity-0` 不参与命中测试豁免，全屏透明按钮会吃掉整片内容区的点击。点击遮罩即收起侧栏。
@@ -70,7 +70,7 @@
   留白由谁提供按形态分：
   - **内联形态**：左侧留白由折叠态侧栏的 4px 占位提供（`collapsedSidebarWidthPx = 4`），主内容区自己不留左边距（`pl-0`）；侧栏展开时那一份留白换成侧栏本身。
   - **抽屉形态**：侧栏不占位，主内容区必须自己补上这 4px（左侧内边距 4px）。
-  判定见 `resolveWorkspaceContentPaddingClassName()`。
+    判定见 `resolveWorkspaceContentPaddingClassName()`。
 - **会话列内的浮层必须走纵向。** 状态面板（`ConversationStatusPanel`）在窄视口下是覆盖在会话之上的 `w-80` 右侧卡片，它左侧只剩 `100vw - 336px` 的空隙。面板内部的分支弹层若仍按宽视口往左弹，会被面板自己盖住：Radix 的 `shift` 只会把浮层拉回视口内，不会把它挪到面板上方，于是屏幕左缘只剩一条点不到的残片。窄视口下该弹层改为向下弹，宽视口维持向左，判定见 `resolveConversationStatusPanelPopoverSide()`。
 - **折叠 Todo 分组在窄视口就地展开，不做浮层。** `已完成 N 项` / `待处理 N 项` 的预览在宽视口是 hover 浮层，但窄视口不存在可用的悬浮落点：面板贴着视口上沿，浮层向下会被视口下沿顶掉而向上翻转，整块糊在屏幕顶端、盖住应用头部（向右则被面板盖住）。触发行本来就有 `aria-expanded` 的披露语义，因此窄视口改为点击就地展开，内容落进分区已有的滚动区，位置始终贴着用户点的那一行。判定见 `resolveConversationTodoGroupPresentation()`。
 - **折叠行的箭头随呈现方式与展开状态变化。** 悬浮形态恒为左箭头，指向浮层真正弹出的方向；就地展开形态与分区标题同用「收起 › / 展开 ⌄」，箭头指向条目铺开的方向（下方），展开后图标必须变形，否则看不出这一组是开着的。图标之外的样式（尺寸、字色、hover）不随展开变化——分区标题两种状态都是同一个 `foreground-subtle`，折叠行跟着它走。判定见 `resolveTodoPreviewChevron()`。
@@ -98,6 +98,13 @@
 - **网页缺省 `isDesktop` 必须当成网页，不能只认严格 `false`。** Web 入口以前不传这个字段（值为 `undefined`）。若 chrome 只判断 `isDesktop === false`，缺省会掉进「非 Windows」的 12px 圆角+描边，远控页看起来完全没改。工作区外壳传入前必须先收成布尔值；Root 缺省即 `false`。
 - 抽屉展开时 Header 横跨整个内容区宽度，抽屉（窄视口下 `min(85vw, 320px)`、z-19）盖住它的左半截，**右半截会露出一条空带**（草稿态无标题，只有 Side Pane 开关）。这与任务态在抽屉展开时的既有观感一致。
 
+### 网页版：文件工作台的 48px 顶带
+
+- **Web 文件工作台只有一条 48px 顶带。** 「文件 / 编辑」菜单与既有 48px 全局左上操作组同处一行；顶带之后直接是 36px 文件 Tab 条。删除原先独立的 36px 页内菜单行及其纯空占位，顶部流内高度从 `48 + 36 + 36` 收为 `48 + 36`。空工作台（`FilesEmptyShell`）与有标签工作台同规则；Desktop 不渲染页内菜单，Tab 顶边与既有局部避让不变。
+- **菜单组按实际 DOM 几何避让。** 起点读全局左上操作组 `[data-workspace-caption-actions]` 的实际右沿（包含平台 padding），加 8px 间距；不按固定槽宽或 `104px` 常量猜测。观察操作组及其承载 padding 的父层、顶带与文件工作台尺寸，在窗口缩放、抽屉开合、更新入口显隐、主视图切换后重算。只写派生 CSS 布局，不进入 Zustand 或持久化。
+- **不换行、不遮住。** 顶带高度固定 48px；菜单组保持单行，不把「文件 / 编辑」折到第二行，也不用横向滚动藏入口。320px 下两个入口仍完整可见可点；430px 与 1280px 结构相同。右侧避让仍按实际控件；Web 没有窗控，Desktop 窗控只影响 Desktop 的 Tab 几何。
+- **下拉仍在视口内。** 文件 / 编辑下拉沿用既有 DropdownMenu 定位；窄屏内部滚动，不向屏外展开嵌套子菜单。菜单 portal 只在实际文件主视图激活时挂载，隐藏保活层不保留可交互入口。
+
 ### 宽视口（≥768px）
 
 - 双栏结构、侧栏 CSS 变量与 localStorage 宽度持久化、拖拽/键盘 resize、4px 桌面面板间距、圆角与窗控 chrome 全部保持改动前的行为。宽视口下标题区仍按内容占宽（`shouldFillWorkspaceHeaderTitleSection` 不读 Header 宽度、不做顺手放宽），标题栏拖拽区不受影响。
@@ -109,14 +116,14 @@
 
 状态所有者是唯一的，宽度不写状态：
 
-| 状态               | 所有者                                                        | 说明                                    |
-| ------------------ | ------------------------------------------------------------- | --------------------------------------- |
-| 侧栏显隐           | `packages/ui/src/hooks/useAppPanels.ts` 的 `isSidebarVisible` | 用户意图，纯内存态。只有初始值读视口    |
-| 侧栏呈现形态       | 从视口派生，不落状态                                          | `resolveWorkspaceSidebarPresentation()` |
-| 侧栏内联宽度       | `WorkspaceShellLayout` 的 `workspaceSidebarPanelWidthPx`      | localStorage 持久化，仅宽视口可写；设置主视图共用此轴 |
+| 状态               | 所有者                                                        | 说明                                                                     |
+| ------------------ | ------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| 侧栏显隐           | `packages/ui/src/hooks/useAppPanels.ts` 的 `isSidebarVisible` | 用户意图，纯内存态。只有初始值读视口                                     |
+| 侧栏呈现形态       | 从视口派生，不落状态                                          | `resolveWorkspaceSidebarPresentation()`                                  |
+| 侧栏内联宽度       | `WorkspaceShellLayout` 的 `workspaceSidebarPanelWidthPx`      | localStorage 持久化，仅宽视口可写；设置主视图共用此轴                    |
 | 任务还是设置       | `tabStore` 的设置 tab 激活态                                  | 外壳投影为主视图，不再解释成覆盖层；见 `workspace-shell-primary-tabs.md` |
-| Side Pane 开合     | `App.tsx` 的 `isSidePaneOpen`（`!isSidePaneCollapsed`）       | 本次不改                                |
-| Browser Guest 挂载 | React 树位置                                                  | 跨断点不改变其 DOM 位置                 |
+| Side Pane 开合     | `App.tsx` 的 `isSidePaneOpen`（`!isSidePaneCollapsed`）       | 本次不改                                                                 |
+| Browser Guest 挂载 | React 树位置                                                  | 跨断点不改变其 DOM 位置                                                  |
 
 ```
 视口宽度变化
@@ -137,6 +144,7 @@
 - `packages/ui/src/app-shell/workspaceShellWindowChrome.ts`：桌面面板圆角、描边与分栏外框 class。网页必须走 `isDesktop === false` 分支（圆角 0、无卡片描边），不得再掉进「非 Windows 即按 macOS/Linux 给 12px 圆角」的旧默认。
 - `packages/ui/src/v4/conversationLayout.ts` 的 `resolveConversationStatusPanelPopoverSide()`、`resolveConversationTodoGroupPresentation()`、`resolveStatusSectionScrollViewportClassName()` 与 `resolveTodoPreviewChevron()`：面板内浮层的弹出方向、折叠分组的展开方式、分区要不要自带滚动视口、折叠行的箭头方向，四者与上面的外壳形态同源于 `useIsNarrowViewport()`。面板此前把前者写死成常量 `useVerticalFloatingPanels = false`、后三者根本没有分支，配套的 `isMobileViewport` prop 只声明不解构、从未被任何调用方赋值，因此手机上点「已完成 N 项」时预览会先弹到屏幕左缘外面，而长 Todo 列表被切在分区自己的窄视口里、触发行上的箭头还固定指向一个手机上从不出现的浮层落点。
 - `packages/ui/src/WorkspaceHeader.tsx` 的 `simplifyForNarrowRemote`：本次接上真实判定。它此前带默认值 `false` 却没有任何调用方赋值，配套的 `max-md:` 收窄与 `hideMobileUnsupportedActions` 因此从未生效。
+- Web 文件工作台 48px 顶带的几何投影：读取 `[data-workspace-caption-actions]` 的实际矩形，只向顶带节点写派生 CSS；可与 `packages/ui/src/files-workbench/useFilesWorkbenchTabChrome.ts` 共用观察器实现，但不得改变 Desktop Tab 的避让结果，也不新增 Zustand 字段或持久化。
 
 ## 已知限制
 
@@ -153,8 +161,8 @@
 1. 手机竖屏（约 440px）打开网页版工作区：首屏是单列，会话列占满宽度，看不到侧栏。
 2. 点左上浮层的切换按钮：侧栏从左侧滑入覆盖内容，半透明遮罩同步淡入（约 200ms，不瞬切）；点遮罩收起，遮罩随抽屉滑动同步淡出，会话恢复满宽，收起过程会话列立即可点可滚。
 3. 抽屉展开状态下，浮层里的侧栏切换按钮仍在左上原位且可点，点它直接收起抽屉。点按展开/收起时该按钮的屏幕坐标不跳：指针仍落在同一颗按钮上，不会点空；收起后「新建任务」图标出现在它右侧，开关本身不横移。宽视口内联列与窄视口抽屉都成立。macOS 全屏桌面同样不因显隐改浮层左边距。
-3b. 网页版工作区（含远控页）会话列、终端、Side Pane 都是直角铺满，四角不漏出外壳底色；桌面窗口里的内嵌卡片圆角与 4px 留白不变。网页上点侧栏开关键，整组入口不因卡片描边多出的 1px 往右跳。
-3c. 桌面窗口（任意宽度，Windows 10 与 Windows 11 观感一致）：会话列、终端与 Side Pane 的四个角圆角一致——左边上下是圆角时，右边上下同样是圆角，不得出现「左圆右直」；开合 Side Pane 前后，同一张卡片的角形状不发生跳变。
+   3b. 网页版工作区（含远控页）会话列、终端、Side Pane 都是直角铺满，四角不漏出外壳底色；桌面窗口里的内嵌卡片圆角与 4px 留白不变。网页上点侧栏开关键，整组入口不因卡片描边多出的 1px 往右跳。
+   3c. 桌面窗口（任意宽度，Windows 10 与 Windows 11 观感一致）：会话列、终端与 Side Pane 的四个角圆角一致——左边上下是圆角时，右边上下同样是圆角，不得出现「左圆右直」；开合 Side Pane 前后，同一张卡片的角形状不发生跳变。
 4. 440px 下会话里的长文本、文件卡片、改动统计（`+650` 一行）完整可见，右侧无截断。
 5. 窄视口打开 Side Pane：从右侧覆盖滑入，与左侧抽屉同款不透明表面（底色 + 边框 + 投影）；遮罩覆盖整屏（含输入区与建议行，点它们不会穿透到会话），并与面板同步淡入。面板从窗口顶满高覆盖（与左侧侧栏一致），面板内部顶部留出 48px，标签栏不贴窗口顶端；点被遮罩盖住的内容区关闭面板。
 6. 窄视口开合 Side Pane 时能看见约 200ms 的横向滑动（从右侧滑入、向右滑出），不是瞬时出现/消失；遮罩同步淡入淡出、不瞬切，收起时遮罩淡出期间会话列已可点可滚；全过程包裹层的 `transform` 为 `none`，页面不出现横向滚动条。
@@ -171,7 +179,8 @@
 14. 窄视口（约 700px 的桌面窄窗口，或手机竖屏打开远控页）打开一条 Todo 超过 6 项的会话，展开状态面板后点「已完成 N 项」：分组**就地展开**在该行正下方，6 条全部可读，应用头部与屏幕顶端不被任何浮层遮挡，屏幕左缘也不出现被截断的卡片残片。触发行上的箭头收起时是 › 右箭头、展开时是 ⌄ 下箭头，始终指向条目铺开的方向。再点一次收起，箭头回到 ›。同一宽度下点状态面板里的分支行，分支弹层完整出现在屏幕内、可选中。
 15. 窄视口下展开状态面板：卡片四角完整落在屏幕内（右侧留 16px、上方留 16px），高度不超过 `min(64dvh, 32rem)`；8 条以上的 Todo 列表不出现第二个滚动条——在卡片内任意位置滑动，整张卡片的内容一起滚，分区标题不各自独立滚动；列表末尾不会被某个分区的边界拦腰切断。
 16. 1280px 下重复上一条：折叠分组仍是 hover 浮层、向左弹出，触发行仍是左箭头（浮层弹出与箭头指向一致），各分区限高原样（滚一个分区不带着其余分区一起动），观感与改动前一致；在 767px 与 769px 之间反复缩放，展开方式、弹出方向、箭头方向与分区限高随之切换，页面不横向滚动、不闪烁重载。
-17. `pnpm typecheck`、`pnpm lint`、`pnpm verify:pre-push`、`pnpm architecture:check --changed` 通过；新增的 `node --test` 用例通过。
+17. Web 文件工作台在 320px / 430px / 1280px：顶栏只有一条 48px 带，「文件 / 编辑」与全局侧栏切换、新建任务、更新入口同排且不重叠；没有独立 36px 菜单行或纯空占位；下一行直接是文件 Tab（空工作台同样）。窗口缩放、抽屉开合、更新入口显隐后菜单仍从操作组右沿之后开始，下拉完整落在视口内；Desktop 文件页仍无页内菜单，Tab 顶边与局部避让不变。
+18. `pnpm typecheck`、`pnpm lint`、`pnpm verify:pre-push`、`pnpm architecture:check --changed` 通过；新增的 `node --test` 用例通过。
 
 验收命令（沿用仓库既有约定，`.js` 说明符指向 `.ts` 源文件，需要 tsx 与 UI 包的路径别名）：
 

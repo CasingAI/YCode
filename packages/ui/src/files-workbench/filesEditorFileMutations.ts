@@ -5,6 +5,7 @@ import {
   filesFileBufferId,
   filesWorkspaceKey,
   isFilesBufferDirty,
+  isFilesLargeTextBuffer,
 } from "@/files-workbench/filesEditorModel.js";
 import { normalizeFilesMonacoPath } from "@/files-workbench/filesMonacoTypescriptPath.js";
 import type { FilesEditorLayoutState } from "@/files-workbench/filesEditorLayout.js";
@@ -87,9 +88,22 @@ export function applyFilesEditorFileMutation(
     nextBufferById.set(buffer.id, draft);
   };
 
+  // 大文件没有完整正文，不能转成 untitled；只能保留原路径与 edit，
+  // 由外部变化提示阻止自动写回已删除 / 已改名的旧路径。
+  const markExternalChanged = (buffer: FilesBuffer): FilesBuffer =>
+    buffer.kind === "preview" ? buffer : { ...buffer, externalChange: { kind: "changed" } };
+
   for (const buffer of affected) {
     if (mutation.kind === "delete") {
-      // 删除不能留下可保存回旧路径的脏标签；保留基准还可正确识别“清空正文”的修改。
+      // 删除不能留下可保存回旧路径的脏标签；普通文本保留为 untitled，
+      // 大文件保留原路径和补丁，只标记 deleted，不能静默丢弃。
+      if (isFilesLargeTextBuffer(buffer) && isFilesBufferDirty(buffer)) {
+        nextBufferById.set(buffer.id, {
+          ...buffer,
+          externalChange: { kind: "deleted" },
+        });
+        continue;
+      }
       if (buffer.kind === "text" && isFilesBufferDirty(buffer)) preserveDraft(buffer);
       else removedIds.add(buffer.id);
       continue;
@@ -99,6 +113,12 @@ export function applyFilesEditorFileMutation(
     const collision = state.buffers.find(
       (candidate) => candidate.id === id && !affectedIds.has(candidate.id),
     );
+    if (collision && isFilesLargeTextBuffer(collision) && isFilesBufferDirty(collision)) {
+      // 目标路径的脏大文件无法转 untitled；拒绝本次迁移，保留双方补丁与路径。
+      nextBufferById.set(buffer.id, markExternalChanged(buffer));
+      nextBufferById.set(collision.id, markExternalChanged(collision));
+      continue;
+    }
     if (collision) {
       // 目标磁盘路径可能已不存在，但它的旧脏缓冲仍在；不能让新身份覆盖未保存正文。
       if (collision.kind === "text" && isFilesBufferDirty(collision)) preserveDraft(collision);
@@ -111,6 +131,13 @@ export function applyFilesEditorFileMutation(
       path,
       title: getPathLeaf(path),
       ...(buffer.kind === "text" && buffer.loadState ? { loadState: "unloaded" as const } : {}),
+      // 脏大文件不 rebase：保留 baseVersion/edit，只提示 changed；
+      // 干净大文件清掉旧基准，交给后续 watch / restore 重新探测版本。
+      ...(isFilesLargeTextBuffer(buffer)
+        ? isFilesBufferDirty(buffer)
+          ? { externalChange: { kind: "changed" as const } }
+          : { edit: undefined, externalChange: undefined }
+        : {}),
     });
   }
 

@@ -24,12 +24,13 @@ function renderMenu(locale: Locale, isActiveView = true): string {
   );
 }
 
-test("Web 空文件工作台提供文件与编辑两个可点击菜单入口", () => {
+test("Web 空文件工作台提供文件与编辑两个可点击菜单入口并填满48px导航行", () => {
   const markup = renderMenu("zh-CN");
   assert.equal(markup.match(/aria-haspopup="menu"/g)?.length, 2);
   assert.match(markup, />文件<\/button>/);
   assert.match(markup, />编辑<\/button>/);
-  assert.match(markup, /h-9/);
+  assert.match(markup, /class="flex h-full min-w-0 flex-1 items-center/);
+  assert.doesNotMatch(markup, /\bh-9\b|border-b/);
   assert.match(markup, /app-region:no-drag/);
 });
 

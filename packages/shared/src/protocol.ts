@@ -46,6 +46,106 @@ export interface FileTextSlice {
   isBinary: boolean;
 }
 
+/**
+ * 单次按需文本窗口的最大原始字节数。
+ *
+ * 文件工作台对大文件只读窗口与 ≤ 8 MiB 完整读取都复用它；服务端必须硬夹紧，
+ * 调用方也不能通过超大 length 让一次 RPC 拉回整份文件。
+ */
+export const FILE_TEXT_WINDOW_MAX_BYTES = 256 * 1024;
+
+/** 参数非法（NaN / Infinity / 负数 / 非安全整数 / length 小于 4）。 */
+export const FILE_TEXT_WINDOW_INVALID_RANGE_CODE = "FILE_TEXT_WINDOW_INVALID_RANGE" as const;
+/** 目标路径不是普通文件（目录、设备等）。 */
+export const FILE_TEXT_WINDOW_NOT_FILE_CODE = "FILE_TEXT_WINDOW_NOT_FILE" as const;
+/**
+ * 文件在读取期间发生变化，或 expectedVersion 与当前磁盘版本不一致。
+ * UI 应保留旧窗口并提示用户手动刷新，不得拼接两个版本的内容。
+ */
+export const FILE_TEXT_WINDOW_CHANGED_CODE = "FILE_TEXT_WINDOW_CHANGED" as const;
+
+export type FileTextWindowErrorCode =
+  | typeof FILE_TEXT_WINDOW_INVALID_RANGE_CODE
+  | typeof FILE_TEXT_WINDOW_NOT_FILE_CODE
+  | typeof FILE_TEXT_WINDOW_CHANGED_CODE;
+
+/**
+ * `IFileService.readTextFileWindow` 的单窗结果。
+ *
+ * - `offset` 是实际起点；仅当请求 offset 位于合法 UTF-8 码点内部时向前回退到码点起始。
+ *   请求 offset 落在非法 continuation 串中时保持请求值，作为确定的窗口边界。
+ * - `nextOffset` 是下一窗口的精确字节位置，位于完整码点之后；顺序拼接不丢不重。
+ * - `version` 是不透明版本 token，由服务从文件 stat identity 生成；跨窗口可传给
+ *   `expectedVersion` 拒绝混合版本读取。
+ * - `content` 只包含完整 UTF-8 码点；二进制时为 ""。
+ * - `hasDecodingErrors` 表示本次窗口的原始字节存在非法 UTF-8 序列（不是文件中真实的
+ *   U+FFFD 字符）。为 true 时调用方应降级为只读，禁止保存回写。
+ * - `eof` 为 true 表示 `nextOffset >= totalBytes`。
+ */
+export interface FileTextWindow {
+  path: string;
+  content: string;
+  offset: number;
+  bytesRead: number;
+  nextOffset: number;
+  totalBytes: number;
+  version: string;
+  isBinary: boolean;
+  eof: boolean;
+  /** 本次窗口原始字节存在非法 UTF-8；二进制与空窗口为 false。 */
+  hasDecodingErrors?: boolean;
+  /** 窗口未到 EOF 时为 true，等价于 `!eof`；供 UI 直接判断是否需要继续加载。 */
+  truncated?: boolean;
+}
+
+/** 基于原文件字节坐标的单块补丁；`offset` 相对 `expectedVersion` 的源文件。 */
+export interface FileTextPatch {
+  offset: number;
+  deleteBytes: number;
+  text: string;
+}
+
+export type FileTextWrite =
+  | { kind: "full"; text: string }
+  | { kind: "patches"; patches: FileTextPatch[] };
+
+/**
+ * `IFileService.commitTextFile` 参数。
+ *
+ * - 无 `sourcePath` 时，`expectedVersion` 描述 `path`；字符串要求存在且版本一致，
+ *   `null` 要求不存在且只允许 `full`。
+ * - 有 `sourcePath` 时，`expectedVersion` 必须是字符串并匹配源；`expectedTargetVersion`
+ *   描述目标（省略按 `null`）。源与目标 canonical 相同时归一为普通保存。
+ */
+export interface CommitTextFileParams {
+  path: string;
+  /** 另存为源；与 `path` 相同时不得设置，按普通保存处理。 */
+  sourcePath?: string;
+  /** 源 / 目标当前版本。null 表示必须不存在，且只允许 full。 */
+  expectedVersion: string | null;
+  /** 另存为目标版本：null = 必须不存在，string = 必须匹配；省略按 null。 */
+  expectedTargetVersion?: string | null;
+  write: FileTextWrite;
+}
+
+export interface CommitTextFileResult {
+  path: string;
+  version: string;
+  totalBytes: number;
+}
+
+/** 字符串版本不匹配、期望存在的文件被删除、null 时目标已存在或提交期间版本变化。 */
+export const FILE_TEXT_COMMIT_CONFLICT_CODE = "FILE_TEXT_COMMIT_CONFLICT" as const;
+/** 补丁参数非法、越界、重叠、重复，或 sourcePath / expectedTargetVersion 组合非法。 */
+export const FILE_TEXT_INVALID_PATCH_CODE = "FILE_TEXT_INVALID_PATCH" as const;
+/** 源或目标存在但不是普通文件（目录、设备、悬空符号链接等）。 */
+export const FILE_TEXT_NOT_FILE_CODE = "FILE_TEXT_NOT_FILE" as const;
+
+export type FileTextCommitErrorCode =
+  | typeof FILE_TEXT_COMMIT_CONFLICT_CODE
+  | typeof FILE_TEXT_INVALID_PATCH_CODE
+  | typeof FILE_TEXT_NOT_FILE_CODE;
+
 export interface FileMediaPreview {
   path: string;
   mediaType: string;

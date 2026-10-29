@@ -1,38 +1,27 @@
 import { getPathLeaf } from "@/lib/path.js";
 import { filesMonacoPathsEqual } from "@/files-workbench/filesMonacoTypescriptPath.js";
+import {
+  filesFileBufferId,
+  filesWorkspaceKey,
+  isFilesLargeTextBuffer,
+  isFilesPreviewTab,
+  isFilesTextBuffer,
+} from "@/files-workbench/filesEditorBufferModel.js";
+import { hasFilesLargeTextEditChanges } from "@/files-workbench/filesLargeTextDraftModel.js";
 import type {
   FilesBuffer,
   FilesEditorState,
   FilesOpenMode,
   FilesPersistedDraft,
   FilesPersistedOpenTab,
-  FilesPreviewBuffer,
   FilesTextBuffer,
   FilesTextBufferLoadState,
   FilesWorkspaceRef,
 } from "@/files-workbench/filesEditorTypes.js";
 
-export function filesWorkspaceKey(
-  workspace: Pick<FilesWorkspaceRef, "workspacePath" | "workspaceIdentity">,
-): string {
-  return workspace.workspaceIdentity?.trim() || workspace.workspacePath;
-}
-
-export function filesFileBufferId(workspace: FilesWorkspaceRef, path: string): string {
-  return `file:${filesWorkspaceKey(workspace)}:${path}`;
-}
-
-export function isFilesTextBuffer(buffer: FilesBuffer): buffer is FilesTextBuffer {
-  return buffer.kind === "text";
-}
-
-export function isFilesPreviewBuffer(buffer: FilesBuffer): buffer is FilesPreviewBuffer {
-  return buffer.kind === "preview";
-}
-
-export function isFilesPreviewTab(buffer: FilesBuffer): boolean {
-  return buffer.preview === true;
-}
+export * from "@/files-workbench/filesEditorBufferModel.js";
+export * from "@/files-workbench/filesLargeTextDraftModel.js";
+export * from "@/files-workbench/filesLargeTextDraftExternal.js";
 
 function withOpenMode(buffer: FilesBuffer, mode: FilesOpenMode): FilesBuffer {
   if (mode === "preview") {
@@ -60,6 +49,9 @@ export function insertFilesOpenIdAfterActive(
 }
 
 export function isFilesBufferDirty(buffer: FilesBuffer): boolean {
+  if (isFilesLargeTextBuffer(buffer)) {
+    return hasFilesLargeTextEditChanges(buffer.edit);
+  }
   if (!isFilesTextBuffer(buffer)) {
     return false;
   }
@@ -71,11 +63,20 @@ export function isFilesBufferDirty(buffer: FilesBuffer): boolean {
 
 /**
  * 保存 / 另存为的统一置灰规则（应用菜单 canSave 与标签右键共用）：
- * 已加载完成的可写文本缓冲才可保存；图片等只读预览不算，
- * 恢复中的正文尚未读盘，不能把占位空文本另存为真实文件。
+ * 已加载完成的完整可写文本缓冲，或存在有效固定块修改的大文本缓冲才可保存。
+ * 图片等只读预览、尚未读盘的恢复文本不算。
+ *
+ * 大文件只要已建立编辑基准即可保存（含干净文件的另存为）；
+ * `changes` 为空时保存流程应 no-op 或流式复制，而不是禁用入口。
+ * `readonlyReason === "encoding"` 只是整体提示，不会整体禁用保存。
+ *
+ * 旧版截断文本只有局部正文；把它写回会静默丢数据，因此同样不可保存。
  */
 export function canSaveFilesBuffer(buffer: FilesBuffer): boolean {
-  return isFilesTextBuffer(buffer) && buffer.loadState === undefined;
+  if (isFilesLargeTextBuffer(buffer)) {
+    return buffer.edit !== undefined;
+  }
+  return isFilesTextBuffer(buffer) && buffer.loadState === undefined && buffer.truncated !== true;
 }
 
 export function detectFilesSaveConflict(params: {
@@ -187,76 +188,6 @@ export function resolveExplorerWorkspaceKey(params: {
   return params.workspaceKeys[0];
 }
 
-export function createUntitledTextBuffer(params: {
-  id: string;
-  title: string;
-  workspace: FilesWorkspaceRef;
-}): FilesTextBuffer {
-  return {
-    id: params.id,
-    kind: "text",
-    untitled: true,
-    title: params.title,
-    text: "",
-    savedText: "",
-    workspace: params.workspace,
-  };
-}
-
-export function createTextFileBuffer(params: {
-  workspace: FilesWorkspaceRef;
-  path: string;
-  text: string;
-  truncated?: boolean;
-}): FilesTextBuffer {
-  return {
-    id: filesFileBufferId(params.workspace, params.path),
-    kind: "text",
-    untitled: false,
-    path: params.path,
-    title: getPathLeaf(params.path),
-    text: params.text,
-    savedText: params.text,
-    workspace: params.workspace,
-    truncated: params.truncated,
-  };
-}
-
-export function createRestoredTextFileBuffer(params: {
-  id: string;
-  workspace: FilesWorkspaceRef;
-  path: string;
-  preview?: boolean;
-}): FilesTextBuffer {
-  return {
-    id: params.id,
-    kind: "text",
-    untitled: false,
-    path: params.path,
-    title: getPathLeaf(params.path),
-    text: "",
-    savedText: "",
-    workspace: params.workspace,
-    preview: params.preview === true ? true : undefined,
-    loadState: "unloaded",
-  };
-}
-
-export function createPreviewBuffer(params: {
-  workspace: FilesWorkspaceRef;
-  path: string;
-  /** 恢复旧会话时保留原缓冲 ID；新打开不传，使用路径派生的稳定 ID。 */
-  id?: string;
-}): FilesPreviewBuffer {
-  return {
-    id: params.id ?? filesFileBufferId(params.workspace, params.path),
-    kind: "preview",
-    path: params.path,
-    title: getPathLeaf(params.path),
-    workspace: params.workspace,
-  };
-}
-
 export function openBufferInState(
   state: FilesEditorState,
   buffer: FilesBuffer,
@@ -310,6 +241,9 @@ export function openBufferInState(
 }
 
 export function closeBufferInState(state: FilesEditorState, id: string): FilesEditorState {
+  const target = state.buffers.find((buffer) => buffer.id === id);
+  // 大文件提交 token 是 buffer 的生命周期租约：保存期间任何关闭路径都不得移除它。
+  if (target?.kind === "large-text" && target.saveToken) return state;
   const openIds = state.openIds.filter((openId) => openId !== id);
   const buffers = state.buffers.filter((buffer) => buffer.id !== id);
   const activeIndex = state.openIds.indexOf(id);
@@ -331,7 +265,15 @@ export function updateTextBuffer(
   patch: Partial<
     Pick<
       FilesTextBuffer,
-      "text" | "savedText" | "path" | "untitled" | "title" | "truncated" | "loadState"
+      | "text"
+      | "savedText"
+      | "path"
+      | "untitled"
+      | "title"
+      | "truncated"
+      | "loadState"
+      | "diskVersion"
+      | "externalChange"
     >
   >,
 ): FilesEditorState {
@@ -352,6 +294,9 @@ export function updateTextBuffer(
       next.title === buffer.title &&
       next.truncated === buffer.truncated &&
       next.loadState === buffer.loadState &&
+      next.diskVersion === buffer.diskVersion &&
+      next.externalChange?.kind === buffer.externalChange?.kind &&
+      next.externalChange?.observedVersion === buffer.externalChange?.observedVersion &&
       next.preview === buffer.preview
     ) {
       return buffer;
@@ -365,7 +310,7 @@ export function updateTextBuffer(
 export function loadTextBufferInState(
   state: FilesEditorState,
   id: string,
-  params: { text: string; truncated?: boolean },
+  params: { text: string; truncated?: boolean; version?: string },
 ): FilesEditorState {
   let changed = false;
   const buffers = state.buffers.map((buffer) => {
@@ -379,7 +324,67 @@ export function loadTextBufferInState(
       savedText: params.text,
       truncated: params.truncated,
       loadState: undefined,
+      diskVersion: params.version ?? buffer.diskVersion,
+      externalChange: undefined,
     };
+  });
+  return changed ? { ...state, buffers } : state;
+}
+
+/**
+ * 大文本决策拿到首窗总大小时补全元数据；不保存窗口正文或偏移。
+ *
+ * 恢复标签在首次决策前只有路径元数据；写入 totalBytes 后 viewer 才不会继续
+ * 把该标签当成「尚未决策」而重复触发恢复读取。
+ */
+export function setLargeTextTotalBytesInState(
+  state: FilesEditorState,
+  id: string,
+  totalBytes: number | undefined,
+  readonlyReason?: "encoding",
+): FilesEditorState {
+  let changed = false;
+  const buffers = state.buffers.map((buffer) => {
+    if (
+      !isFilesLargeTextBuffer(buffer) ||
+      buffer.id !== id ||
+      (buffer.totalBytes === totalBytes && buffer.readonlyReason === readonlyReason)
+    ) {
+      return buffer;
+    }
+    changed = true;
+    return { ...buffer, totalBytes, readonlyReason };
+  });
+  return changed ? { ...state, buffers } : state;
+}
+
+/**
+ * 恢复 / 重载决策发现磁盘文件已回到可编辑阈值内：
+ * 在原 ID、原标签位置与预览标记内把只读大文本缓冲替换为完整文本缓冲。
+ */
+export function completeLargeTextBufferAsTextInState(
+  state: FilesEditorState,
+  id: string,
+  params: { text: string },
+): FilesEditorState {
+  let changed = false;
+  const buffers = state.buffers.map((buffer) => {
+    if (!isFilesLargeTextBuffer(buffer) || buffer.id !== id) {
+      return buffer;
+    }
+    changed = true;
+    const textBuffer: FilesTextBuffer = {
+      id: buffer.id,
+      kind: "text",
+      untitled: false,
+      path: buffer.path,
+      title: buffer.title,
+      text: params.text,
+      savedText: params.text,
+      workspace: buffer.workspace,
+      preview: buffer.preview,
+    };
+    return textBuffer;
   });
   return changed ? { ...state, buffers } : state;
 }
@@ -416,6 +421,7 @@ export function persistableDrafts(state: FilesEditorState): FilesPersistedDraft[
         savedText: buffer.savedText,
         workspace: buffer.workspace,
         untitled: buffer.untitled,
+        truncated: buffer.truncated === true ? true : undefined,
       },
     ];
   });
