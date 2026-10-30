@@ -348,6 +348,131 @@ test("上游 dispose 抛错不中断其余订阅迁移", () => {
   accessor.dispose();
 });
 
+test("同一 continuity 内物理 target 换代时，迟到成功结果仍然有效", async () => {
+  const accessor = createSwitchableServiceAccessor();
+  let resolveFirst!: (value: string) => void;
+  const first = {
+    broadcastService: {
+      send: () => new Promise<string>((resolve) => (resolveFirst = resolve)),
+    },
+  } as unknown as WebServices;
+  const second = createTarget("second");
+
+  accessor.setTarget(first, 1, 100);
+  const pending = accessor.services.broadcastService.send("old");
+  // WSS→RTC 升级：物理 target 与 generation 变化，但逻辑 continuity 不变。
+  accessor.setTarget(second.target, 2, 100);
+  resolveFirst("late-ok");
+  assert.equal(await pending, "late-ok");
+  accessor.dispose();
+});
+
+test("continuity 变化时迟到的成功结果被拒绝", async () => {
+  const accessor = createSwitchableServiceAccessor();
+  let resolveFirst!: (value: string) => void;
+  const first = {
+    broadcastService: {
+      send: () => new Promise<string>((resolve) => (resolveFirst = resolve)),
+    },
+  } as unknown as WebServices;
+  const second = createTarget("second");
+
+  accessor.setTarget(first, 1, 100);
+  const pending = accessor.services.broadcastService.send("old");
+  accessor.setTarget(second.target, 2, 101);
+  resolveFirst("late");
+  await assert.rejects(
+    pending,
+    (error: Error) => error.name === "ConnectionClosed" && !isCommandNotSentError(error),
+  );
+  accessor.dispose();
+});
+
+test("continuity 未变但 target 变为 null 时，迟到成功结果仍被拒绝", async () => {
+  const accessor = createSwitchableServiceAccessor();
+  let resolveFirst!: (value: string) => void;
+  const first = {
+    broadcastService: {
+      send: () => new Promise<string>((resolve) => (resolveFirst = resolve)),
+    },
+  } as unknown as WebServices;
+
+  accessor.setTarget(first, 1, 100);
+  const pending = accessor.services.broadcastService.send("old");
+  // 防御性不变量：即使 owner 尚未换 token，断开后的 target 也不接受旧结果。
+  accessor.setTarget(null, 1, 100);
+  resolveFirst("late");
+  await assert.rejects(pending, (error: Error) => error.name === "ConnectionClosed");
+  accessor.dispose();
+});
+
+test("legacy 调用方在同 generation 换 target 时仍使在途结果失效", async () => {
+  const accessor = createSwitchableServiceAccessor();
+  let resolveFirst!: (value: string) => void;
+  const first = {
+    broadcastService: {
+      send: () => new Promise<string>((resolve) => (resolveFirst = resolve)),
+    },
+  } as unknown as WebServices;
+  const second = createTarget("second");
+
+  // 不传 continuity：必须完整保留旧的 target/generation 失效语义。
+  accessor.setTarget(first, 1);
+  const pending = accessor.services.broadcastService.send("old");
+  accessor.setTarget(second.target, 1);
+  resolveFirst("late");
+  await assert.rejects(pending, (error: Error) => error.name === "ConnectionClosed");
+  accessor.dispose();
+});
+
+test("切换后新调用只走新 target，已发出的写只执行一次", async () => {
+  const accessor = createSwitchableServiceAccessor();
+  const calls: string[] = [];
+  const first = {
+    broadcastService: {
+      send: async (value: string) => {
+        calls.push(`first:${value}`);
+        return `first:${value}`;
+      },
+    },
+  } as unknown as WebServices;
+  const second = {
+    broadcastService: {
+      send: async (value: string) => {
+        calls.push(`second:${value}`);
+        return `second:${value}`;
+      },
+    },
+  } as unknown as WebServices;
+
+  accessor.setTarget(first, 1, 100);
+  assert.equal(await accessor.services.broadcastService.send("a"), "first:a");
+  accessor.setTarget(second, 2, 100);
+  assert.equal(await accessor.services.broadcastService.send("b"), "second:b");
+  assert.deepEqual(calls, ["first:a", "second:b"]);
+  accessor.dispose();
+});
+
+test("真实 transport 拒绝不会被转换为成功或 ConnectionClosed", async () => {
+  const accessor = createSwitchableServiceAccessor();
+  const target = {
+    broadcastService: {
+      send: async () => {
+        throw new Error("transport rejected");
+      },
+    },
+  } as unknown as WebServices;
+
+  accessor.setTarget(target, 1, 100);
+  const pending = accessor.services.broadcastService.send("x");
+  accessor.setTarget(target, 1, 100);
+  await assert.rejects(
+    pending,
+    (error: Error) => error.name === "Error" && error.message === "transport rejected",
+  );
+  accessor.dispose();
+});
+
 test("上行前被 facade 拒绝的调用带 not-sent 身份", async () => {
   const accessor = createSwitchableServiceAccessor();
   const target = { broadcastService: { send: async () => "ok" } } as unknown as WebServices;

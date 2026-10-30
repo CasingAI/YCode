@@ -5,9 +5,10 @@ import {
   packWorkspaceFileEntries,
   unpackWorkspaceFileEntries,
 } from "@zcode/shared/workspaceFileEntriesCodec";
-import { useWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
+import { useWorkspaceServicesResolution } from "@/hooks/useWorkspaceServices.js";
 import { fetchWorkspaceFileEntriesPacked } from "@/workspace-file-search/fetchWorkspaceFileEntries.js";
 import { useWorkspaceFileSearchFilterEntries } from "@/workspace-file-search/useWorkspaceFileSearchFilter.js";
+import type { WorkspaceFileTreeConnectionRecovery } from "@/workspace-file-tree/useWorkspaceFileTreeConnectionRecovery.js";
 import { findExactWorkspaceFileEntry } from "@/workspace-file-tree/workspaceFilePathMatch.js";
 import {
   getWorkspaceFileSearchIndexScopeKey,
@@ -55,18 +56,27 @@ export function useWorkspaceFileSearchIndex({
   workspaceRemoteSessionId,
   includeIgnored = false,
   enabled,
+  recovery,
 }: {
   workspacePath: string;
   workspaceIdentity?: string;
   workspaceRemoteSessionId?: string;
   includeIgnored?: boolean;
   enabled: boolean;
+  recovery: WorkspaceFileTreeConnectionRecovery;
 }): WorkspaceFileSearchIndexState {
-  const { fileService } = useWorkspaceServices(
+  const { services, rpcReady } = useWorkspaceServicesResolution(
     workspacePath,
     workspaceRemoteSessionId,
     workspaceIdentity,
   );
+  const { fileService } = services;
+  const {
+    captureTransportReadToken,
+    isTransportInterruption,
+    markTransportInterruption,
+    recoveryEpoch,
+  } = recovery;
   const scopeKey = useMemo(
     () =>
       getWorkspaceFileSearchIndexScopeKey({
@@ -82,9 +92,12 @@ export function useWorkspaceFileSearchIndex({
     EMPTY_WORKSPACE_FILE_SEARCH_INDEX_SNAPSHOT,
   );
   const [loadingKey, setLoadingKey] = useState<string | null>(null);
+  // 连接中断后保持等待态：旧快照可继续显示，但 loading 不能被 finally 提前清掉。
+  const [transportPending, setTransportPending] = useState(false);
   const requestVersionRef = useRef(0);
   // 记录「本次请求前发生过显式刷新」；只有 length 请求携带 refresh，range 分块不重复强制刷新。
   const refreshRequestRef = useRef(0);
+  const lastRecoveryEpochRef = useRef(0);
   const [refreshVersion, setRefreshVersion] = useState(0);
 
   const keyMatches = snapshot.key === scopeKey && snapshot.service === fileService;
@@ -106,27 +119,47 @@ export function useWorkspaceFileSearchIndex({
       // 关闭搜索后使在途请求过期，避免树形态下仍把旧结果写回。
       requestVersionRef.current += 1;
       setLoadingKey(null);
+      setTransportPending(false);
+      return;
+    }
+
+    const forceRecoveryRefresh = recoveryEpoch !== lastRecoveryEpochRef.current;
+    if (!rpcReady) {
+      // 当前 target 不能发 RPC：使在途请求过期，保留旧快照，等待恢复门统一重拉。
+      requestVersionRef.current += 1;
+      markTransportInterruption();
+      setLoadingKey(scopeKey);
+      setTransportPending(true);
       return;
     }
 
     let cancelled = false;
     const currentVersion = requestVersionRef.current + 1;
     requestVersionRef.current = currentVersion;
-    const forceRefresh = refreshRequestRef.current > 0;
+    const forceRefresh = refreshRequestRef.current > 0 || forceRecoveryRefresh;
     if (forceRefresh) {
       refreshRequestRef.current = 0;
     }
+    lastRecoveryEpochRef.current = recoveryEpoch;
+    setTransportPending(false);
 
-    // 新作用域/忽略模式的结果尚未完成：先清空旧快照，加载态与旧范围结果可区分。
+    // 首次加载或换作用域时清空旧快照；同作用域刷新/恢复保留旧结果，
+    // 避免文件搜索在重拉期间先闪空。
     setLoadingKey(scopeKey);
-    setSnapshot({
-      key: scopeKey,
-      service: fileService,
-      packed: "",
-      loaded: false,
-      error: null,
+    setSnapshot((current) => {
+      if (current.key === scopeKey && current.service === fileService && current.loaded) {
+        return current;
+      }
+      return {
+        key: scopeKey,
+        service: fileService,
+        packed: "",
+        loaded: false,
+        error: null,
+      };
     });
 
+    const transportReadToken = captureTransportReadToken();
     void fetchWorkspaceFileEntriesPacked(fileService, workspacePath, {
       workspaceIdentity,
       purpose: WORKSPACE_FILE_BROWSER_SEARCH_PURPOSE,
@@ -137,6 +170,7 @@ export function useWorkspaceFileSearchIndex({
         if (cancelled || requestVersionRef.current !== currentVersion) {
           return;
         }
+        setTransportPending(false);
         setSnapshot({
           key: scopeKey,
           service: fileService,
@@ -149,12 +183,33 @@ export function useWorkspaceFileSearchIndex({
         if (cancelled || requestVersionRef.current !== currentVersion) {
           return;
         }
+        const actualError = nextError instanceof Error ? nextError : new Error(String(nextError));
+        if (isTransportInterruption(actualError)) {
+          // 断连不是索引业务错误：保留同作用域旧结果，等待新 attachment / rpcReady 恢复。
+          markTransportInterruption(transportReadToken);
+          setTransportPending(true);
+          setSnapshot((current) =>
+            current.key === scopeKey && current.service === fileService
+              ? current.error
+                ? { ...current, error: null }
+                : current
+              : {
+                  key: scopeKey,
+                  service: fileService,
+                  packed: "",
+                  loaded: false,
+                  error: null,
+                },
+          );
+          return;
+        }
+        setTransportPending(false);
         setSnapshot({
           key: scopeKey,
           service: fileService,
           packed: "",
           loaded: false,
-          error: nextError instanceof Error ? nextError : new Error(String(nextError)),
+          error: actualError,
         });
       })
       .finally(() => {
@@ -167,10 +222,15 @@ export function useWorkspaceFileSearchIndex({
       cancelled = true;
     };
   }, [
+    captureTransportReadToken,
     enabled,
     fileService,
     includeIgnored,
+    isTransportInterruption,
+    markTransportInterruption,
+    recoveryEpoch,
     refreshVersion,
+    rpcReady,
     scopeKey,
     workspaceIdentity,
     workspacePath,
@@ -178,7 +238,7 @@ export function useWorkspaceFileSearchIndex({
 
   return {
     entries,
-    loading: enabled && (loadingKey === scopeKey || !keyMatches),
+    loading: enabled && (transportPending || loadingKey === scopeKey || !keyMatches),
     loaded: keyMatches && snapshot.loaded,
     error: keyMatches ? snapshot.error : null,
     refresh,

@@ -412,6 +412,9 @@ class OpportunityWebRtcConnection implements WebSocketConnection {
     this.snapshot = {
       status,
       generation: this.generation,
+      // fallback owner 是逻辑连接的唯一 token 持有者：同一 Host 附件内 WSS↔RTC
+      // 通道切换只递增物理 generation，不改变 continuity。
+      continuityGeneration: fallback.continuityGeneration,
       attempt: fallback.attempt,
       nextRetryAt: fallback.nextRetryAt,
       disconnectedAt: fallback.disconnectedAt,

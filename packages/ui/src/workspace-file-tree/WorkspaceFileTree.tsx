@@ -169,6 +169,7 @@ export function WorkspaceFileTree({
     workspaceRemoteSessionId,
     includeIgnored: searchState.includeIgnored,
     enabled: showSearchResults,
+    recovery: treeData.recovery,
   });
   const {
     entries: searchIndexEntries,

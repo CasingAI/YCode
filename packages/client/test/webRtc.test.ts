@@ -810,6 +810,71 @@ test("DataChannel 与 RPC Initialize 完成后才发布新代 services，调用�
   }
 });
 
+test("WSS→RTC 升级只递增物理 generation，逻辑 continuity 保持不变", async () => {
+  const restore = installFakeWebSocket();
+  let connection: Awaited<ReturnType<typeof connectViaWebRtcManaged>> | null = null;
+  try {
+    const harness = await bootWebRtc();
+    connection = harness.connection;
+    const before = connection.getSnapshot();
+    assert.equal(typeof before.continuityGeneration, "number");
+
+    const { signal } = harness;
+    signal.open();
+    await flush();
+    const peer = FakePeerConnection.instances[0];
+    assert.ok(peer);
+    const channel = peer.channels[0];
+    assert.ok(channel);
+    await completeRtcUpgrade(signal, peer, channel);
+
+    const upgraded = connection.getSnapshot();
+    assert.ok(upgraded.generation > before.generation);
+    assert.notEqual(upgraded.services, harness.fallbackServices);
+    // 同一 Host 逻辑附件内的通道升级不更换连续性 token。
+    assert.equal(upgraded.continuityGeneration, before.continuityGeneration);
+  } finally {
+    connection?.dispose();
+    restore();
+  }
+});
+
+test("fallback 断开与重连都会更换 continuity", async () => {
+  const restore = installFakeWebSocket();
+  let connection: Awaited<ReturnType<typeof connectViaWebRtcManaged>> | null = null;
+  try {
+    const harness = await bootReadyRtc();
+    connection = harness.connection;
+    const upgraded = connection.getSnapshot();
+    assert.equal(typeof upgraded.continuityGeneration, "number");
+
+    // fallback 断开时旧 RTC 一并失效，逻辑连接结束。
+    harness.fallback.close();
+    await flush();
+
+    const reconnecting = connection.getSnapshot();
+    assert.equal(reconnecting.status, "reconnecting");
+    assert.equal(reconnecting.services, null);
+    assert.notEqual(reconnecting.continuityGeneration, upgraded.continuityGeneration);
+
+    await waitFor(10);
+    const nextFallback = FakeWebSocket.instances.filter(isFallbackSocket)[1];
+    assert.ok(nextFallback);
+    nextFallback.open();
+    attachFallbackServer(nextFallback);
+    await flush();
+
+    const recovered = connection.getSnapshot();
+    assert.equal(recovered.status, "connected");
+    assert.ok(recovered.services);
+    assert.notEqual(recovered.continuityGeneration, upgraded.continuityGeneration);
+    assert.notEqual(recovered.continuityGeneration, reconnecting.continuityGeneration);
+  } finally {
+    connection?.dispose();
+    restore();
+  }
+});
+
 test("RTC ready 使用 DataChannel 计数且 WSS 信令不计入业务字节", async () => {
   const restore = installFakeWebSocket();
   let connection: Awaited<ReturnType<typeof connectViaWebRtcManaged>> | null = null;

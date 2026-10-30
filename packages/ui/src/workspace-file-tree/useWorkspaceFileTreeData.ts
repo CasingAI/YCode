@@ -1,6 +1,6 @@
 /* eslint-disable max-lines -- 文件树数据 hook 需要集中维护目录加载、watcher 刷新和 Git 状态竞态。 */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
+import { useWorkspaceServicesResolution } from "@/hooks/useWorkspaceServices.js";
 import { logger } from "@/logger.js";
 import {
   WORKSPACE_FILE_TREE_WATCH_BULK_REFRESH_THRESHOLD,
@@ -20,11 +20,12 @@ import {
   type WorkspaceFileTreeNode,
 } from "@/workspace-file-tree/model.js";
 import { loadWorkspaceFileTreeGitStatus } from "@/workspace-file-tree/gitStatus.js";
+import { useWorkspaceFileTreeConnectionRecovery } from "@/workspace-file-tree/useWorkspaceFileTreeConnectionRecovery.js";
 import { useWorkspaceFileTreeWatchers } from "@/workspace-file-tree/useWorkspaceFileTreeWatchers.js";
 import { getWorkspaceFileTreeRefreshDirectoryPaths } from "@/workspace-file-tree/refreshDirectories.js";
 import { useWorkspaceFileTreeRows } from "@/workspace-file-tree/useWorkspaceFileTreeRows.js";
 
-type WorkspaceFileTreeDirectoryLoadResult = "loaded" | "stale" | "failed";
+type WorkspaceFileTreeDirectoryLoadResult = "loaded" | "stale" | "failed" | "transportInterrupted";
 
 function createWorkspaceFileTreeTimeoutError(label: string, timeoutMs: number) {
   return new Error(`${label} timed out after ${timeoutMs}ms`);
@@ -63,11 +64,29 @@ export function useWorkspaceFileTreeData({
   workspaceRemoteSessionId?: string;
   enableWorkspaceFeatures?: boolean;
 }) {
-  const { fileService, fileWatcherService, gitService } = useWorkspaceServices(
+  const { services, rpcReady } = useWorkspaceServicesResolution(
     workspacePath,
     workspaceRemoteSessionId,
     workspaceIdentity,
   );
+  const { fileService, fileWatcherService, gitService } = services;
+  const recovery = useWorkspaceFileTreeConnectionRecovery({
+    fileService,
+    rpcReady,
+    workspaceKey: workspaceIdentity?.trim() || workspacePath,
+  });
+  const {
+    captureTransportReadToken,
+    isTransportInterruption,
+    markTransportInterruption,
+    recoveryEpoch,
+  } = recovery;
+  // loadDirectory 的身份必须保持稳定：如果把 rpcReady 直接放进依赖，每次连接
+  // 状态变化都会重跑 workspace 重置 effect 并清空已加载树。这里用 ref 读取即可。
+  const rpcReadyRef = useRef(rpcReady);
+  useEffect(() => {
+    rpcReadyRef.current = rpcReady;
+  }, [rpcReady]);
   const workspaceGenerationRef = useRef(0);
   const requestVersionRef = useRef(0);
   const directoryRequestVersionRef = useRef<Map<string, number>>(new Map());
@@ -91,6 +110,8 @@ export function useWorkspaceFileTreeData({
   const [ignoredPathSet, setIgnoredPathSet] = useState<Set<string>>(new Set());
   const [refreshingLoadedDirectories, setRefreshingLoadedDirectories] = useState(false);
   const refreshingLoadedDirectoriesRef = useRef(false);
+  const lastRecoveryEpochRef = useRef(0);
+  const pendingRecoveryRefreshRef = useRef(false);
 
   useEffect(() => {
     loadingDirectoryPathsRef.current = loadingDirectoryPaths;
@@ -199,6 +220,15 @@ export function useWorkspaceFileTreeData({
       ) {
         return "loaded";
       }
+      // 已知当前 target 不能发 RPC（远程 waiting / transport 未恢复）时不发请求，
+      // 也不写目录错误；未加载目录保持 loading，恢复后由 refreshLoadedDirectories 重读。
+      if (!rpcReadyRef.current) {
+        markTransportInterruption();
+        if (!silent && !loadedDirectoryPathsRef.current.has(directoryPath)) {
+          setDirectoryLoading(directoryPath, true);
+        }
+        return "transportInterrupted";
+      }
 
       const requestVersion = requestVersionRef.current;
       // 手动刷新和 watcher 可能并发读取同一目录，目录级序号避免旧快照晚返回后覆盖新文件树。
@@ -218,6 +248,9 @@ export function useWorkspaceFileTreeData({
         return next;
       });
 
+      let keepWaitingForRecovery = false;
+      // 读取开始前记录恢复信号序号：信号先到、旧读随后失败时，恢复门仍能消费它。
+      const transportReadToken = captureTransportReadToken();
       try {
         const entries = await fileService.readdir({
           path: directoryPath,
@@ -288,6 +321,20 @@ export function useWorkspaceFileTreeData({
           return "stale";
         }
         const nextError = toError(error);
+        // transport 中断不是目录业务错误：不写 errorByDirectory，不裁剪旧 children，
+        // 由恢复门在 attachment / rpcReady 恢复后统一重读。
+        if (isTransportInterruption(nextError)) {
+          markTransportInterruption(transportReadToken);
+          // 未加载目录保留 loading（等待恢复），已加载目录保留旧 children 并结束刷新态。
+          // 修复：恢复重读是 silent 的，若此时目录仍从未加载，silent 失败同样不能清掉
+          // 首次加载留下的等待态，否则根目录会显示成空目录。
+          keepWaitingForRecovery = !loadedDirectoryPathsRef.current.has(directoryPath);
+          logger.warn("[WorkspaceFileTree] 读取目录因连接中断暂停", {
+            path: directoryPath,
+            error: nextError.message,
+          });
+          return "transportInterrupted";
+        }
         logger.warn("[WorkspaceFileTree] 读取目录失败", {
           path: directoryPath,
           error: nextError.message,
@@ -299,15 +346,18 @@ export function useWorkspaceFileTreeData({
         });
         return "failed";
       } finally {
-        if (isCurrentDirectoryRequest()) {
+        if (isCurrentDirectoryRequest() && !keepWaitingForRecovery) {
           setDirectoryLoading(directoryPath, false);
         }
       }
     },
     [
+      captureTransportReadToken,
       enableWorkspaceFeatures,
       fileService,
       gitService,
+      isTransportInterruption,
+      markTransportInterruption,
       setDirectoryLoaded,
       setDirectoryLoading,
       workspacePath,
@@ -325,8 +375,13 @@ export function useWorkspaceFileTreeData({
         setGitStatusAvailable(false);
         return;
       }
+      if (!rpcReadyRef.current) {
+        markTransportInterruption();
+        return;
+      }
       const requestVersion = gitStatusRequestVersionRef.current + 1;
       gitStatusRequestVersionRef.current = requestVersion;
+      const transportReadToken = captureTransportReadToken();
       try {
         const gitStatus = await loadWorkspaceFileTreeGitStatus({
           gitService,
@@ -348,6 +403,16 @@ export function useWorkspaceFileTreeData({
           return;
         }
         const nextError = toError(error);
+        if (isTransportInterruption(nextError)) {
+          // Git 状态是附属信息，连接中断时保留旧值并等待恢复门统一重读，
+          // 不能把断连当成「没有 Git 状态」清空变更入口。
+          markTransportInterruption(transportReadToken);
+          logger.warn("[WorkspaceFileTree] 读取 Git 状态因连接中断暂停", {
+            workspacePath,
+            error: nextError.message,
+          });
+          return;
+        }
         logger.warn("[WorkspaceFileTree] 读取 Git 状态失败", {
           workspacePath,
           error: nextError.message,
@@ -357,7 +422,14 @@ export function useWorkspaceFileTreeData({
         setGitStatusByPath(new Map());
       }
     },
-    [enableWorkspaceFeatures, gitService, workspacePath],
+    [
+      captureTransportReadToken,
+      enableWorkspaceFeatures,
+      gitService,
+      isTransportInterruption,
+      markTransportInterruption,
+      workspacePath,
+    ],
   );
 
   const refreshDirectoryFromWatcher = useCallback(
@@ -373,7 +445,7 @@ export function useWorkspaceFileTreeData({
         getWorkspaceFileDirectoryChildDepth(workspacePath, directoryPath),
         { force: true, silent: true, workspaceGeneration },
       );
-      if (refreshed === "loaded" || refreshed === "stale") {
+      if (refreshed === "loaded" || refreshed === "stale" || refreshed === "transportInterrupted") {
         return;
       }
       if (workspaceGenerationRef.current !== workspaceGeneration) {
@@ -403,6 +475,7 @@ export function useWorkspaceFileTreeData({
       }
       // 手动刷新里的 readdir 失败通常是远程断连、权限或临时 I/O 错误；
       // 失败不等价于目录被删除，不能复用 watcher 的 subtree 裁剪逻辑，否则会清空旧树和错误状态。
+      const transportReadToken = captureTransportReadToken();
       try {
         await withWorkspaceFileTreeTimeout(
           loadDirectory(
@@ -419,6 +492,15 @@ export function useWorkspaceFileTreeData({
         }
         invalidateDirectoryRequest(directoryPath);
         const nextError = toError(error);
+        if (isTransportInterruption(nextError)) {
+          // 超时也可能来自断连后的在途请求；已知离线时同样只挂起恢复，不写目录错误。
+          markTransportInterruption(transportReadToken);
+          logger.warn("[WorkspaceFileTree] 手动刷新目录因连接中断暂停", {
+            path: directoryPath,
+            error: nextError.message,
+          });
+          return;
+        }
         logger.warn("[WorkspaceFileTree] 手动刷新目录超时或失败", {
           path: directoryPath,
           error: nextError.message,
@@ -430,7 +512,14 @@ export function useWorkspaceFileTreeData({
         });
       }
     },
-    [invalidateDirectoryRequest, loadDirectory, workspacePath],
+    [
+      captureTransportReadToken,
+      invalidateDirectoryRequest,
+      isTransportInterruption,
+      loadDirectory,
+      markTransportInterruption,
+      workspacePath,
+    ],
   );
 
   const refreshDirectoryPaths = useCallback(
@@ -525,6 +614,43 @@ export function useWorkspaceFileTreeData({
     refreshDirectoryManually,
     refreshDirectoryPaths,
     workspacePath,
+  ]);
+
+  // 恢复门只在真实读失败后产生 epoch；没有待恢复标记的透明 WSS↔RTC 换道不会走到这里。
+  // 复用现有 refreshLoadedDirectories：根目录 + 已加载/展开目录 + Git 状态，避免每组件重试。
+  useEffect(() => {
+    if (recoveryEpoch === lastRecoveryEpochRef.current) {
+      return;
+    }
+    if (refreshingLoadedDirectoriesRef.current) {
+      pendingRecoveryRefreshRef.current = true;
+      return;
+    }
+    if (!rpcReadyRef.current) {
+      // epoch 先到、transport 还没 ready：保留待恢复标记，等 rpcReady 再产生新 epoch。
+      markTransportInterruption();
+      return;
+    }
+    lastRecoveryEpochRef.current = recoveryEpoch;
+    void refreshLoadedDirectories();
+  }, [markTransportInterruption, recoveryEpoch, refreshLoadedDirectories]);
+
+  useEffect(() => {
+    if (!pendingRecoveryRefreshRef.current || refreshingLoadedDirectories) {
+      return;
+    }
+    pendingRecoveryRefreshRef.current = false;
+    if (!rpcReadyRef.current) {
+      markTransportInterruption();
+      return;
+    }
+    lastRecoveryEpochRef.current = recoveryEpoch;
+    void refreshLoadedDirectories();
+  }, [
+    markTransportInterruption,
+    recoveryEpoch,
+    refreshLoadedDirectories,
+    refreshingLoadedDirectories,
   ]);
 
   const flushWatchRefreshQueue = useCallback(() => {
@@ -649,6 +775,7 @@ export function useWorkspaceFileTreeData({
     loadDirectory,
     loadGitStatus,
     refreshLoadedDirectories,
+    recovery,
     setLoadedDirectoryPaths,
     loadedDirectoryPathsRef,
   };

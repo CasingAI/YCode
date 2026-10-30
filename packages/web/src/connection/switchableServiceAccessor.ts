@@ -25,7 +25,18 @@ interface EventSubscription {
 
 export interface SwitchableServiceAccessor {
   readonly services: WebServices;
-  setTarget(target: WebServices | null, generation: number): void;
+  /**
+   * 切换当前物理 target。
+   *
+   * `continuityGeneration` 是逻辑连接 token：同一 token 内 target 换代（如 WSS→RTC）
+   * 不使在途调用失效；token 变化或 target 变为 null 则立即失效。省略该参数时保留
+   * 旧的 target/generation 判定语义，供尚未迁移的调用方使用。
+   */
+  setTarget(
+    target: WebServices | null,
+    generation: number,
+    continuityGeneration?: number | null,
+  ): void;
   dispose(): void;
 }
 
@@ -71,10 +82,21 @@ function createNotSentConnectionClosedError(generation: number): Error {
 class SwitchableServiceAccessorImpl implements SwitchableServiceAccessor {
   private target: WebServices | null = null;
   private generation = 0;
+  /**
+   * 当前逻辑连接 token；`null` 表示调用方未提供（legacy 语义）。
+   *
+   * token 由连接 owner（managed WebSocket）分配并在真实断线时更换；facade 只比较，
+   * 不能自行推导或默认 `continuity = generation`——那会把同代换 target 误当成连续。
+   */
+  private continuityGeneration: number | null = null;
   private disposed = false;
   private nextSubscriptionId = 0;
   private switching = false;
-  private pendingSwitch: { target: WebServices | null; generation: number } | null = null;
+  private pendingSwitch: {
+    target: WebServices | null;
+    generation: number;
+    continuityGeneration: number | null;
+  } | null = null;
   private readonly subscriptions = new Map<number, EventSubscription>();
   private readonly serviceProxies = new Map<string, ServiceObject>();
   private readonly connectionListeners = new Map<string, Set<() => void>>();
@@ -87,26 +109,31 @@ class SwitchableServiceAccessorImpl implements SwitchableServiceAccessor {
     }) as WebServices;
   }
 
-  setTarget(target: WebServices | null, generation: number): void {
+  setTarget(
+    target: WebServices | null,
+    generation: number,
+    continuityGeneration: number | null = null,
+  ): void {
     if (this.disposed) {
       return;
     }
     if (this.switching) {
       // 通知回调里重入 setTarget 必须排队：外层还在遍历订阅表，交错执行会让同一条
       // 订阅被重复绑定，或让旧代守卫永久失聪。只保留最后一次换代。
-      this.pendingSwitch = { target, generation };
+      this.pendingSwitch = { target, generation, continuityGeneration };
       return;
     }
 
     this.switching = true;
     try {
-      let next: { target: WebServices | null; generation: number } | null = {
-        target,
-        generation,
-      };
+      let next: {
+        target: WebServices | null;
+        generation: number;
+        continuityGeneration: number | null;
+      } | null = { target, generation, continuityGeneration };
       while (next) {
         this.pendingSwitch = null;
-        this.applySwitch(next.target, next.generation);
+        this.applySwitch(next.target, next.generation, next.continuityGeneration);
         next = this.pendingSwitch;
       }
     } finally {
@@ -115,14 +142,23 @@ class SwitchableServiceAccessorImpl implements SwitchableServiceAccessor {
     }
   }
 
-  private applySwitch(target: WebServices | null, generation: number): void {
-    if (this.target === target && this.generation === generation) {
+  private applySwitch(
+    target: WebServices | null,
+    generation: number,
+    continuityGeneration: number | null,
+  ): void {
+    if (
+      this.target === target &&
+      this.generation === generation &&
+      this.continuityGeneration === continuityGeneration
+    ) {
       return;
     }
 
     // 先切换代际并释放旧订阅，确保旧 transport 的迟到事件被忽略。
     this.target = target;
     this.generation = generation;
+    this.continuityGeneration = continuityGeneration;
     for (const subscription of this.subscriptions.values()) {
       this.releaseSubscription(subscription);
     }
@@ -148,6 +184,7 @@ class SwitchableServiceAccessorImpl implements SwitchableServiceAccessor {
     this.disposed = true;
     this.target = null;
     this.generation += 1;
+    this.continuityGeneration = null;
     for (const subscription of this.subscriptions.values()) {
       this.releaseSubscription(subscription);
     }
@@ -204,6 +241,7 @@ class SwitchableServiceAccessorImpl implements SwitchableServiceAccessor {
     return async (...args: unknown[]) => {
       const target = this.target;
       const generation = this.generation;
+      const continuityGeneration = this.continuityGeneration;
       const service: Record<string, unknown> | undefined = target
         ? ((target as unknown as Record<string, unknown>)[serviceKey] as
             | Record<string, unknown>
@@ -214,7 +252,14 @@ class SwitchableServiceAccessorImpl implements SwitchableServiceAccessor {
         throw createNotSentConnectionClosedError(generation);
       }
       const result = await method.apply(service, args);
-      if (this.target !== target || this.generation !== generation) {
+      if (continuityGeneration !== null) {
+        // 同一逻辑连接内 target 换代（WSS→RTC/回退）仍算成功：结果来自旧 attachment，
+        // 但逻辑连接未中断。断线（target 为 null）或 token 更换立即失效。
+        if (this.target === null || this.continuityGeneration !== continuityGeneration) {
+          throw createConnectionClosedError(generation);
+        }
+      } else if (this.target !== target || this.generation !== generation) {
+        // 未提供 token 的 legacy 调用方保留旧的物理代际判定。
         throw createConnectionClosedError(generation);
       }
       return result;

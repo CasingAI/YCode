@@ -308,6 +308,41 @@ test("managed WebSocket 在 Initialize ready 后提供 services，断线会 fail
   }
 });
 
+test("真实断线立即更换 continuity，即使物理 generation 尚未递增", async () => {
+  const restore = installFakeWebSocket();
+  let connection: WebSocketConnection | null = null;
+  try {
+    const opened = await openConnection();
+    connection = opened.connection;
+    const connected = connection.getSnapshot();
+    assert.equal(typeof connected.continuityGeneration, "number");
+
+    opened.socket.close();
+    const disconnected = connection.getSnapshot();
+    // 物理 target/generation 只在换代时递增；断线时必须单独使逻辑连接失效。
+    assert.equal(disconnected.generation, connected.generation);
+    assert.equal(disconnected.services, null);
+    assert.notEqual(disconnected.continuityGeneration, connected.continuityGeneration);
+
+    await waitFor();
+    const secondSocket = FakeWebSocket.instances[1];
+    assert.ok(secondSocket);
+    secondSocket.open();
+    attachServer(secondSocket);
+    await waitFor();
+
+    const reconnected = connection.getSnapshot();
+    assert.equal(reconnected.status, "connected");
+    assert.ok(reconnected.services);
+    // 重连属于新的逻辑连接，不得复用断线前或断线时的 token。
+    assert.notEqual(reconnected.continuityGeneration, connected.continuityGeneration);
+    assert.notEqual(reconnected.continuityGeneration, disconnected.continuityGeneration);
+  } finally {
+    connection?.dispose();
+    restore();
+  }
+});
+
 test("流量更新合并期间不替换 services，dispose 立即发布最终累计值", async () => {
   const restore = installFakeWebSocket();
   try {

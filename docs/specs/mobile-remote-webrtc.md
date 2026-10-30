@@ -21,6 +21,7 @@
 - fallback WSS 存活时保留其 RPC client 供回退，但在 RTC 生效时不把它的服务发布给页面。RTC 失败立即发布存活的 WSS services，generation 单调递增。fallback 换代、断开或前台强制重建时，旧 RTC 和信令立即失效，不能让旧 peer 的迟到回调重新升级。
 - 每个 fallback generation 最多尝试一次直连，失败不建立热循环；fallback 新代恢复后可再次尝试。长时间后台恢复沿用既有 foreground reconnect，不能把冻结的 peer 当成存活事实。
 - 一台浏览器的 WSS 与 RTC 是同一逻辑连接，`connectedClients` 不因升级而翻倍。RTC attachment 仍复用同一 activeServices 和相同手机权限裁剪，不暴露远控管理服务或 provisioning。
+- 同一逻辑连接内 WSS↔RTC 切换保持 `continuityGeneration` 不变，只递增物理 `generation` 并重建订阅；fallback 换代、断开或前台强制重建才更换 continuity。切换期间已交给旧 WSS 的成功结果仍然有效，不自动重放命令。完整合同见 [web-connection-continuity.md](./web-connection-continuity.md)。
 - fallback、信令、peer 任何关联的关闭均须回收相应 peer；stop/resetToken/suspend/dispose 在监听关闭路径中先禁止新的 fallback/信令 admission，再撤销所有协商与 DataChannel，之后等待隧道和监听关闭。下一次成功启动才恢复 admission。过期异步建连结果就地关闭，不复活旧连接。
 - 安装包对懒加载的 `werift` 收集并校验完整运行时依赖闭包。Node 内置模块不得当作待复制 npm 包；解析结果必须是匹配包名的绝对包目录，不能沿 cwd 将仓库根当作依赖。
 

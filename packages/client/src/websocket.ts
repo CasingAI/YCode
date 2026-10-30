@@ -26,6 +26,16 @@ export interface WebSocketConnectionSnapshot {
   readonly status: WebSocketConnectionStatus;
   readonly generation: number;
   /**
+   * 同一逻辑连接（同一 Host 的一次 attachment 生命周期）内稳定的连续性 token。
+   *
+   * 与 `generation` 的区别：`generation` 是物理发布代际，通道升级/回退时递增；
+   * `continuityGeneration` 只在逻辑连接真正结束（断线、重连、owner 重建）时更换。
+   * 消费者用它判断在途结果是否仍然属于当前逻辑连接。
+   *
+   * 可选字段兼容既有快照构造者；生产 managed WebSocket 与 WebRTC 选择器始终发布。
+   */
+  readonly continuityGeneration?: number;
+  /**
    * 退避阶梯的内部计数，不是给用户看的进度。手机切后台通常远短于稳定期，
    * 该值会在页面生命周期内单调累加，渲染出来等于「切 App 的次数」。
    * UI 只能把它当日志，禁止呈现给用户。
@@ -92,6 +102,7 @@ export interface WebSocketConnectionOptions {
 interface ActiveConnection {
   readonly raw: WebSocket;
   readonly generation: number;
+  readonly continuityGeneration: number;
   readonly protocol: SocketProtocol;
   readonly client: ChannelClient;
   readonly services: RemoteServiceAccess;
@@ -136,6 +147,19 @@ function createConnectionClosedError(reason?: string): Error {
   const error = new Error(reason ?? "WebSocket connection closed");
   error.name = "ConnectionClosed";
   return error;
+}
+
+let nextContinuityGeneration = 1;
+
+/**
+ * 模块级单调分配器。
+ *
+ * continuity token 只在同一连接 owner 内比较，但必须保证不同实例、不同 Host 的
+ * token 不会碰撞：否则把某个实例的旧 token 传给另一个连接时会被误认为同一逻辑连接。
+ * 进程内单调递增即可满足，不需要持久化。
+ */
+function allocateContinuityGeneration(): number {
+  return nextContinuityGeneration++;
 }
 
 function closeEventFromWebSocket(event: CloseEvent): WebSocketConnectionCloseEvent {
@@ -399,10 +423,13 @@ class ManagedWebSocketConnection implements WebSocketConnection {
     // 新代际从零开始：旧通道的样本不能跨代继承或回填。
     this.clearLatency();
     const generation = this.snapshot.generation + 1;
+    // 每次物理尝试都属于新的逻辑连接起点：旧代在途结果不得穿越到这里。
+    const continuityGeneration = allocateContinuityGeneration();
     this.publish({
       ...this.snapshot,
       status: initial ? "connecting" : "reconnecting",
       generation,
+      continuityGeneration,
       nextRetryAt: null,
       services: null,
     });
@@ -445,6 +472,7 @@ class ManagedWebSocketConnection implements WebSocketConnection {
     const active: ActiveConnection = {
       raw,
       generation,
+      continuityGeneration,
       protocol,
       client,
       services,
@@ -536,6 +564,7 @@ class ManagedWebSocketConnection implements WebSocketConnection {
     this.publish({
       status: "connected",
       generation: active.generation,
+      continuityGeneration: active.continuityGeneration,
       attempt: 0,
       nextRetryAt: null,
       disconnectedAt: null,
@@ -567,6 +596,7 @@ class ManagedWebSocketConnection implements WebSocketConnection {
       this.publish({
         ...this.snapshot,
         status: "connecting",
+        continuityGeneration: allocateContinuityGeneration(),
         attempt: this.failedAttempts,
         nextRetryAt: null,
         services: null,
@@ -590,6 +620,9 @@ class ManagedWebSocketConnection implements WebSocketConnection {
     this.publish({
       ...this.snapshot,
       status: "reconnecting",
+      // 断线即结束当前逻辑连接：即使物理 generation 未变，也必须立即换 token，
+      // 否则旧通道的迟到成功结果会被误认为仍属于当前连接。
+      continuityGeneration: allocateContinuityGeneration(),
       attempt: this.failedAttempts,
       nextRetryAt,
       // 同一次断线期间连续失败时保留最初那一刻，

@@ -98,6 +98,10 @@ attachment 重新就绪还必须使 conversation、sessions-index 和其他 V4 t
 
 Web 入口在首次 service 到达后创建稳定 facade。后续连接只替换 facade 的 target；消费者通过 generation/status 元数据重新渲染，但不得通过 Root key 整树重挂载。断线期间保留页面外壳与已加载内容，连接状态条显示重试；RPC 写操作和新读取必须等待新 target，不把整个页面切回 loading 或 `inert`。
 
+### 逻辑连接连续性
+
+`generation` 是物理 target 的发布代际，不等于逻辑连接是否失效。连接快照同时发布 `continuityGeneration`：同一 Host 逻辑附件内保持稳定，真实断线、重连或 Host 重启时更换。facade 用 continuity 判定在途结果有效性，`generation` 继续负责路由、订阅归属与旧事件守卫；同一 continuity 下的 WSS↔RTC 切换不再丢弃成功结果。legacy 调用方未提供 continuity 时保留旧的 target/generation 失效语义。完整合同见 [web-connection-continuity.md](./web-connection-continuity.md)。
+
 ### 连接状态条
 
 状态条始终显示连接管理器此刻的动作阶段。连接管理器是重试定时器、在途尝试和快照的唯一所有者；UI 只根据快照投影阶段，并通过现有 `retryNow()` 请求跳过剩余等待。

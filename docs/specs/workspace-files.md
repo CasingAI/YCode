@@ -372,6 +372,49 @@ FilesEditorGroupPane（活动 view + buffer）
 - 不把 `> 8 MiB` 文本整份读入可编辑缓冲、草稿 localStorage 或全文件缓存；大文件按固定块编辑，非法 UTF-8 块只读，未触碰字节由提交服务原样保留。见 `workspace-large-text-files.md`。
 - 不把超过 8 MiB 的文件静默截断成完整可编辑文本；不在大文件冲突里把补丁强套到新版本；不在已保存文件路径消失时自动重建；远程断开时重试同一工作区通道，不回退到本机文件服务。
 
+### 连接中断与恢复（2026-10-30）
+
+文件树与文件搜索在 Web / 手机远控的 transport 换代（WSS↔RTC、重连）以及 workspace attachment 重建时，按下面的单一恢复门处理，不新增每组件重试定时器。
+
+- 所有者为 `useWorkspaceFileTreeData`：它从 `useWorkspaceServicesResolution` 取 workspace-scoped `fileService` 与 `rpcReady`，创建共享恢复门，并把同一个门传给 `useWorkspaceFileSearchIndex`。不得改用全局 connection，也不得按 workspacePath 自行找服务，跨 Host 路由仍由 resolution 决定。
+- transport 读失败（`ConnectionClosed`）不是目录业务错误：根目录或子目录读取遇到它时，不写 `errorByDirectory`，不裁剪旧 children / loaded 集合，不弹「读取失败」；已有缓存继续显示，未加载目录保持加载或等待态。只有普通业务错误仍写入该目录错误。
+- `rpcReady === false` 时暂停发起新的 `readdir` / 文件索引请求，并记为一次待恢复；未加载完成不显示永久错误。
+- 恢复信号只有两个：同一 resolved service 的 connection port 通知新的非空 attachment，或 `rpcReady` 从 false 变 true。两个信号共用门内单调序号；没有待恢复标记时，物理 WSS↔RTC 换代不触发重读，保留旧结果。
+- 失败可能晚于信号到达：每次 `readdir` / Git 状态 / 索引读取开始前记录当前信号序号，读取失败时若序号已前进，说明这次读用的是换代前的 attachment，门立即消费一次已到达的信号并产生恢复 epoch，不等待不会再来信号。已消费的最高序号单调记录，同一信号不会被迟到的旧读重复消费，因此不会形成重试循环。
+- 断连判定使用门自己持有的最新 `rpcReady`（不依赖调用方捕获的闭包）：`rpcReady === false` 时任何在读错误都按待恢复处理；否则仅 `ConnectionClosed` 视为 transport 中断。WebSocket、RTC 与 `ChannelClient.dispose` 的在途拒绝都使用该名称；底层 `DataChannelClosed` 只出现在 socket 写入路径，RPC 在途请求仍以 `ConnectionClosed` 收口。
+- 有待恢复标记时，两个信号合并为一次恢复 epoch：`useWorkspaceFileTreeData` 通过既有 `refreshLoadedDirectories` 重读根目录、所有已加载 / 已展开目录及 Git 状态；`useWorkspaceFileSearchIndex` 在搜索启用时强制重拉索引，关闭时不请求，重新启用后按既有 effect 拉取。
+- 恢复期间保留旧 children 与旧搜索快照；成功返回后原位替换。不得清空树后再显示 loading，也不得用旧 attachment 的结果覆盖新 workspace。
+- workspace identity / 路径 / resolved service 变化仍走既有重置：清空 children、错误、展开与请求版本，丢弃恢复门的旧待恢复标记，旧请求只能得到 stale。`requestVersion`、workspaceGeneration、目录级 requestVersion 和搜索 requestVersion 继续守卫迟到响应。
+- 该门只负责读恢复；写操作（创建、改名、删除、复制 / 移动、保存）不自动重试，冲突与失败仍由各自写流程处理。
+- 不引入查询框架、全局连接单例、固定间隔重试或每组件状态机；不改变 `SERVICE_ACCESSOR_CONNECTION` 的「只通知新的非空 attachment」契约。
+
+事件顺序：
+
+```text
+读目录 → ConnectionClosed → 不写目录错误，保留旧 children，标记待恢复
+连接恢复（新 attachment 或 rpcReady false→true）
+  → 一次 recovery epoch
+  → refreshLoadedDirectories：根 + 已加载/展开目录 → 成功原位替换
+  → 搜索启用：强制重拉索引 → 成功原位替换
+信号先到、旧读后失败 → 失败时消费已到达的信号，同样产生一次 epoch（不等待新信号）
+无待恢复标记的 WSS↔RTC 切换 → 不产生 epoch、不额外重读
+```
+
+验收补充：
+
+| Case               | 初始状态 / 操作                                                     | 结果                                                                                       |
+| ------------------ | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| 首次加载即断线     | 根目录尚无缓存，readdir 返回 ConnectionClosed                       | 不出现永久「读取失败」；保持加载或等待，连接恢复后自动加载根目录                           |
+| 恢复读再次断线     | 根目录尚无缓存；首次断线后的 silent 恢复读再次返回 ConnectionClosed | 两次断线之间仍保持等待，不清成空目录、不显示永久错误；第二个恢复信号后自动加载根目录       |
+| 已加载后断线       | 根和子目录已有缓存，刷新返回 ConnectionClosed                       | 旧行保留、无错误提示；新 attachment 或 rpcReady 恢复后自动重读根与已加载目录，无需手动刷新 |
+| 恢复先到、失败后到 | 新 attachment / rpcReady 恢复已提交，属于旧 attachment 的读随后失败 | 消费已到达的信号并重读一次，不永久停留在等待态；迟到的旧读不重复触发                       |
+| 透明 WSS↔RTC       | 读取成功，transport 在 WSS / RTC 间切换，无失败                     | 不产生恢复 epoch，不额外重读，文件树与搜索不闪烁                                           |
+| 刷新中恢复         | 恢复信号在 `refreshLoadedDirectories` 批次未结束时到达              | 批次收尾后只追加一次重读，不并发重复刷新                                                   |
+| 搜索恢复           | 搜索启用且索引读取断线；之后连接恢复                                | 搜索不出现永久错误；自动重拉索引并保留旧结果直到新结果到达                                 |
+| 搜索关闭           | 树读取断线恢复时搜索未启用                                          | 不拉取搜索索引；用户启用搜索时再按正常流程拉取                                             |
+| 业务错误           | 权限 / I/O 错误（非 ConnectionClosed）                              | 仍显示该目录错误；不自动重试                                                               |
+| workspace 切换     | 恢复标记尚未消费时切换工作区                                        | 旧请求 stale，不写入新工作区；新工作区按既有重置加载                                       |
+
 ## 验收场景
 
 1. 宽屏有两个已打开工作区：底栏可切到文件；左栏下拉能选到这两个；选 B 只换树，右栏里从 A 打开的标签仍在；会话仍属于原来的工作区。
