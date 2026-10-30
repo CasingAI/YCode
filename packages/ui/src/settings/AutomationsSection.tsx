@@ -38,6 +38,7 @@ import { ControlHintTooltip } from "@/ControlHintTooltip.js";
 import { AutomationScheduledTemplateIcon } from "@/settings/AutomationScheduledTemplateIcon.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useServices } from "@/hooks/useServices.js";
+import { useActiveSurfaceRefresh } from "@/hooks/useActiveSurfaceRefresh.js";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog.js";
 import { usePlatform } from "@/hooks/usePlatform.js";
 import {
@@ -141,6 +142,8 @@ import { AutomationTemplateSkeletonGrid } from "@/settings/AutomationTemplateSke
 interface AutomationsSectionProps {
   workspacePath?: string | null;
   workspaceIdentity?: string;
+  /** 持有布局所有者传入的表面可见性：设置/文件主视图覆盖或保活表面隐藏时为 false。 */
+  surfaceActive?: boolean;
   /** 「Create via chat」:切到会话让 agent 用 CronCreate 创建;缺省则回退到手动创建整页。
    * target = 工作流所属项目；定时任务的「通过对话创建」不带 target，落到活动项目。 */
   onCreateViaChat?: (prompt: string, target?: SavedWorkflowProjectTarget) => void;
@@ -538,6 +541,7 @@ function DelayAutomationEmpty({ onCreate }: { onCreate: () => void }) {
 export function AutomationsSection({
   workspacePath,
   workspaceIdentity,
+  surfaceActive = true,
   onCreateViaChat,
   openAutomationId,
   openAutomationTab,
@@ -823,35 +827,30 @@ export function AutomationsSection({
     return () => clearTimeout(timer);
   }, [now, offPeakTakeNumberAvailability]);
 
-  // 位次/状态轮询刷新（host offPeakTaskSync 写库，renderer 每 10s 读快照；无任务不轮）。
-  useEffect(() => {
-    if (view.mode !== "list" || offPeakTasks.length === 0) return;
-    const timer = setInterval(() => {
-      void offPeakRefresh(offPeakTaskService);
-    }, 10_000);
-    return () => clearInterval(timer);
-  }, [view.mode, offPeakTasks.length, offPeakRefresh, offPeakTaskService]);
+  // 列表周期刷新：定时/延时与闲时共用一次回源；now 在发起时推进，倒计时不冻结。
+  // 仅可见列表态开启；进入创建/编辑或工作流标签后 hook 会清理定时器与监听。
+  const refreshAutomationLists = useCallback(async () => {
+    setNow(Date.now());
+    await Promise.all([refresh(zcodeAgentService), offPeakRefresh(offPeakTaskService)]);
+  }, [offPeakRefresh, offPeakTaskService, refresh, zcodeAgentService]);
+
+  // 手动刷新与周期/激活/焦点共用 hook 的单飞队列：手动点击不会与轮询各发一次请求。
+  const refreshNow = useActiveSurfaceRefresh({
+    active: surfaceActive && pageTab === "automation" && view.mode === "list",
+    refresh: refreshAutomationLists,
+  });
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
       await Promise.all([
-        refresh(zcodeAgentService),
-        offPeakRefresh(offPeakTaskService),
+        refreshNow(),
         ...(offPeakGrayEnabled ? [offPeakRefreshCodingPlanSupport(offPeakTaskService)] : []),
       ]);
-      setNow(Date.now());
     } finally {
       setRefreshing(false);
     }
-  }, [
-    offPeakGrayEnabled,
-    offPeakRefresh,
-    offPeakRefreshCodingPlanSupport,
-    offPeakTaskService,
-    refresh,
-    zcodeAgentService,
-  ]);
+  }, [offPeakGrayEnabled, offPeakRefreshCodingPlanSupport, offPeakTaskService, refreshNow]);
 
   // New task 页模板卡跳转过来：消费预填草稿 → 切 idle tab + 打开创建表单预填。
   useEffect(() => {

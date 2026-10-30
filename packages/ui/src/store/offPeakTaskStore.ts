@@ -151,6 +151,9 @@ let eligibilityInFlight: Promise<void> | null = null;
 let eligibilityGeneration = 0;
 let pendingEligibilityService: IOffPeakTaskService | null = null;
 let lastEligibilityTrigger: { service: IOffPeakTaskService; key: string } | null = null;
+// 初始化与周期刷新、写操作回源共用同一请求代次；只允许最新一次 list 响应写快照。
+// initialize 的首次 list 也占一个代次，否则慢的初始化结果会覆盖较新的刷新快照。
+let offPeakRefreshSeq = 0;
 
 export const useOffPeakTaskStore = create<OffPeakTaskState>((set, get) => ({
   tasks: [],
@@ -171,6 +174,7 @@ export const useOffPeakTaskStore = create<OffPeakTaskState>((set, get) => ({
     if (initializeInFlight) return initializeInFlight;
     set({ loading: true, error: null });
     // 初始化和后续通知共用资格检查；灰度先就绪，资格与额度不能由两条异步链分别写入。
+    const listRequestId = ++offPeakRefreshSeq;
     initializationReady = Promise.all([
       codingPlanSubscriptionService
         .getOffPeakClientConfig({ forceRefresh: true })
@@ -183,7 +187,9 @@ export const useOffPeakTaskStore = create<OffPeakTaskState>((set, get) => ({
         return [] as ZCodeOffPeakTask[];
       }),
     ]).then(([grayConfig, tasks]) => {
-      set({ grayConfig, tasks });
+      // 初始化 list 慢于周期/激活刷新时，旧结果（含失败回退的空列表）不得覆盖较新快照；
+      // 灰度配置独立于列表代次，始终发布。
+      set(listRequestId === offPeakRefreshSeq ? { grayConfig, tasks } : { grayConfig });
     });
     const run = get().refreshCodingPlanSupport(offPeakTaskService);
     initializeInFlight = run;
@@ -198,10 +204,13 @@ export const useOffPeakTaskStore = create<OffPeakTaskState>((set, get) => ({
   },
 
   async refresh(service) {
+    const requestId = ++offPeakRefreshSeq;
     try {
       const tasks = await service.list();
+      if (requestId !== offPeakRefreshSeq) return;
       set({ tasks, error: null });
     } catch (error) {
+      if (requestId !== offPeakRefreshSeq) return;
       set({ error: toErrorMessage(error) });
     }
   },

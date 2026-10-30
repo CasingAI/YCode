@@ -2235,6 +2235,11 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
                                       <AutomationsSection
                                         workspacePath={workspaceAbsPath}
                                         workspaceIdentity={workspaceIdentity}
+                                        // 任务保活层在设置/文件主视图下只隐藏不卸载；
+                                        // 由布局所有者把真实可见性传给列表刷新。
+                                        surfaceActive={
+                                          isWorkspaceVisible && shellPrimaryView === "tasks"
+                                        }
                                         onCreateViaChat={handleCreateAutomationInChat}
                                         onNavigateToLaunchedRun={handleNavigateToLaunchedRun}
                                         onOpenWorkflowRun={handleOpenSavedWorkflowRun}
