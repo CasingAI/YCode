@@ -1,5 +1,5 @@
 /* eslint-disable max-lines -- 网络搜索设置页集中编排候选识别、激活序与排序写回（docs/specs/web-search-provider-capability.md）。 */
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   DndContext,
   KeyboardSensor,
@@ -35,6 +35,7 @@ import {
   WEB_SEARCH_PROVIDER_ENDPOINTS,
   type WebSearchCapableProviderTemplateId,
 } from "@zcode/shared";
+import { isApiKeyAccess, resolveProviderTemplateName } from "@zcode/provider";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { Badge } from "@/components/ui/badge.js";
 import { Button } from "@/components/ui/button.js";
@@ -47,19 +48,30 @@ import {
   getProviderFormLabel,
   type ProviderSettingsFormProvider,
 } from "@/lib/providerSettingsFormTypes.js";
+import { projectProviderSettingsViewToFormProviders } from "@/lib/providerSettingsFormProjection.js";
 import { SettingsGroupCard, SettingsRow } from "@/settings/SettingsPageParts.js";
 import { useOptimisticReorder } from "@/settings/useOptimisticReorder.js";
 import { projectCandidatesToOrder } from "@/settings/webSearchCandidateOrder.js";
 import {
-  WebSearchJinaSettingsDialog,
+  buildWebSearchSourceCreateInput,
+  resolveManuallyAddableSourceTemplates,
+} from "@/settings/webSearchSourceCatalog.js";
+import {
+  WebSearchSourceDialog,
   type WebSearchProxyMode,
-} from "@/settings/WebSearchJinaSettingsDialog.js";
+  type WebSearchSourceCreateInput,
+  type WebSearchSourcePatch,
+} from "@/settings/WebSearchSourceDialog.js";
 
 interface WebSearchCandidate {
   providerId: string;
   label: string;
   templateId: WebSearchCapableProviderTemplateId;
+  /** 模板名称，来自内置模板元数据；与实例名相同时行内不重复展示。 */
+  templateLabel: string;
   hasApiKey: boolean;
+  /** 是否允许在此页配置（当前只有受允许的独立搜索源）。 */
+  canConfigure: boolean;
 }
 
 function candidateIds(candidates: readonly WebSearchCandidate[]): string[] {
@@ -73,16 +85,17 @@ function WebSearchCandidateRow({
   candidate,
   index,
   total,
-  disabled,
+  sortDisabled,
   onMove,
   onOpenSettings,
 }: {
   candidate: WebSearchCandidate;
   index: number;
   total: number;
-  disabled: boolean;
+  /** 总开关关闭时只禁用排序；实例的 Key/代理配置不受影响。 */
+  sortDisabled: boolean;
   onMove: (fromIndex: number, toIndex: number) => void;
-  /** 仅 jina 等可实例化配置的搜索源提供；缺省不渲染设置按钮。 */
+  /** 仅受允许的独立搜索源提供；缺省不渲染设置按钮。 */
   onOpenSettings?: () => void;
 }) {
   const { intl } = useZCodeIntl();
@@ -94,7 +107,7 @@ function WebSearchCandidateRow({
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: candidate.providerId, disabled });
+  } = useSortable({ id: candidate.providerId, disabled: sortDisabled });
   const isActive = index === 0;
 
   return (
@@ -104,12 +117,12 @@ function WebSearchCandidateRow({
       data-testid={`settings.webSearch.candidate.${candidate.providerId}`}
       className={`flex items-center gap-2 border-t border-border px-4 py-3 first:border-t-0 ${
         isDragging ? "relative z-20 bg-card shadow-md" : ""
-      } ${disabled ? "opacity-60" : ""}`}
+      } ${sortDisabled ? "opacity-60" : ""}`}
     >
       <button
         ref={setActivatorNodeRef}
         type="button"
-        disabled={disabled}
+        disabled={sortDisabled}
         aria-label={intl.formatMessage({ id: "settings.webSearch.dragHandle" })}
         title={intl.formatMessage({ id: "settings.webSearch.dragHandle" })}
         data-web-search-drag-handle={candidate.providerId}
@@ -136,9 +149,9 @@ function WebSearchCandidateRow({
           ) : null}
         </div>
         <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-ui-sm text-foreground-subtle">
-          <span>
-            {intl.formatMessage({ id: `settings.webSearch.template.${candidate.templateId}` })}
-          </span>
+          {candidate.templateLabel === candidate.label ? null : (
+            <span>{candidate.templateLabel}</span>
+          )}
           {candidate.hasApiKey ? null : (
             <span className="flex items-center gap-1 text-warning">
               <TriangleAlert aria-hidden="true" className="size-3" />
@@ -164,9 +177,8 @@ function WebSearchCandidateRow({
             type="button"
             variant="ghost"
             size="icon-sm"
-            disabled={disabled}
-            aria-label={intl.formatMessage({ id: "settings.webSearch.jinaSettingsOpen" })}
-            title={intl.formatMessage({ id: "settings.webSearch.jinaSettingsOpen" })}
+            aria-label={intl.formatMessage({ id: "settings.webSearch.sourceSettingsOpen" })}
+            title={intl.formatMessage({ id: "settings.webSearch.sourceSettingsOpen" })}
             data-testid={`settings.webSearch.openSettings.${candidate.providerId}`}
             onClick={onOpenSettings}
           >
@@ -177,7 +189,7 @@ function WebSearchCandidateRow({
           type="button"
           variant="ghost"
           size="icon-sm"
-          disabled={disabled || index === 0}
+          disabled={sortDisabled || index === 0}
           aria-label={intl.formatMessage({ id: "settings.webSearch.moveUp" })}
           data-testid={`settings.webSearch.moveUp.${candidate.providerId}`}
           onClick={() => onMove(index, index - 1)}
@@ -188,7 +200,7 @@ function WebSearchCandidateRow({
           type="button"
           variant="ghost"
           size="icon-sm"
-          disabled={disabled || index === total - 1}
+          disabled={sortDisabled || index === total - 1}
           aria-label={intl.formatMessage({ id: "settings.webSearch.moveDown" })}
           data-testid={`settings.webSearch.moveDown.${candidate.providerId}`}
           onClick={() => onMove(index, index + 1)}
@@ -213,13 +225,26 @@ export function WebSearchSettingsSection({
   workspaceIdentity?: string;
   onOpenModelProviderSettings: () => void;
 }) {
-  const { intl } = useZCodeIntl();
+  const { intl, locale } = useZCodeIntl();
   const { settings, update } = useSettings();
-  const { modelProviders, loading, reload, createPersonalProvider, saveProvider, deleteProvider } =
-    useModelProviders({
-      workspacePath,
-      workspaceIdentity,
-    });
+  const {
+    modelProviders,
+    providerTemplates,
+    loading,
+    reload,
+    createPersonalProvider,
+    saveProvider,
+    deleteProvider,
+  } = useModelProviders({
+    workspacePath,
+    workspaceIdentity,
+  });
+
+  // 添加目录 = 独立模板 × Key 型 access 的模板元数据；行设置入口复用同一目录判据。
+  const sourceTemplates = useMemo(
+    () => resolveManuallyAddableSourceTemplates({ templates: providerTemplates, locale }),
+    [locale, providerTemplates],
+  );
 
   // 候选识别只读本机全局事实（个人 provider_config.json），与 CLI 执行期共用同一
   // shared 判定，保证「设置页看到的」与「运行时解析的」是同一份识别结果。
@@ -231,16 +256,22 @@ export function WebSearchSettingsSection({
           apiBaseUrl: provider.config.api?.baseUrl ?? undefined,
         });
         if (!templateId) return [];
+        const template = providerTemplates.find((entry) => entry.templateId === templateId);
         return [
           {
             providerId: provider.providerId,
             label: getProviderFormLabel(provider),
             templateId,
+            templateLabel: template
+              ? resolveProviderTemplateName(templateId, template, locale)
+              : templateId,
             hasApiKey: getProviderFormApiKey(provider).trim().length > 0,
+            // 与添加目录同一判据：只有目录里的模板才允许在本页配置。
+            canConfigure: sourceTemplates.some((entry) => entry.templateId === templateId),
           },
         ];
       }),
-    [modelProviders],
+    [locale, modelProviders, providerTemplates, sourceTemplates],
   );
 
   const orderedCandidates = useMemo(() => {
@@ -313,92 +344,164 @@ export function WebSearchSettingsSection({
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
-  // ── Jina 独立搜索源实例管理（docs/specs/web-search-provider-capability.md）──
-  // 实例即 personal provider 记录：添加 = createPersonalProvider（可重复，实例名按模板名
-  // 自动去重）；Key 走 saveProvider 稀疏 overlay，代理走 proxyModeUpdate 元数据，删除走
-  // deleteProvider。本页只编排现有写入路径，不新增持久化或第二份 Jina 配置存储。
-  const [jinaDialogProviderId, setJinaDialogProviderId] = useState<string | null>(null);
-  const [jinaSaving, setJinaSaving] = useState(false);
+  // ── 独立搜索源实例管理（docs/specs/web-search-provider-capability.md）──
+  // 实例即 personal provider 记录：添加 = createPersonalProvider（携带模板与 Key，
+  // 可重复，实例名按模板名自动去重）；Key 走 saveProvider 稀疏 overlay，代理走
+  // proxyModeUpdate 元数据，删除走 deleteProvider。本页只编排现有写入路径，
+  // 不新增持久化或第二份搜索源配置存储。
+  const [sourceDialog, setSourceDialog] = useState<
+    | { mode: "create" }
+    | { mode: "edit"; providerId: string; retryProxyMode?: WebSearchProxyMode }
+    | null
+  >(null);
+  const [sourceSaving, setSourceSaving] = useState(false);
+  const [sourceError, setSourceError] = useState<string | null>(null);
 
-  const jinaDialogProvider = useMemo<ProviderSettingsFormProvider | null>(
-    () => modelProviders.find((provider) => provider.providerId === jinaDialogProviderId) ?? null,
-    [jinaDialogProviderId, modelProviders],
+  const editProvider = useMemo<ProviderSettingsFormProvider | null>(
+    () =>
+      sourceDialog?.mode === "edit"
+        ? (modelProviders.find((provider) => provider.providerId === sourceDialog.providerId) ??
+          null)
+        : null,
+    [modelProviders, sourceDialog],
   );
 
-  const handleAddJina = useCallback(async () => {
-    try {
-      const created = await createPersonalProvider({ templateId: "jina" });
-      // 创建即弹设置：新实例没有 Key 不能被激活，先引导配 Key。
-      setJinaDialogProviderId(created.providerId);
-    } catch (error) {
-      logger.error("[WebSearchSettingsSection] 添加 Jina 搜索源失败", error);
-    }
-  }, [createPersonalProvider]);
+  const editTemplate = useMemo(
+    () => sourceTemplates.find((template) => template.templateId === editProvider?.templateId),
+    [editProvider?.templateId, sourceTemplates],
+  );
 
-  const handleSaveJina = useCallback(
-    async (
-      provider: ProviderSettingsFormProvider,
-      patch: { apiKey: string; proxyMode: WebSearchProxyMode },
-    ) => {
-      setJinaSaving(true);
+  const closeSourceDialog = useCallback(() => {
+    setSourceDialog(null);
+    setSourceError(null);
+  }, []);
+
+  // 编辑中的实例被其它窗口删除后，provider 变为 null；自动关闭弹窗，
+  // 避免对失效实例保留可点击但静默 return 的保存/删除（保存中不打断写入）。
+  useEffect(() => {
+    if (sourceDialog?.mode !== "edit" || sourceSaving || loading) return;
+    if (modelProviders.some((provider) => provider.providerId === sourceDialog.providerId)) return;
+    closeSourceDialog();
+  }, [closeSourceDialog, loading, modelProviders, sourceDialog, sourceSaving]);
+
+  const handleCreateSource = useCallback(
+    async (input: WebSearchSourceCreateInput) => {
+      setSourceSaving(true);
+      setSourceError(null);
+      let createdProviderId: string | undefined;
+      try {
+        const created = await createPersonalProvider(
+          buildWebSearchSourceCreateInput({
+            templateId: input.templateId,
+            accessType: input.accessType,
+            apiKey: input.apiKey,
+          }),
+        );
+        createdProviderId = created.providerId;
+        if (input.proxyMode !== "default") {
+          const createdProvider = projectProviderSettingsViewToFormProviders(created.view).find(
+            (provider) => provider.providerId === created.providerId,
+          );
+          if (!createdProvider) throw new Error("创建后的搜索源实例不在 Settings View 中");
+          await saveProvider({ ...createdProvider, proxyModeUpdate: input.proxyMode });
+        }
+        closeSourceDialog();
+      } catch (error) {
+        logger.error("[WebSearchSettingsSection] 添加搜索源失败", error);
+        // 实例已创建但代理写入失败时切到编辑态，重试只补代理，不会重复创建。
+        if (createdProviderId) {
+          setSourceDialog({
+            mode: "edit",
+            providerId: createdProviderId,
+            retryProxyMode: input.proxyMode,
+          });
+        }
+        setSourceError(intl.formatMessage({ id: "settings.webSearch.saveFailed" }));
+      } finally {
+        setSourceSaving(false);
+      }
+    },
+    [closeSourceDialog, createPersonalProvider, intl, saveProvider],
+  );
+
+  const handleSaveSource = useCallback(
+    async (provider: ProviderSettingsFormProvider, patch: WebSearchSourcePatch) => {
+      setSourceSaving(true);
+      setSourceError(null);
       try {
         const apiKey = patch.apiKey.trim();
+        const access = provider.config.access;
+        const accessType = isApiKeyAccess(access) ? access.type : "api-key";
         await saveProvider({
           ...provider,
           personalConfig: {
             ...provider.personalConfig,
             // 清空保存 = 显式清除 Key（该实例回到「未配置 Key」警示态，激活时被跳过）。
-            access: { type: "api-key", ...(apiKey ? { apiKey } : {}) },
+            access: { type: accessType, ...(apiKey ? { apiKey } : {}) },
           },
           proxyModeUpdate: patch.proxyMode,
         });
-        setJinaDialogProviderId(null);
+        closeSourceDialog();
       } catch (error) {
-        logger.error("[WebSearchSettingsSection] 保存 Jina 搜索源失败", error);
+        logger.error("[WebSearchSettingsSection] 保存搜索源失败", error);
+        setSourceError(intl.formatMessage({ id: "settings.webSearch.saveFailed" }));
       } finally {
-        setJinaSaving(false);
+        setSourceSaving(false);
       }
     },
-    [saveProvider],
+    [closeSourceDialog, intl, saveProvider],
   );
 
-  const handleDeleteJina = useCallback(
+  const handleDeleteSource = useCallback(
     async (provider: ProviderSettingsFormProvider) => {
-      setJinaSaving(true);
+      setSourceSaving(true);
+      setSourceError(null);
       try {
         await deleteProvider(provider.providerId);
-        setJinaDialogProviderId(null);
+        closeSourceDialog();
       } catch (error) {
-        logger.error("[WebSearchSettingsSection] 删除 Jina 搜索源失败", error);
+        logger.error("[WebSearchSettingsSection] 删除搜索源失败", error);
+        setSourceError(intl.formatMessage({ id: "settings.webSearch.deleteFailed" }));
       } finally {
-        setJinaSaving(false);
+        setSourceSaving(false);
       }
     },
-    [deleteProvider],
+    [closeSourceDialog, deleteProvider, intl],
   );
 
-  const addJinaButton = (
+  const addSourceButton = (
     <Button
       type="button"
       variant="outline"
       size="sm"
-      data-testid="settings.webSearch.addJina"
-      onClick={() => void handleAddJina()}
+      // 目录为空或模板仍在加载时，打开表单没有可提交的模板，直接禁用入口。
+      disabled={loading || sourceTemplates.length === 0}
+      data-testid="settings.webSearch.addSource"
+      onClick={() => setSourceDialog({ mode: "create" })}
     >
       <Plus aria-hidden="true" className="size-4" />
-      {intl.formatMessage({ id: "settings.webSearch.addJina" })}
+      {intl.formatMessage({ id: "settings.webSearch.addSource" })}
     </Button>
   );
 
-  const jinaDialog = (
-    <WebSearchJinaSettingsDialog
-      provider={jinaDialogProvider}
-      saving={jinaSaving}
+  const sourceDialogElement = (
+    <WebSearchSourceDialog
+      open={sourceDialog !== null}
+      mode={sourceDialog?.mode ?? "create"}
+      templates={sourceTemplates}
+      provider={editProvider}
+      template={editTemplate}
+      saving={sourceSaving}
+      errorMessage={sourceError ?? undefined}
+      retryProxyMode={sourceDialog?.mode === "edit" ? sourceDialog.retryProxyMode : undefined}
       onOpenChange={(open) => {
-        if (!open) setJinaDialogProviderId(null);
+        // 提交期间不可关闭：否则创建请求会在弹窗消失后落盘，用户看不到结果，
+        // 再点添加会创建第二个实例。
+        if (!open && !sourceSaving) closeSourceDialog();
       }}
-      onSave={handleSaveJina}
-      onDelete={handleDeleteJina}
+      onCreate={handleCreateSource}
+      onSave={handleSaveSource}
+      onDelete={handleDeleteSource}
     />
   );
 
@@ -434,13 +537,13 @@ export function WebSearchSettingsSection({
             {intl.formatMessage({ id: "settings.webSearch.emptyHint" })}
           </div>
           <div className="flex items-center gap-2">
-            {addJinaButton}
+            {addSourceButton}
             <Button type="button" variant="ghost" onClick={onOpenModelProviderSettings}>
               {intl.formatMessage({ id: "settings.webSearch.openProviders" })}
             </Button>
           </div>
         </div>
-        {jinaDialog}
+        {sourceDialogElement}
       </div>
     );
   }
@@ -464,7 +567,7 @@ export function WebSearchSettingsSection({
               {intl.formatMessage({ id: "settings.webSearch.refreshing" })}
             </Button>
           ) : null}
-          {addJinaButton}
+          {addSourceButton}
         </div>
       </div>
       {/* 拖动行会越过卡片顶部；只让这张排序卡片不裁切，其它设置卡片保持圆角裁切。 */}
@@ -487,11 +590,11 @@ export function WebSearchSettingsSection({
                   candidate={candidate}
                   index={index}
                   total={renderedCandidates.length}
-                  disabled={!webSearchEnabled}
+                  sortDisabled={!webSearchEnabled}
                   onMove={handleMove}
                   onOpenSettings={
-                    candidate.templateId === "jina"
-                      ? () => setJinaDialogProviderId(candidate.providerId)
+                    candidate.canConfigure
+                      ? () => setSourceDialog({ mode: "edit", providerId: candidate.providerId })
                       : undefined
                   }
                 />
@@ -500,7 +603,7 @@ export function WebSearchSettingsSection({
           </SortableContext>
         </DndContext>
       </SettingsGroupCard>
-      {jinaDialog}
+      {sourceDialogElement}
     </div>
   );
 }

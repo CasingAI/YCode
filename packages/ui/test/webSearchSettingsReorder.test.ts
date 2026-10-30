@@ -119,7 +119,22 @@ test("静态契约：排序入口保留键盘/触屏与禁用门控", () => {
   );
   assert.match(sectionSource, /PointerSensor, \{ activationConstraint: \{ distance: 6 \} \}/);
   assert.match(sectionSource, /disabled=\{!webSearchEnabled\}/);
-  assert.match(sectionSource, /disabled=\{disabled\}/);
+  assert.match(sectionSource, /disabled=\{sortDisabled\}/, "拖拽手柄由 sortDisabled 门控");
+  assert.match(
+    sectionSource,
+    /disabled=\{sortDisabled \|\| index === 0\}/,
+    "上移按钮由 sortDisabled 门控",
+  );
+  assert.match(
+    sectionSource,
+    /disabled=\{sortDisabled \|\| index === total - 1\}/,
+    "下移按钮由 sortDisabled 门控",
+  );
+  assert.match(
+    sectionSource,
+    /data-testid=\{`settings\.webSearch\.openSettings\.\$\{candidate\.providerId\}`\}\s+onClick=\{onOpenSettings\}/,
+    "实例设置入口不随总开关禁用",
+  );
   assert.match(sectionSource, /touch-none/);
   assert.match(
     sectionSource,

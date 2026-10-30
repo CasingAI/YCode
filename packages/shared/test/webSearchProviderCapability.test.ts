@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   deriveDefaultWebSearchProviderOrder,
+  isIndependentWebSearchTemplateId,
   isWebSearchCapableTemplateId,
   resolveWebSearchProviderOrder,
   resolveWebSearchTemplateId,
@@ -30,6 +31,22 @@ test("内置搜索源模板名单与端点表一一对应", () => {
   assert.equal(WEB_SEARCH_PROVIDER_ENDPOINTS.jina.billing, "per-call");
   assert.equal(WEB_SEARCH_PROVIDER_ENDPOINTS.jina.kind, "rest");
   assert.equal(WEB_SEARCH_PROVIDER_ENDPOINTS.jina.endpoint, "https://s.jina.ai/");
+});
+
+test("搜索源元数据区分来源类型，当前仅 jina 为独立（可手动添加）模板", () => {
+  for (const templateId of ["zai-api", "bigmodel-api", "minimax-token-plan", "deepseek"] as const) {
+    assert.equal(WEB_SEARCH_PROVIDER_ENDPOINTS[templateId].source, "chat-provider", templateId);
+    assert.equal(isIndependentWebSearchTemplateId(templateId), false, templateId);
+  }
+  assert.equal(WEB_SEARCH_PROVIDER_ENDPOINTS.jina.source, "independent");
+  assert.equal(isIndependentWebSearchTemplateId("jina"), true);
+  // 非搜索模板不会被误判为独立搜索源。
+  assert.equal(isIndependentWebSearchTemplateId("openai" as unknown as string), false);
+  // 「添加搜索源」目录只取 independent；当前只有 jina。
+  assert.deepEqual(
+    WEB_SEARCH_CAPABLE_PROVIDER_TEMPLATE_IDS.filter(isIndependentWebSearchTemplateId),
+    ["jina"],
+  );
 });
 
 test("resolveWebSearchTemplateId 先认 templateId，再做 baseUrl 签名回退", () => {

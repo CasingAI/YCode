@@ -7,6 +7,7 @@ import {
   type WebSearchOutput,
   type WebSearchPort,
 } from "@zcode/contracts";
+import { WEB_SEARCH_PROVIDER_ENDPOINTS } from "@zcode/shared";
 import { resolveWebSearchToolExposed } from "../src/runtime/methods/config.js";
 import { webSearchToolEntry } from "../src/tool/handlers/websearch.js";
 import { formatWebSearchModelContent } from "../src/tool/handlers/websearch-results.js";
@@ -19,12 +20,7 @@ import type { ToolExecutionContext } from "../src/tool/types.js";
 const PROVIDER: ActiveWebSearchProvider = {
   providerId: "personal:ds-main",
   templateId: "deepseek",
-  endpoint: {
-    kind: "rest",
-    endpoint: "https://api.deepseek.com/v1/tools/search",
-    defaultPriority: 3,
-    billing: "per-call",
-  },
+  endpoint: WEB_SEARCH_PROVIDER_ENDPOINTS.deepseek,
   apiKey: "sk-test",
 };
 
@@ -98,7 +94,12 @@ test("WebSearch 模型内容：展示结果链接与摘要，按小写 url 去�
   const content = formatWebSearchModelContent({
     query: "zcode",
     results: [
-      { title: "Docs", url: "https://a.example/1", pageAge: "2026-10-01", snippet: "first snippet" },
+      {
+        title: "Docs",
+        url: "https://a.example/1",
+        pageAge: "2026-10-01",
+        snippet: "first snippet",
+      },
       { url: "https://A.example/1", snippet: "duplicate case" },
       { title: "Other", url: "https://b.example/2" },
     ],

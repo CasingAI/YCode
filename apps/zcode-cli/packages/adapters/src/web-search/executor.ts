@@ -1,7 +1,8 @@
-// 网络搜索执行器：把「策略解析 + Registry 事实 + 供应商适配器」收敛为一个入口。
+// 网络搜索执行器：把「策略解析 + 解析快照事实 + 供应商适配器」收敛为一个入口。
 // 策略（开关+排序）的持有者是 Host 同步的 appRuntimePreferences，执行器只接收读取函数；
-// Registry 是 provider 实例与 API Key 的事实源。core 的 WebSearchPort 在会话装配时
-// 用本执行器 + context 偏好快照组合而成（docs/specs/web-search-provider-capability.md）。
+// ProviderRegistryService 的解析快照（resolution.resolvedProviders）是 provider 实例与
+// API Key 的事实源。core 的 WebSearchPort 在会话装配时用本执行器 + context 偏好快照
+// 组合而成（docs/specs/web-search-provider-capability.md）。
 
 import type {
   ActiveWebSearchProvider,
@@ -16,7 +17,7 @@ import {
   WEB_SEARCH_PROVIDER_ENDPOINTS,
   type WebSearchCapableProviderTemplateId,
 } from "@zcode/shared";
-import type { Provider, ProviderRegistryView } from "@zcode/provider";
+import { isApiKeyAccess, type ResolvedProvider } from "@zcode/provider";
 import { resolveMcpNetwork, type NetworkEgressEnvPolicy } from "../mcp/network.js";
 import { createNetworkProxyFetch } from "../network/proxy-fetch.js";
 import { searchWithDeepSeek } from "./deepseek-rest.js";
@@ -25,10 +26,20 @@ import { searchWithMiniMax } from "./minimax-rest.js";
 import { createZhipuMcpSearchClient, type ZhipuMcpSearchClient } from "./zhipu-mcp-search.js";
 import { WebSearchProviderError, type WebSearchFetch } from "./common.js";
 
-/** 执行器需要的最小 Registry 面；bootstrap 传入进程级 Provider Registry Service。 */
+/** 解析快照中执行器需要的最小只读面；bootstrap 传入进程级 Provider Registry Service。 */
+export interface WebSearchResolvedProvidersSnapshot {
+  readonly resolution: {
+    readonly resolvedProviders: readonly ResolvedProvider[];
+  };
+}
+
+/**
+ * 执行器只读解析快照，不读聊天模型 Registry。
+ * 零模型搜索源（Jina）不会进入 registryProviders，按模型数量筛源会直接漏掉它；
+ * 这里刻意不暴露 getView/getProvider，避免调用方再次退回模型 Registry 语义。
+ */
 export interface WebSearchProviderRegistrySource {
-  getView(): ProviderRegistryView;
-  getProvider(providerId: string): Provider | undefined;
+  getSnapshot(): WebSearchResolvedProvidersSnapshot | null;
 }
 
 export interface WebSearchPolicy {
@@ -82,18 +93,25 @@ export function createRegistryWebSearchExecutor(options: {
   function detectCandidates(): {
     providerId: string;
     templateId: WebSearchCapableProviderTemplateId;
+    provider: ResolvedProvider;
   }[] {
+    const snapshot = options.registry.getSnapshot();
+    if (!snapshot) return [];
     const candidates: {
       providerId: string;
       templateId: WebSearchCapableProviderTemplateId;
+      provider: ResolvedProvider;
     }[] = [];
-    for (const provider of options.registry.getView().providers) {
+    for (const provider of snapshot.resolution.resolvedProviders) {
+      // 搜索源是配置事实，不是聊天模型事实：Jina 等零模型实例不会进入模型 Registry，
+      // 因此只筛「启用 + 配置完整 + 模板命中」，模型数量不参与判定。
+      if (!provider.enabled || provider.providerIssues.length > 0) continue;
       const templateId = resolveWebSearchTemplateId({
         templateId: provider.templateId,
         apiBaseUrl: provider.config.api?.baseUrl,
       });
       if (templateId === undefined) continue;
-      candidates.push({ providerId: provider.providerId, templateId });
+      candidates.push({ providerId: provider.providerId, templateId, provider });
     }
     return candidates;
   }
@@ -112,16 +130,15 @@ export function createRegistryWebSearchExecutor(options: {
       const orderedOrDerived =
         orderedIds.length > 0 ? orderedIds : deriveDefaultWebSearchProviderOrder(candidates);
       for (const providerId of orderedOrDerived) {
-        const provider = options.registry.getProvider(providerId);
-        const templateId = candidates.find((c) => c.providerId === providerId)?.templateId;
-        const apiKey = provider?.config.access?.apiKey;
-        if (!provider || templateId === undefined || !apiKey) continue;
+        const candidate = candidates.find((item) => item.providerId === providerId);
+        const apiKey = candidate ? readApiKey(candidate.provider) : undefined;
+        if (!candidate || !apiKey) continue;
         return {
           providerId,
-          templateId,
-          endpoint: endpointFor(templateId),
+          templateId: candidate.templateId,
+          endpoint: endpointFor(candidate.templateId),
           apiKey,
-          proxyMode: provider.proxyMode,
+          proxyMode: candidate.provider.proxyMode,
         };
       }
       return undefined;
@@ -176,4 +193,10 @@ export function createRegistryWebSearchExecutor(options: {
 function endpointFor(templateId: WebSearchCapableProviderTemplateId) {
   // shared 的端点描述按模板建表（Record 全键覆盖），缺表只可能是未来的代码缺口。
   return WEB_SEARCH_PROVIDER_ENDPOINTS[templateId];
+}
+
+function readApiKey(provider: ResolvedProvider): string | undefined {
+  const access = provider.config.access;
+  // Z.ai / BigModel Coding Plan 使用 zhipu-coding-plan-api-key；判定复用 provider 公开判据。
+  return isApiKeyAccess(access) ? (access.apiKey ?? undefined) : undefined;
 }

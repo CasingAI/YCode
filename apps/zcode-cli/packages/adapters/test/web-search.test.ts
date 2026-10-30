@@ -1,7 +1,22 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { Provider, ProviderRegistryView } from "@zcode/provider";
+import {
+  ApiKeyAccessConfig,
+  ModelConfig,
+  ModelConfigRules,
+  ProviderApiConfig,
+  ProviderConfig,
+  ProviderConfigMap,
+  ProviderRegistryService,
+  ProviderTemplate,
+  ProviderTemplateMap,
+  createAccountProviderConfigSnapshot,
+  type ProviderConfigSnapshot,
+  type ProviderSource,
+  type ResolvedProvider,
+} from "@zcode/provider";
 import type { WebSearchInput } from "@zcode/contracts";
+import { WEB_SEARCH_PROVIDER_ENDPOINTS } from "@zcode/shared";
 import {
   combineAbortSignals,
   finalizeSearchOutput,
@@ -44,12 +59,7 @@ function fetchResponding(responder: (url: string, body: unknown) => Response): {
 const PROVIDER = {
   providerId: "personal:deepseek-main",
   templateId: "deepseek",
-  endpoint: {
-    kind: "rest" as const,
-    endpoint: "https://api.deepseek.com/v1/tools/search",
-    defaultPriority: 3,
-    billing: "per-call" as const,
-  },
+  endpoint: WEB_SEARCH_PROVIDER_ENDPOINTS.deepseek,
   apiKey: "sk-test",
 };
 
@@ -99,7 +109,8 @@ test("DeepSeek 适配器：HTTP 401/402/429 归一为带状态码的可恢复失
 });
 
 test("DeepSeek 适配器：非 JSON 响应报供应商错误而非抛解析异常", async () => {
-  const fetchImpl = (async () => new Response("<html>boom</html>", { status: 200 })) as unknown as WebSearchFetch;
+  const fetchImpl = (async () =>
+    new Response("<html>boom</html>", { status: 200 })) as unknown as WebSearchFetch;
   await assert.rejects(
     searchWithDeepSeek({ input: BASE_INPUT, provider: PROVIDER, fetchImpl }),
     (error: unknown) => {
@@ -126,12 +137,7 @@ test("MiniMax 适配器：POST {q}，organic 行映射 url/title/pageAge/snippet
       providerId: "personal:mm",
       templateId: "minimax-token-plan",
       // MiniMax 走自己的 Token Plan 端点，不能沿用 PROVIDER 里 deepseek 的端点。
-      endpoint: {
-        kind: "rest" as const,
-        endpoint: "https://api.minimaxi.com/v1/coding_plan/search",
-        defaultPriority: 2,
-        billing: "plan" as const,
-      },
+      endpoint: WEB_SEARCH_PROVIDER_ENDPOINTS["minimax-token-plan"],
     },
     fetchImpl,
   });
@@ -163,12 +169,7 @@ test("Jina 适配器：query 走路径、no-content body，data 行映射 title/
       providerId: "personal:jina-1",
       templateId: "jina",
       // Jina 走 Reader Search 端点，query 在路径上；不能沿用 PROVIDER 里 deepseek 的端点。
-      endpoint: {
-        kind: "rest" as const,
-        endpoint: "https://s.jina.ai/",
-        defaultPriority: 4,
-        billing: "per-call" as const,
-      },
+      endpoint: WEB_SEARCH_PROVIDER_ENDPOINTS.jina,
       apiKey: "jina-key",
     },
     fetchImpl,
@@ -200,12 +201,7 @@ test("Jina 适配器：非 JSON 响应报供应商错误而非抛解析异常", 
         ...PROVIDER,
         providerId: "personal:jina-1",
         templateId: "jina",
-        endpoint: {
-          kind: "rest" as const,
-          endpoint: "https://s.jina.ai/",
-          defaultPriority: 4,
-          billing: "per-call" as const,
-        },
+        endpoint: WEB_SEARCH_PROVIDER_ENDPOINTS.jina,
       },
       fetchImpl,
     }),
@@ -255,39 +251,47 @@ test("combineAbortSignals 返回携带超时的合成信号", async () => {
   assert.equal(WEB_SEARCH_TIMEOUT_MS, 60_000);
 });
 
-function fakeProvider(overrides: {
+function fakeResolvedProvider(overrides: {
   providerId: string;
   templateId?: string | null;
   baseUrl?: string;
   apiKey?: string;
-  proxyMode?: Provider["proxyMode"];
-}): Provider {
+  proxyMode?: ResolvedProvider["proxyMode"];
+  enabled?: boolean;
+  providerIssues?: ResolvedProvider["providerIssues"];
+}): ResolvedProvider {
   return {
     providerId: overrides.providerId,
+    providerName: overrides.providerId,
     ...(overrides.templateId === undefined ? {} : { templateId: overrides.templateId }),
     ...(overrides.proxyMode === undefined ? {} : { proxyMode: overrides.proxyMode }),
+    enabled: overrides.enabled ?? true,
     config: {
-      ...(overrides.apiKey === undefined ? {} : { access: { type: "api-key", apiKey: overrides.apiKey } }),
-      ...(overrides.baseUrl === undefined ? {} : { api: { type: "anthropic", baseUrl: overrides.baseUrl } }),
+      ...(overrides.apiKey === undefined
+        ? {}
+        : { access: { type: "api-key", apiKey: overrides.apiKey } }),
+      ...(overrides.baseUrl === undefined
+        ? {}
+        : { api: { type: "anthropic", baseUrl: overrides.baseUrl } }),
     },
+    providerIssues: overrides.providerIssues ?? [],
     models: [],
-  } as unknown as Provider;
+  } as unknown as ResolvedProvider;
 }
 
-function fakeRegistry(providers: readonly Provider[]) {
-  const byId = new Map(providers.map((provider) => [provider.providerId, provider]));
+function fakeRegistry(providers: readonly ResolvedProvider[]) {
+  // 执行器只读解析快照；零模型搜索源不会出现在模型 Registry 里。
   return {
-    getView(): ProviderRegistryView {
-      return { revision: 1, providers };
-    },
-    getProvider(providerId: string): Provider | undefined {
-      return byId.get(providerId);
+    getSnapshot() {
+      return { resolution: { resolvedProviders: providers } };
     },
   };
 }
 
 test("执行器解析：开关关闭或无候选时不产出激活搜索源", () => {
-  const registry = fakeRegistry([fakeProvider({ providerId: "ds", templateId: "deepseek", apiKey: "k" })]);
+  const registry = fakeRegistry([
+    fakeResolvedProvider({ providerId: "ds", templateId: "deepseek", apiKey: "k" }),
+  ]);
   const executor = createRegistryWebSearchExecutor({ registry });
   assert.equal(
     executor.resolveActiveProvider({ enabled: false, order: undefined }),
@@ -300,8 +304,8 @@ test("执行器解析：开关关闭或无候选时不产出激活搜索源", ()
 
 test("执行器解析：按序取第一个 Key 可用项；排序外的候选按默认序兜底", () => {
   const registry = fakeRegistry([
-    fakeProvider({ providerId: "zai", templateId: "zai-api", apiKey: "k" }),
-    fakeProvider({ providerId: "ds", templateId: "deepseek", apiKey: "k" }),
+    fakeResolvedProvider({ providerId: "zai", templateId: "zai-api", apiKey: "k" }),
+    fakeResolvedProvider({ providerId: "ds", templateId: "deepseek", apiKey: "k" }),
   ]);
   const executor = createRegistryWebSearchExecutor({ registry });
   const active = executor.resolveActiveProvider({
@@ -314,8 +318,8 @@ test("执行器解析：按序取第一个 Key 可用项；排序外的候选按
 
   // 排第一的没有 Key：跳过它取下一个可解析项，不让非空候选落到无激活项。
   const missingKey = fakeRegistry([
-    fakeProvider({ providerId: "ds", templateId: "deepseek" }),
-    fakeProvider({ providerId: "zai", templateId: "zai-api", apiKey: "k" }),
+    fakeResolvedProvider({ providerId: "ds", templateId: "deepseek" }),
+    fakeResolvedProvider({ providerId: "zai", templateId: "zai-api", apiKey: "k" }),
   ]);
   const fallback = createRegistryWebSearchExecutor({ registry: missingKey });
   assert.equal(
@@ -325,12 +329,15 @@ test("执行器解析：按序取第一个 Key 可用项；排序外的候选按
 
   // 用户从未整理过排序：按模板固定优先级派生（套餐内优先）。
   const derived = createRegistryWebSearchExecutor({ registry });
-  assert.equal(derived.resolveActiveProvider({ enabled: true, order: undefined })?.providerId, "zai");
+  assert.equal(
+    derived.resolveActiveProvider({ enabled: true, order: undefined })?.providerId,
+    "zai",
+  );
 });
 
 test("执行器解析：templateId 缺失时按 baseUrl 签名识别", () => {
   const registry = fakeRegistry([
-    fakeProvider({
+    fakeResolvedProvider({
       providerId: "sig",
       baseUrl: "https://api.z.ai/api/anthropic",
       apiKey: "k",
@@ -345,7 +352,7 @@ test("执行器解析：templateId 缺失时按 baseUrl 签名识别", () => {
 test("执行器执行：deepseek 走 REST 且透传 abortSignal", async () => {
   const { fetchImpl, calls } = fetchResponding(() => jsonResponse({ results: [] }));
   const registry = fakeRegistry([
-    fakeProvider({ providerId: "ds", templateId: "deepseek", apiKey: "k" }),
+    fakeResolvedProvider({ providerId: "ds", templateId: "deepseek", apiKey: "k" }),
   ]);
   const executor = createRegistryWebSearchExecutor({ registry, fetchImpl });
   const provider = executor.resolveActiveProvider({ enabled: true, order: undefined });
@@ -362,7 +369,7 @@ test("执行器执行：deepseek 走 REST 且透传 abortSignal", async () => {
 test("执行器执行：jina 实例按模板识别并走 REST 路径端点", async () => {
   const { fetchImpl, calls } = fetchResponding(() => jsonResponse({ data: [] }));
   const registry = fakeRegistry([
-    fakeProvider({ providerId: "j1", templateId: "jina", apiKey: "k" }),
+    fakeResolvedProvider({ providerId: "j1", templateId: "jina", apiKey: "k" }),
   ]);
   const executor = createRegistryWebSearchExecutor({ registry, fetchImpl });
   const provider = executor.resolveActiveProvider({ enabled: true, order: undefined });
@@ -375,4 +382,386 @@ test("执行器执行：jina 实例按模板识别并走 REST 路径端点", asy
   assert.equal(output.results.length, 0);
   assert.equal(calls.length, 1);
   assert.equal(calls[0]!.url, "https://s.jina.ai/zcode%20web%20search");
+});
+
+// 以下用真实 ProviderConfigResolver + ProviderRegistryService 锁定 spec 验收 9：
+// 零模型独立搜索源（Jina）不进聊天模型 Registry，但必须仍能被执行器解析。
+
+class MutableConfigSource implements ProviderSource<ProviderConfigSnapshot> {
+  constructor(private snapshot: ProviderConfigSnapshot) {}
+
+  async read(): Promise<ProviderConfigSnapshot> {
+    return this.snapshot;
+  }
+
+  onDidChange(): () => void {
+    return () => {};
+  }
+}
+
+const JINA_TEMPLATE = new ProviderTemplate({
+  templateId: "jina",
+  templateNameMap: { "zh-CN": "Jina", "en-US": "Jina" },
+  config: new ProviderConfig({
+    access: new ApiKeyAccessConfig({ apiKeyManagementUrl: "https://jina.ai/api-keys" }),
+    api: new ProviderApiConfig({ type: "openai-chat-completions", baseUrl: "https://s.jina.ai" }),
+  }),
+});
+
+const DEEPSEEK_TEMPLATE = new ProviderTemplate({
+  templateId: "deepseek",
+  templateNameMap: { "zh-CN": "DeepSeek", "en-US": "DeepSeek" },
+  config: new ProviderConfig({
+    access: new ApiKeyAccessConfig({
+      apiKeyManagementUrl: "https://platform.deepseek.com/api_keys",
+    }),
+    api: new ProviderApiConfig({
+      type: "anthropic-messages",
+      baseUrl: "https://api.deepseek.com/anthropic",
+    }),
+  }),
+});
+
+function chatTemplate(
+  templateId: "minimax-token-plan" | "zai-api" | "bigmodel-api",
+  baseUrl: string,
+): ProviderTemplate {
+  return new ProviderTemplate({
+    templateId,
+    templateNameMap: { "zh-CN": templateId, "en-US": templateId },
+    config: new ProviderConfig({
+      access: new ApiKeyAccessConfig({ apiKeyManagementUrl: "https://example.test/keys" }),
+      api: new ProviderApiConfig({ type: "anthropic-messages", baseUrl }),
+    }),
+  });
+}
+
+const MINIMAX_TEMPLATE = chatTemplate("minimax-token-plan", "https://api.minimaxi.com");
+const ZAI_TEMPLATE = chatTemplate("zai-api", "https://api.z.ai/api/anthropic");
+const BIGMODEL_TEMPLATE = chatTemplate("bigmodel-api", "https://open.bigmodel.cn/api/anthropic");
+
+function keyAccess(
+  apiKey: string,
+  type: "api-key" | "zhipu-coding-plan-api-key" = "api-key",
+): ApiKeyAccessConfig {
+  return new ApiKeyAccessConfig({ type, apiKey });
+}
+
+function completeModelConfig(): ModelConfig {
+  return ModelConfig.fromData({
+    enabled: true,
+    properties: {
+      requiresMfjsToolSchema: false,
+      contextWindow: 128_000,
+      inputFormat: {
+        supportsText: true,
+        supportsImage: false,
+        supportsVideo: false,
+        supportsAudio: false,
+        supportsPdf: false,
+      },
+      outputFormat: { supportsText: true },
+      supportsToolCall: true,
+      supportsJsonSchemaOutput: false,
+      supportsMidConversationSystem: false,
+    },
+    optionSpecs: {
+      reasoningLevel: { values: ["disabled", "high"], map: '{"effort": reasoningLevel}' },
+      maxOutputTokens: { max: 4096, map: '{"max_tokens": maxOutputTokens}' },
+    },
+  });
+}
+
+function providerConfigSnapshot(input: {
+  personal: ProviderConfigMap;
+  templates?: ProviderTemplateMap;
+  personalModels?: ModelConfigRules;
+}): ProviderConfigSnapshot {
+  return {
+    revision: "config-test",
+    zcodeBuiltinRevision: "builtin-test",
+    personalRevision: "personal-test",
+    zcodeBuiltinProviders: ProviderConfigMap.empty(),
+    zcodeBuiltinProviderTemplates: input.templates ?? ProviderTemplateMap.empty(),
+    personalProviders: input.personal,
+    zcodeBuiltinModelRules: ModelConfigRules.empty(),
+    personalModels: input.personalModels ?? ModelConfigRules.empty(),
+  };
+}
+
+async function startRegistry(config: ProviderConfigSnapshot): Promise<ProviderRegistryService> {
+  const service = new ProviderRegistryService({
+    configSource: new MutableConfigSource(config),
+    accountSource: {
+      async read() {
+        return createAccountProviderConfigSnapshot(
+          config.zcodeBuiltinRevision,
+          ProviderConfigMap.empty(),
+        );
+      },
+      onDidChange() {
+        return () => {};
+      },
+    },
+  });
+  await service.start();
+  return service;
+}
+
+test("真实 resolver/service：零模型 Jina 不进模型 Registry，但执行器仍可激活并执行", async () => {
+  const service = await startRegistry(
+    providerConfigSnapshot({
+      personal: new ProviderConfigMap([
+        {
+          providerId: "personal:jina-1",
+          templateId: "jina",
+          config: new ProviderConfig({
+            group: "standard-personal",
+            access: new ApiKeyAccessConfig({ apiKey: "jina-key" }),
+          }),
+        },
+      ]),
+      templates: new ProviderTemplateMap([["jina", JINA_TEMPLATE]]),
+    }),
+  );
+  try {
+    const snapshot = service.getSnapshot();
+    assert.ok(snapshot);
+    assert.equal(
+      snapshot.resolution.resolvedProviders.some((item) => item.providerId === "personal:jina-1"),
+      true,
+      "零模型实例必须保留在解析事实中",
+    );
+    assert.equal(
+      snapshot.resolution.registryProviders.some((item) => item.providerId === "personal:jina-1"),
+      false,
+      "零模型实例不应进入聊天模型 Registry",
+    );
+
+    const { fetchImpl, calls } = fetchResponding(() => jsonResponse({ data: [] }));
+    const executor = createRegistryWebSearchExecutor({ registry: service, fetchImpl });
+    const active = executor.resolveActiveProvider({ enabled: true, order: undefined });
+    assert.equal(active?.providerId, "personal:jina-1");
+    assert.equal(active?.templateId, "jina");
+    assert.equal(active?.endpoint.endpoint, "https://s.jina.ai/");
+    if (!active) return;
+    await executor.search(BASE_INPUT, active, {
+      abortSignal: new AbortController().signal,
+    });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]!.url, "https://s.jina.ai/zcode%20web%20search");
+  } finally {
+    service.dispose();
+  }
+});
+
+test("真实 resolver/service：可用聊天源仍可解析，并与独立源共用排序", async () => {
+  const service = await startRegistry(
+    providerConfigSnapshot({
+      personal: new ProviderConfigMap([
+        {
+          providerId: "personal:deepseek-main",
+          templateId: "deepseek",
+          config: new ProviderConfig({
+            group: "standard-personal",
+            access: new ApiKeyAccessConfig({ apiKey: "ds-key" }),
+            personalModelIds: ["deepseek-flash"],
+          }),
+        },
+        {
+          providerId: "personal:jina-1",
+          templateId: "jina",
+          config: new ProviderConfig({
+            group: "standard-personal",
+            access: new ApiKeyAccessConfig({ apiKey: "jina-key" }),
+          }),
+        },
+      ]),
+      templates: new ProviderTemplateMap([
+        ["deepseek", DEEPSEEK_TEMPLATE],
+        ["jina", JINA_TEMPLATE],
+      ]),
+      personalModels: new ModelConfigRules([
+        {
+          type: "provider-model",
+          providerId: "personal:deepseek-main",
+          modelId: "deepseek-flash",
+          config: completeModelConfig(),
+        },
+      ]),
+    }),
+  );
+  try {
+    assert.equal(
+      service
+        .getSnapshot()
+        ?.resolution.registryProviders.some((item) => item.providerId === "personal:deepseek-main"),
+      true,
+      "可用聊天源仍进入模型 Registry",
+    );
+    const executor = createRegistryWebSearchExecutor({ registry: service });
+    const deepseek = executor.resolveActiveProvider({
+      enabled: true,
+      order: ["personal:deepseek-main", "personal:jina-1"],
+    });
+    assert.equal(deepseek?.providerId, "personal:deepseek-main");
+    assert.equal(deepseek?.templateId, "deepseek");
+    const jina = executor.resolveActiveProvider({
+      enabled: true,
+      order: ["personal:jina-1", "personal:deepseek-main"],
+    });
+    assert.equal(jina?.providerId, "personal:jina-1");
+    // 未初始化排序沿用模板固定优先级：DeepSeek（3）在 Jina（4）前。
+    assert.equal(
+      executor.resolveActiveProvider({ enabled: true, order: undefined })?.providerId,
+      "personal:deepseek-main",
+    );
+  } finally {
+    service.dispose();
+  }
+});
+
+test("真实 resolver/service：四类聊天源的 Key 型 access 均可激活（含 Z.ai/BigModel legacy）", async () => {
+  const cases = [
+    {
+      name: "deepseek",
+      providerId: "personal:ds",
+      templateId: "deepseek",
+      access: "api-key",
+      template: DEEPSEEK_TEMPLATE,
+      endpoint: WEB_SEARCH_PROVIDER_ENDPOINTS.deepseek.endpoint,
+    },
+    {
+      name: "minimax-token-plan",
+      providerId: "personal:mm",
+      templateId: "minimax-token-plan",
+      access: "api-key",
+      template: MINIMAX_TEMPLATE,
+      endpoint: WEB_SEARCH_PROVIDER_ENDPOINTS["minimax-token-plan"].endpoint,
+    },
+    {
+      name: "zai-api legacy",
+      providerId: "personal:zai",
+      templateId: "zai-api",
+      access: "zhipu-coding-plan-api-key",
+      template: ZAI_TEMPLATE,
+      endpoint: WEB_SEARCH_PROVIDER_ENDPOINTS["zai-api"].endpoint,
+    },
+    {
+      name: "bigmodel-api legacy",
+      providerId: "personal:bigmodel",
+      templateId: "bigmodel-api",
+      access: "zhipu-coding-plan-api-key",
+      template: BIGMODEL_TEMPLATE,
+      endpoint: WEB_SEARCH_PROVIDER_ENDPOINTS["bigmodel-api"].endpoint,
+    },
+  ] as const;
+
+  for (const item of cases) {
+    const service = await startRegistry(
+      providerConfigSnapshot({
+        personal: new ProviderConfigMap([
+          {
+            providerId: item.providerId,
+            templateId: item.templateId,
+            config: new ProviderConfig({
+              group: "standard-personal",
+              access: keyAccess("key", item.access),
+              personalModelIds: ["test-model"],
+            }),
+          },
+        ]),
+        templates: new ProviderTemplateMap([[item.templateId, item.template]]),
+        personalModels: new ModelConfigRules([
+          {
+            type: "provider-model",
+            providerId: item.providerId,
+            modelId: "test-model",
+            config: completeModelConfig(),
+          },
+        ]),
+      }),
+    );
+    try {
+      assert.equal(
+        service
+          .getSnapshot()
+          ?.resolution.registryProviders.some(
+            (provider) => provider.providerId === item.providerId,
+          ),
+        true,
+        `${item.name} 仍应进入模型 Registry`,
+      );
+      const executor = createRegistryWebSearchExecutor({ registry: service });
+      const active = executor.resolveActiveProvider({ enabled: true, order: undefined });
+      assert.equal(active?.providerId, item.providerId, item.name);
+      assert.equal(active?.templateId, item.templateId, item.name);
+      assert.equal(active?.apiKey, "key", item.name);
+      assert.equal(active?.endpoint.endpoint, item.endpoint, item.name);
+    } finally {
+      service.dispose();
+    }
+  }
+});
+
+test("真实 resolver/service：disabled、无 Key、配置不完整的搜索源都不激活", async () => {
+  const assertInactive = async (config: ProviderConfigSnapshot, label: string) => {
+    const service = await startRegistry(config);
+    try {
+      const executor = createRegistryWebSearchExecutor({ registry: service });
+      assert.equal(
+        executor.resolveActiveProvider({ enabled: true, order: undefined }),
+        undefined,
+        label,
+      );
+    } finally {
+      service.dispose();
+    }
+  };
+
+  await assertInactive(
+    providerConfigSnapshot({
+      personal: new ProviderConfigMap([
+        {
+          providerId: "personal:jina-1",
+          templateId: "jina",
+          enabled: false,
+          config: new ProviderConfig({
+            group: "standard-personal",
+            access: new ApiKeyAccessConfig({ apiKey: "jina-key" }),
+          }),
+        },
+      ]),
+      templates: new ProviderTemplateMap([["jina", JINA_TEMPLATE]]),
+    }),
+    "disabled 的搜索源不得激活",
+  );
+  await assertInactive(
+    providerConfigSnapshot({
+      personal: new ProviderConfigMap([
+        {
+          providerId: "personal:jina-1",
+          templateId: "jina",
+          config: new ProviderConfig({ group: "standard-personal" }),
+        },
+      ]),
+      templates: new ProviderTemplateMap([["jina", JINA_TEMPLATE]]),
+    }),
+    "无 Key 的搜索源不得激活",
+  );
+  await assertInactive(
+    providerConfigSnapshot({
+      personal: new ProviderConfigMap([
+        {
+          providerId: "personal:jina-1",
+          templateId: "jina",
+          config: new ProviderConfig({
+            group: "standard-personal",
+            access: new ApiKeyAccessConfig({ apiKey: "jina-key" }),
+          }),
+        },
+      ]),
+    }),
+    "模板缺失导致配置不完整的搜索源不得激活",
+  );
 });

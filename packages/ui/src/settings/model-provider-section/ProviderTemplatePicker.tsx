@@ -7,6 +7,7 @@ import {
   TID_MODEL_PROVIDER_TEMPLATE_BETA_HINT,
   TID_MODEL_PROVIDER_TEMPLATE_ITEM,
   TID_MODEL_PROVIDER_TEMPLATE_PICKER,
+  isIndependentWebSearchTemplateId,
   testId,
 } from "@zcode/shared";
 import { Button } from "@/components/ui/button.js";
@@ -52,6 +53,11 @@ export function ProviderTemplatePicker({
   const quotaTagLabel = intl.formatMessage({ id: "settings.modelProvider.templateQuotaTag" });
   const betaTagLabel = intl.formatMessage({ id: "settings.modelProvider.templateBetaTag" });
   const zhipuIds = ["bigmodel-api", "zai-api", "bigmodel-standard-api", "zai-standard-api"];
+  // 独立搜索源模板是 search-only，只能从「网络搜索」页添加；目录过滤复用
+  // shared 的来源元数据，不在这里维护第二份模板名单。
+  const modelTemplates = templates.filter(
+    (template) => !isIndependentWebSearchTemplateId(template.templateId),
+  );
   // OpenCode 模板（opencode-go-* / opencode-zen-*）与侧栏一致拥有独立分组。
   // CLI Proxy 模板（cliproxy-*）同理：一个 Codex 账号 = 一个 provider 条目。
   const isOpenCodeTemplate = (templateId: string) => templateId.startsWith("opencode-");
@@ -64,21 +70,21 @@ export function ProviderTemplatePicker({
   const groups = [
     {
       id: "cliproxy",
-      templates: templates.filter(
+      templates: modelTemplates.filter(
         (template) =>
           !zhipuIds.includes(template.templateId) && isCliProxyTemplate(template.templateId),
       ),
     },
     {
       id: "opencode",
-      templates: templates.filter(
+      templates: modelTemplates.filter(
         (template) =>
           !zhipuIds.includes(template.templateId) && isOpenCodeTemplate(template.templateId),
       ),
     },
     {
       id: "other",
-      templates: templates.filter(
+      templates: modelTemplates.filter(
         (template) =>
           !zhipuIds.includes(template.templateId) &&
           !isOpenCodeTemplate(template.templateId) &&
@@ -88,7 +94,7 @@ export function ProviderTemplatePicker({
     {
       id: "zhipu",
       templates: zhipuIds.flatMap((id) =>
-        templates.filter((template) => template.templateId === id),
+        modelTemplates.filter((template) => template.templateId === id),
       ),
     },
   ] as const;

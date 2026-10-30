@@ -20,6 +20,7 @@ import {
   type WebSearchOutput,
   type WebSearchPort,
 } from "@zcode/contracts";
+import { WEB_SEARCH_PROVIDER_ENDPOINTS } from "@zcode/shared";
 import { AgentRuntime } from "../src/runtime/agent-runtime.js";
 import type { AgentRuntimeInternal } from "../src/runtime/internal.js";
 import type { AgentProfile } from "../src/subagent/profile.js";
@@ -30,12 +31,7 @@ import type { AgentProfile } from "../src/subagent/profile.js";
 export const ACTIVE_PROVIDER: ActiveWebSearchProvider = {
   providerId: "personal:websearch-test",
   templateId: "jina",
-  endpoint: {
-    kind: "rest",
-    endpoint: "https://s.jina.ai",
-    defaultPriority: 5,
-    billing: "per-call",
-  },
+  endpoint: { ...WEB_SEARCH_PROVIDER_ENDPOINTS.jina, endpoint: "https://s.jina.ai" },
   apiKey: "sk-test",
 };
 

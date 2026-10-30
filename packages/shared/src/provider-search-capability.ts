@@ -1,5 +1,3 @@
-import { z } from "zod";
-
 /**
  * 内置支持独立搜索 API 的供应商模板（docs/specs/web-search-provider-capability.md）。
  * 设置页识别与 CLI 执行解析共用这份名单，它是搜索源识别的唯一事实源；
@@ -19,8 +17,15 @@ export const WEB_SEARCH_CAPABLE_PROVIDER_TEMPLATE_IDS = [
 export type WebSearchCapableProviderTemplateId =
   (typeof WEB_SEARCH_CAPABLE_PROVIDER_TEMPLATE_IDS)[number];
 
-export const webSearchEndpointKindSchema = z.enum(["rest", "mcp"]);
-export type WebSearchEndpointKind = z.infer<typeof webSearchEndpointKindSchema>;
+export type WebSearchEndpointKind = "rest" | "mcp";
+
+/**
+ * 搜索源来源类型：
+ * - `chat-provider`：与聊天供应商模板共用一个实例，配置后自动识别；
+ * - `independent`：独立搜索源模板，实例只能从网络搜索设置页手动添加。
+ * 这两个值即完整语义，不再额外维护「可手动添加」布尔副本。
+ */
+export type WebSearchSourceType = "chat-provider" | "independent";
 
 /** 搜索端点描述：与模板绑定，CLI 执行时按 provider 的 templateId/baseUrl 解析。 */
 export interface WebSearchEndpointDescriptor {
@@ -35,6 +40,11 @@ export interface WebSearchEndpointDescriptor {
   defaultPriority: number;
   /** 计费归属；设置页据此展示提示文案。 */
   billing: "plan" | "per-call";
+  /**
+   * 来源类型；决定是否从聊天供应商自动识别，或允许本页手动添加。
+   * `independent` 与「可手动添加」是同一判据，目录和行设置入口都只认它。
+   */
+  source: WebSearchSourceType;
 }
 
 export const WEB_SEARCH_PROVIDER_ENDPOINTS: Record<
@@ -46,6 +56,7 @@ export const WEB_SEARCH_PROVIDER_ENDPOINTS: Record<
     defaultPriority: 0,
     endpoint: "https://api.z.ai/api/mcp/web_search_prime/mcp",
     kind: "mcp",
+    source: "chat-provider",
     toolName: "webSearchPrime",
   },
   "bigmodel-api": {
@@ -53,6 +64,7 @@ export const WEB_SEARCH_PROVIDER_ENDPOINTS: Record<
     defaultPriority: 1,
     endpoint: "https://open.bigmodel.cn/api/mcp/web_search_prime/mcp",
     kind: "mcp",
+    source: "chat-provider",
     toolName: "webSearchPrime",
   },
   "minimax-token-plan": {
@@ -60,12 +72,14 @@ export const WEB_SEARCH_PROVIDER_ENDPOINTS: Record<
     defaultPriority: 2,
     endpoint: "https://api.minimaxi.com/v1/coding_plan/search",
     kind: "rest",
+    source: "chat-provider",
   },
   deepseek: {
     billing: "per-call",
     defaultPriority: 3,
     endpoint: "https://api.deepseek.com/v1/tools/search",
     kind: "rest",
+    source: "chat-provider",
   },
   jina: {
     billing: "per-call",
@@ -74,6 +88,8 @@ export const WEB_SEARCH_PROVIDER_ENDPOINTS: Record<
     // 选项走 body；URL 末尾的斜杠由适配器负责拼接，不在这里带。
     endpoint: "https://s.jina.ai/",
     kind: "rest",
+    // 当前唯一允许从「网络搜索」页手动添加的独立搜索源模板。
+    source: "independent",
   },
 };
 
@@ -99,6 +115,16 @@ export function isWebSearchCapableTemplateId(
     templateId !== null &&
     templateId !== undefined &&
     (WEB_SEARCH_CAPABLE_PROVIDER_TEMPLATE_IDS as readonly string[]).includes(templateId)
+  );
+}
+
+/** 是否为独立搜索源模板；独立模板即允许从「网络搜索」页手动添加的模板。 */
+export function isIndependentWebSearchTemplateId(
+  templateId: string | null | undefined,
+): templateId is WebSearchCapableProviderTemplateId {
+  return (
+    isWebSearchCapableTemplateId(templateId) &&
+    WEB_SEARCH_PROVIDER_ENDPOINTS[templateId].source === "independent"
   );
 }
 

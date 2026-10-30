@@ -18,6 +18,7 @@ import {
   type WebSearchOutput,
   type WebSearchPort,
 } from "@zcode/contracts";
+import { WEB_SEARCH_PROVIDER_ENDPOINTS } from "@zcode/shared";
 import {
   ApiKeyAccessConfig,
   ModelConfig,
@@ -41,12 +42,7 @@ export const TEST_SEARCH_QUERY = "ycode web search";
 export const TEST_SEARCH_PROVIDER: ActiveWebSearchProvider = {
   providerId: "personal:deepseek-main",
   templateId: "deepseek",
-  endpoint: {
-    kind: "rest",
-    endpoint: "https://search.example.test/",
-    defaultPriority: 3,
-    billing: "per-call",
-  },
+  endpoint: { ...WEB_SEARCH_PROVIDER_ENDPOINTS.deepseek, endpoint: "https://search.example.test/" },
   apiKey: "test-only-key",
 };
 
