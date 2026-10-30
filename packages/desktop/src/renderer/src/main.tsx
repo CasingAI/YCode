@@ -14,9 +14,9 @@ import {
   playSoundForChannelStatus,
   setStreamClientId,
   setReactErrorArmsReporter,
+  startRendererPerformanceDiagnostics,
   writeTextToClipboard,
 } from "@zcode/ui";
-import { logger } from "@zcode/ui/logger.js";
 import "@zcode/ui/styles.css";
 import { connectViaMessagePort, createMessagePortServiceConnection } from "@zcode/client";
 import {
@@ -160,62 +160,10 @@ initializeDesktopUserActionTrace({
 // 导致多次 createRoot 在同一 DOM 节点上挂载。用 flag 防止重复初始化。
 let appInitialized = false;
 const databaseStartupAdmission = new DatabaseStartupAdmission();
-// 计时诊断（临时）：renderer 心跳。settings 首屏复现中 renderer 静默 33s 而
-// main/host 存活；心跳用于区分「renderer 线程冻结」（心跳停）与
-// 「仅消息通道被卡」（心跳照跳、响应不到）。每 5s 一条 lifecycle.info，
-// production 构建也经桥落日志。
+// Renderer 性能诊断：每个非 update-status 窗口一个本地聚合器；
+// 只在可见且聚焦时采样，10s 窗口有活动才写一条 [ui-perf]。
 if (windowKind !== "update-status") {
-  // longtask 观察器：renderer 线程被同步任务卡住时（>5s 的单任务），
-  // 任务的时长与归因（脚本来源）会在这里留下记录，直接指认冻结元凶。
-  try {
-    new PerformanceObserver((list) => {
-      for (const entry of list.getEntries()) {
-        logger.lifecycle.info(
-          `[provider-settings-timing] long task ${entry.duration.toFixed(0)}ms started=${entry.startTime.toFixed(0)}ms`,
-        );
-      }
-    }).observe({ entryTypes: ["longtask"] });
-  } catch {
-    // longtask 不支持的环境忽略；心跳本身已足够判别冻结窗口。
-  }
-  // 静默心跳：500ms 一跳，正常时零输出；仅当跳票超过 1.5s（线程被冻结/
-  // 节流）时补一条「间隔了多久」，既不刷屏又能把冻结窗口切到亚秒精度。
-  const heartbeatInterval = 500;
-  let lastHeartbeatAt = performance.now();
-  setInterval(() => {
-    const now = performance.now();
-    const gap = now - lastHeartbeatAt;
-    lastHeartbeatAt = now;
-    if (gap > heartbeatInterval + 1_000) {
-      logger.lifecycle.info(
-        `[provider-settings-timing] heartbeat gap ${gap.toFixed(0)}ms visibility=${document.visibilityState}`,
-      );
-    }
-  }, heartbeatInterval).unref?.();
-  // Worker 对照心跳：Worker 是独立线程。冻结期间若 worker 心跳照常而主线程
-  // 心跳停摆，说明进程活着、只有主线程没被调度；worker 也停则是整个进程被挂起。
-  // worker 侧只记自己的跳票，用 postMessage 交给主线程转发（冻结结束后补发）。
-  try {
-    const workerBlob = new Blob(
-      [
-        `let last=Date.now();
-         setInterval(()=>{const now=Date.now();const gap=now-last;last=now;
-           if(gap>1500)postMessage({workerGap:gap});},500);`,
-      ],
-      { type: "text/javascript" },
-    );
-    const worker = new Worker(URL.createObjectURL(workerBlob));
-    worker.onmessage = (event: MessageEvent) => {
-      const gap = (event.data as { workerGap?: number })?.workerGap;
-      if (gap) {
-        logger.lifecycle.info(
-          `[provider-settings-timing] worker heartbeat gap ${gap.toFixed(0)}ms`,
-        );
-      }
-    };
-  } catch {
-    // Worker 不可用（如禁用 blob worker）时忽略；主线程心跳仍是主证据。
-  }
+  startRendererPerformanceDiagnostics();
 }
 const appRoot =
   windowKind === "update-status" ? null : createRoot(document.getElementById("root")!);

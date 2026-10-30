@@ -94,6 +94,25 @@ export {
 } from "./lib/uiFontSize.js";
 export { reportUiLaunchToInput } from "./lib/uiPerfArmsTelemetry.js";
 export {
+  measureRendererPerformance,
+  recordRendererPerformanceDuration,
+  startRendererPerformanceDiagnostics,
+} from "./lib/rendererPerformanceDiagnostics.js";
+export type {
+  RendererPerformanceCapabilities,
+  RendererPerformanceDiagnosticsHandle,
+  RendererPerformanceDiagnosticsOptions,
+  RendererPerformanceLoafMetrics,
+  RendererPerformanceObserved,
+  RendererPerformanceObserverMetrics,
+  RendererPerformanceRafMetrics,
+  RendererPerformanceRuntimeMetrics,
+  RendererPerformanceStage,
+  RendererPerformanceStageMetrics,
+  RendererPerformanceSummaryV1,
+  RendererPerformanceTimerMetrics,
+} from "./lib/rendererPerformanceDiagnostics.js";
+export {
   RendererUserActionTelemetry,
   runUserAction,
   runUserActionAsync,

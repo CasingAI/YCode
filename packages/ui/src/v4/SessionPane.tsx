@@ -13,6 +13,8 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  Profiler,
+  type ProfilerOnRenderCallback,
   type ReactNode,
 } from "react";
 import { Hand } from "lucide-react";
@@ -44,6 +46,10 @@ import type {
 } from "@zcode/shared/zcode-protocol-v4";
 import { submissionModeSchema } from "@zcode/shared/zcode-protocol-v4";
 import { logger } from "@/logger.js";
+import {
+  measureRendererPerformance,
+  recordRendererPerformanceDuration,
+} from "@/lib/rendererPerformanceDiagnostics.js";
 import { agentWorktreeRejectionMessageId } from "@/v4/agentWorktreeRejection.js";
 import { toCommandTransportOutcomeError } from "@/v4/commandTransportOutcome.js";
 import {
@@ -552,6 +558,41 @@ function shouldRestoreQueuedComposerFromAck(status: CommandAck["status"]): boole
   return status === "accepted" || status === "duplicate";
 }
 
+const SESSION_PANE_PROFILER_ID = "session-pane";
+
+/**
+ * 只读取 Vite 注入的 DEV 标记：生产构建中该分支被折叠，React 树里不出现 Profiler，
+ * 也不改 React bundle。tsx 测试环境没有 import.meta.env，一律按关闭处理。
+ */
+function isSessionPaneProfilerEnabled(): boolean {
+  return (import.meta as ImportMeta & { env?: { readonly DEV?: boolean } }).env?.DEV === true;
+}
+
+/**
+ * 仅记录 actualDuration（render JS，不含 commit/layout/paint）与固定 id；
+ * 不记录 session、workspace、props 或组件名外的任何内容。
+ */
+const handleSessionPaneProfilerRender: ProfilerOnRenderCallback = (
+  _id,
+  _phase,
+  actualDuration,
+): void => {
+  recordRendererPerformanceDuration("react.session-pane", actualDuration);
+};
+
+/**
+ * 包住 SessionPane 的内部渲染子树（不是外层数据 owner）。
+ * Profiler 不渲染 DOM，关闭时直接透传 children，可见性与布局不变。
+ */
+function SessionPaneRenderProfiler({ children }: { children: ReactNode }) {
+  if (!isSessionPaneProfilerEnabled()) return <>{children}</>;
+  return (
+    <Profiler id={SESSION_PANE_PROFILER_ID} onRender={handleSessionPaneProfilerRender}>
+      {children}
+    </Profiler>
+  );
+}
+
 /**
  * 单 pane 竖切：订阅 → 渲染 rows → composer 发送 / stop。
  *
@@ -731,7 +772,12 @@ export function SessionPane({
     onDismiss: dismissShareSelectionPanel,
   });
   const shareRenderUnits = useMemo(
-    () => buildConversationTurnRenderUnits(snapshot?.rows.window ?? []),
+    () =>
+      measureRendererPerformance(
+        "conversation.share-units",
+        () => buildConversationTurnRenderUnits(snapshot?.rows.window ?? []),
+        snapshot?.rows.window.length ?? 0,
+      ),
     [snapshot?.rows.window],
   );
   const shareItems = useMemo(
@@ -5495,7 +5541,7 @@ export function SessionPane({
     </ConversationBottomDockTransition>
   ) : null;
 
-  return (
+  const paneRoot = (
     <div
       data-testid={testId(TID_V4_SESSION_PANE, paneId)}
       data-session-id={sessionId ?? "draft"}
@@ -5822,4 +5868,5 @@ export function SessionPane({
       ) : null}
     </div>
   );
+  return <SessionPaneRenderProfiler>{paneRoot}</SessionPaneRenderProfiler>;
 }

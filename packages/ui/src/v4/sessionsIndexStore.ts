@@ -11,6 +11,7 @@ import {
 import { isZCodeFileLockTimeoutError } from "@zcode/shared";
 import { ZCODE_AGENT_RUNTIME_UNAVAILABLE_CODE } from "@zcode/services";
 import { logger } from "@/logger.js";
+import { measureRendererPerformance } from "@/lib/rendererPerformanceDiagnostics.js";
 import type { SessionsIndexTransport } from "@/v4/agentSessionsIndexTransport.js";
 
 interface SessionsIndexState {
@@ -337,8 +338,23 @@ export class SessionsIndexStore {
     await this.connect(transport, { forceSnapshot: true });
   }
 
-  /** 帧路由入口（initial / online notification）。断档 → 重订阅。 */
+  /**
+   * 帧路由入口（initial / online notification）。断档 → 重订阅。
+   *
+   * 埋点旁路：measure 覆盖整帧同步处理（apply + listeners fanout），
+   * 不改动 subscription 过滤、recovery 与重订阅判定；未启动诊断时直接执行原函数。
+   */
   handleFrame(
+    frame: SessionsIndexTopicFrame,
+    delivery?: { deliveryKind: TopicFrameDeliveryKind },
+  ): void {
+    measureRendererPerformance("sessions-index.frame", () => {
+      this.handleFrameSync(frame, delivery);
+    });
+  }
+
+  /** handleFrame 的同步主体；守卫、早退与重订阅路径与原实现保持一致。 */
+  private handleFrameSync(
     frame: SessionsIndexTopicFrame,
     delivery?: { deliveryKind: TopicFrameDeliveryKind },
   ): void {

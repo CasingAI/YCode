@@ -24,6 +24,7 @@ import type { ConversationShareHydrationResult } from "@/v4/conversationTurnNavi
 import type { PendingOlderCommitResult } from "@/v4/timelinePrependCommit.js";
 import type { ConversationTransport } from "@/v4/transport.js";
 import { uiMemoryDiagnosticsRegistry } from "@/lib/memoryDiagnostics.js";
+import { measureRendererPerformance } from "@/lib/rendererPerformanceDiagnostics.js";
 
 /**
  * runtime 换代打断 subscribe 后的退避节奏。
@@ -786,8 +787,23 @@ export class ConversationProjectionStore {
     this.requestRecovery();
   }
 
-  /** SessionDataLayer 帧路由入口。 */
+  /**
+   * SessionDataLayer 帧路由入口。
+   *
+   * 埋点旁路：measure 只包这一层同步执行（含 apply 与 listeners notify），
+   * 不参与订阅、批处理和应用顺序；未启动诊断时 measure 直接执行原函数。
+   */
   handleFrame(
+    frame: ConversationTopicFrame,
+    delivery?: { deliveryKind: TopicFrameDeliveryKind },
+  ): void {
+    measureRendererPerformance("conversation.frame", () => {
+      this.handleFrameSync(frame, delivery);
+    });
+  }
+
+  /** handleFrame 的同步主体；守卫、早退、throw 语义与原实现保持一致。 */
+  private handleFrameSync(
     frame: ConversationTopicFrame,
     delivery?: { deliveryKind: TopicFrameDeliveryKind },
   ): void {

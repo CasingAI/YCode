@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ZCodeTaskMeta } from "@zcode/shared";
 import { useBaseWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
+import { recordRendererPerformanceDuration } from "@/lib/rendererPerformanceDiagnostics.js";
 import { compareZCodeTaskListItems } from "@/lib/taskListOrdering.js";
 import { mapSessionSummaryToTaskMeta } from "@/v4/mapSessionSummaryToTaskMeta.js";
 import {
@@ -82,6 +83,11 @@ function buildScopeBindingKey(
   return `${buildSessionsIndexEntryKey(toRegistryScope(scope), agentService)}\0path:${scope.workspacePath}`;
 }
 
+/** 聚合耗时埋点用单调时钟；与 store 侧的 performance.now 口径一致。 */
+function diagnosticsNow(): number {
+  return typeof performance !== "undefined" ? performance.now() : Date.now();
+}
+
 /** store 尚未持有任何 snapshot（connecting/首帧未到）；error 不算 hydrating（避免永久 loading）。 */
 function isHydratingStore(store: SessionsIndexStore): boolean {
   return (
@@ -154,6 +160,7 @@ export function useWorkspaceSessionsIndexItems(
   const previousItemsRef = useRef<ZCodeTaskMeta[]>([]);
   const previousHydratingRef = useRef<string[]>([]);
   return useMemo(() => {
+    const startedAt = diagnosticsNow();
     const metas: ZCodeTaskMeta[] = [];
     const hydratingEndpointKeys = new Set<string>();
     const sourceRevisionByScopeKey: Record<string, string> = {};
@@ -205,11 +212,19 @@ export function useWorkspaceSessionsIndexItems(
         ? previousHydratingRef.current
         : nextHydrating;
     previousHydratingRef.current = hydrating;
-    return {
+    const result = {
       items,
       sourceRevisionByScopeKey,
       hydratingEndpointKeys: hydrating,
     };
+    // workUnits 固定为 metas 输出数，只能在构造结束后得知；用 record 收尾而不是
+    // measure 的第三参，避免为了计量再遍历一次。诊断未启动时 record 立即返回。
+    recordRendererPerformanceDuration(
+      "sessions-index.items",
+      diagnosticsNow() - startedAt,
+      items.length,
+    );
+    return result;
   }, [signature, subscriptionSet, tick]);
 }
 

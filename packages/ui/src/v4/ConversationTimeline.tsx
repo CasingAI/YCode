@@ -72,6 +72,7 @@ import {
   buildConversationTurnRenderUnitFrame,
   type ConversationTurnRenderUnit,
 } from "@/v4/conversationTurnRenderUnits.js";
+import { measureRendererPerformance } from "@/lib/rendererPerformanceDiagnostics.js";
 import type { ConversationTurnRenderUnitFrame } from "@/v4/conversationTurnUnitDrafts.js";
 import {
   buildConversationTurnNavigatorItems,
@@ -827,12 +828,17 @@ function ConversationTimelineImpl({
   // 规则见 docs/specs/conversation-turn-running-authority.md。
   const windowConnectedToTail = canLoadNewer === false;
   const renderUnits = useMemo(() => {
-    const frame = buildConversationTurnRenderUnitFrame(rows, {
-      nowMs: liveNowMs,
-      sessionPhase,
-      previousFrame: previousUnitFrameRef.current,
-      windowConnectedToTail,
-    });
+    const frame = measureRendererPerformance(
+      "conversation.turn-frame",
+      () =>
+        buildConversationTurnRenderUnitFrame(rows, {
+          nowMs: liveNowMs,
+          sessionPhase,
+          previousFrame: previousUnitFrameRef.current,
+          windowConnectedToTail,
+        }),
+      rows.length,
+    );
     previousUnitFrameRef.current = frame;
     return frame.entries.map((entry) => entry.unit);
   }, [liveNowMs, rows, sessionPhase, windowConnectedToTail]);
