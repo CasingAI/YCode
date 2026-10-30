@@ -20,6 +20,7 @@ import type { FilesEditorTabEntry } from "@/files-workbench/filesEditorTabAnimat
 import { isFilesTextBuffer } from "@/files-workbench/filesEditorModel.js";
 import { FilesEditorExternalChangeBanner } from "@/files-workbench/FilesEditorExternalChangeBanner.js";
 import { FilesEditorContent } from "@/files-workbench/FilesEditorContent.js";
+import { FilesMarkdownDocumentHeader } from "@/files-workbench/FilesMarkdownDocumentHeader.js";
 import type {
   FilesBuffer,
   FilesEditorFocusRequest,
@@ -336,13 +337,13 @@ export function FilesEditorGroupPane({
         onCreateUntitled={onCreateUntitled}
         onSave={onSave}
         onSaveAs={onSaveAs}
-        markdownViewMode={markdownViewMode}
-        onSetMarkdownViewMode={
-          onSetMarkdownViewMode && activeView
-            ? (mode) => onSetMarkdownViewMode(activeView.id, mode)
-            : undefined
-        }
       />
+      {markdownViewMode && onSetMarkdownViewMode && activeView ? (
+        <FilesMarkdownDocumentHeader
+          mode={markdownViewMode}
+          onChange={(mode) => onSetMarkdownViewMode(activeView.id, mode)}
+        />
+      ) : null}
       <FilesEditorExternalChangeBanner
         buffer={editorBuffer}
         onReload={() => editorBuffer && onExternalChangeAction(editorBuffer.id, "reload")}

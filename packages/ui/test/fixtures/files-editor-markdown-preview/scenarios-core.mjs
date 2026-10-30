@@ -1,10 +1,19 @@
 import { LARGE_PATH, MD_PATH, MD_SAVED, TXT_PATH } from "./constants.mjs";
 import {
+  checkControlClickable,
+  checkHeaderPositionStable,
+  checkMarkdownHeader,
+  checkMarkdownHeaderAbsent,
+  checkMarkdownHeaderGeometry,
+  layoutMetrics,
+} from "./layout.mjs";
+import {
   captureSourceEditorNode,
   clickCandidate,
   editorIsInert,
   fillSource,
   findSaveButton,
+  firstLinePointerState,
   hasModeSwitch,
   isPreviewShown,
   isSourceShown,
@@ -38,17 +47,23 @@ export async function runCoreScenarios({ page, check, shot, mount, snapshot, pat
   const sourceControl = pickMode(controls.candidates, "source");
   const previewControl = pickMode(controls.candidates, "preview");
   check(
-    "markdown: 标签条出现源码/预览切换",
+    "markdown: 出现源码/预览切换",
     Boolean(sourceControl && previewControl),
     controls.candidates,
   );
+  // 本轮位置：切换器在标签条下方的轻量 Header，不在标签行、不占右侧标签空间。
   check(
-    "markdown: 切换控件位于标签条内",
-    Boolean(sourceControl?.inTabList && previewControl?.inTabList),
+    "markdown: 切换控件不在标签条内",
+    sourceControl?.inTabList === false && previewControl?.inTabList === false,
     { sourceControl, previewControl },
   );
+  const sourceHeader = await layoutMetrics(page, mdGroup);
+  checkMarkdownHeader(check, "markdown", sourceHeader, ["Markdown", "预览"]);
   check("markdown: 默认源码视图可见编辑器", await isSourceShown(page, mdGroup));
   check("markdown: 记住源码编辑器 DOM 节点", await captureSourceEditorNode(page, mdGroup));
+  const firstLine = await firstLinePointerState(page, mdGroup);
+  check("markdown: Header 不遮挡正文第一行，第一行可聚焦", firstLine.ok === true, firstLine);
+  await shot(page, "00-desktop-light-source-header");
 
   const initialHandle = await poll(async () => {
     const events = await handleEventsFor(mdGroup);
@@ -69,6 +84,9 @@ export async function runCoreScenarios({ page, check, shot, mount, snapshot, pat
 
   await clickCandidate(page, mdGroup, previewControl);
   await waitForMode(page, mdGroup, "preview");
+  const previewHeader = await layoutMetrics(page, mdGroup);
+  checkMarkdownHeader(check, "markdown-preview", previewHeader, ["Markdown", "预览"]);
+  checkHeaderPositionStable(check, "markdown", sourceHeader, previewHeader);
   check("preview: 预览覆盖层出现", await isPreviewShown(page, mdGroup));
   check("preview: 底层编辑器被 inert 隔离", await editorIsInert(page, mdGroup));
   const previewNode = await readSourceEditorNodeState(page, mdGroup);
@@ -159,6 +177,14 @@ export async function runCoreScenarios({ page, check, shot, mount, snapshot, pat
   const saveButton = await findSaveButton(page, mdGroup);
   check("save: 脏 Markdown 标签出现保存按钮", Boolean(saveButton), saveButton);
   if (saveButton) {
+    const saveMetrics = await layoutMetrics(page, mdGroup);
+    checkControlClickable(check, "markdown", saveMetrics, "save", "保存");
+    check(
+      "markdown: 保存按钮位于 Header 上方，未被 Header 遮挡",
+      Boolean(saveMetrics.saveRect && saveMetrics.headerRect) &&
+        saveMetrics.saveRect.bottom <= saveMetrics.headerRect.top + 0.5,
+      { saveRect: saveMetrics.saveRect, headerRect: saveMetrics.headerRect },
+    );
     await page.locator('[data-e2e-save-button="true"]').click();
     await poll(async () => (await snapshot()).saveCalls.length > 0);
     state = await snapshot();
@@ -194,6 +220,16 @@ export async function runCoreScenarios({ page, check, shot, mount, snapshot, pat
     "split: 两组初始都是源码",
     (await isSourceShown(page, splitGroupA)) && (await isSourceShown(page, splitGroupB)),
   );
+  // 每个编辑组各自拥有一个位于标签条下方的 Header；分屏后仍不回到标签行。
+  const splitSourceHeaders = new Map();
+  for (const [label, groupId] of [
+    ["A", splitGroupA],
+    ["B", splitGroupB],
+  ]) {
+    const groupMetrics = await layoutMetrics(page, groupId);
+    splitSourceHeaders.set(groupId, groupMetrics);
+    checkMarkdownHeader(check, `split-${label}-source`, groupMetrics, ["Markdown", "预览"]);
+  }
 
   let splitDraft = `${MD_SAVED}\n\nSPLIT-DRAFT-${Date.now()}`;
   await fillSource(page, splitGroupA, splitDraft);
@@ -207,6 +243,14 @@ export async function runCoreScenarios({ page, check, shot, mount, snapshot, pat
   check(
     "split: A 组预览时 B 组仍是源码",
     (await isPreviewShown(page, splitGroupA)) && (await isSourceShown(page, splitGroupB)),
+  );
+  const splitPreviewHeaderA = await layoutMetrics(page, splitGroupA);
+  checkMarkdownHeaderGeometry(check, "split-A-preview", splitPreviewHeaderA);
+  checkHeaderPositionStable(
+    check,
+    "split-A",
+    splitSourceHeaders.get(splitGroupA),
+    splitPreviewHeaderA,
   );
   state = await snapshot();
   check(
@@ -280,6 +324,8 @@ export async function runCoreScenarios({ page, check, shot, mount, snapshot, pat
     (await hasModeSwitch(page, txtView.groupId)) === false,
     (await scanModeControls(page, txtView.groupId)).candidates,
   );
+  const mixedTxtMetrics = await layoutMetrics(page, txtView.groupId);
+  checkMarkdownHeaderAbsent(check, "mixed-txt", mixedTxtMetrics);
 
   await page.evaluate(
     ({ groupId, viewId }) => {
@@ -296,6 +342,8 @@ export async function runCoreScenarios({ page, check, shot, mount, snapshot, pat
     return pickMode(next.candidates, "preview");
   });
   check("mixed: 切到 Markdown 标签后出现切换控件", true);
+  const mixedMdMetrics = await layoutMetrics(page, mdView.groupId);
+  checkMarkdownHeader(check, "mixed-md", mixedMdMetrics, ["Markdown", "预览"]);
 
   controls = await scanModeControls(page, mdView.groupId);
   const mixedPreview = pickMode(controls.candidates, "preview");
@@ -323,6 +371,8 @@ export async function runCoreScenarios({ page, check, shot, mount, snapshot, pat
   );
   await poll(async () => (await hasModeSwitch(page, txtView.groupId)) === false);
   check("mixed: 切到 txt 后切换控件消失", true);
+  await poll(async () => (await layoutMetrics(page, txtView.groupId)).headerRect === null);
+  check("mixed: 切到 txt 后 Markdown Header 消失", true);
 
   await page.evaluate(
     ({ groupId, viewId }) => {
@@ -336,6 +386,8 @@ export async function runCoreScenarios({ page, check, shot, mount, snapshot, pat
   );
   await poll(async () => (await isPreviewShown(page, mdView.groupId)) === true);
   check("mixed: 回到 Markdown 标签仍保持该视图的预览模式", true);
+  const mixedBackMetrics = await layoutMetrics(page, mdView.groupId);
+  checkMarkdownHeaderGeometry(check, "mixed-md-back", mixedBackMetrics);
   await shot(page, "04-mixed-non-markdown");
 
   // ------------------------------------------------------------------- large
@@ -349,6 +401,8 @@ export async function runCoreScenarios({ page, check, shot, mount, snapshot, pat
     (await hasModeSwitch(page, largeInfo.groupId)) === false,
     (await scanModeControls(page, largeInfo.groupId)).candidates,
   );
+  const largeMetrics = await layoutMetrics(page, largeInfo.groupId);
+  checkMarkdownHeaderAbsent(check, "large", largeMetrics);
   check(
     "large: 渲染大文本查看器边界",
     (await page.locator('[data-testid="files-e2e-large-text-viewer"]').count()) === 1,
@@ -368,5 +422,7 @@ export async function runCoreScenarios({ page, check, shot, mount, snapshot, pat
     return pickMode(next.candidates, "preview");
   });
   check("large: 同组普通 Markdown 标签仍有切换控件", true);
+  const largeMdMetrics = await layoutMetrics(page, largeMdView.groupId);
+  checkMarkdownHeaderGeometry(check, "large-md", largeMdMetrics);
   await shot(page, "05-large-text-no-toggle");
 }

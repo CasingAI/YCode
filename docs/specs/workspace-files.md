@@ -176,12 +176,12 @@ VS Code 编辑器组里 **unpinned = 预览**：斜体标题；一组最多一�
 
 ### Markdown 源码 / 预览（2026-10-30）
 
-- **适用对象**：已加载（`loadState === undefined`）、有路径、非未命名、非旧版截断的普通 text 缓冲，且共用 `resolveFilesEditorLanguage` 解析为 `markdown`：含 `md` / `markdown` / `mdx`、`README` / `README.md` 等内置文件名，以及用户文件 / 模式关联到 markdown 的路径。大文本、图片 / PDF / Office / 媒体预览、非 Markdown 文本不出现该控件。
-- **位置**：每组 36px 标签条右侧、保存按钮与分屏按钮之前的紧凑分段控件「源码 | 预览」，不新增标题行、说明文案或侧栏；Desktop、Web、手机远控使用同一 UI。
-- **窄组**：按组容器宽度（分屏后的单侧同样计算）判断；小于 420px 时源码 / 预览改为 Code / Eye 图标，完整文字保留在 `aria-label` 与 `title`，并隐藏两个分屏按钮（标签右键菜单仍可分屏）。标签最小宽度 96px，放不下时标签区横向滚动，活动标签标题不被压成 0；保存与模式切换始终可见。
+- **适用对象**：已加载（`loadState === undefined`）、有路径、非未命名、非旧版截断的普通 text 缓冲，且共用 `resolveFilesEditorLanguage` 解析为 `markdown`：含 `md` / `markdown` / `mdx`、`README` / `README.md` 等内置文件名，以及用户文件 / 模式关联到 markdown 的路径。大文本、图片 / PDF / Office / 媒体预览、非 Markdown 文本不出现该 Header。
+- **位置**：每个编辑组的标签条之后、正文之前，一行 32px 轻量文档 Header（正常背景、细底边），左对齐紧凑分段「Markdown | 预览」；不悬浮、不遮挡正文首行，不重复文件名、描述标题或多余说明；Desktop、Web、手机远控使用同一 UI。
+- **窄组**：320 / 375 与分屏窄侧中，Header 文本保持可读、点击面积可用，不隐藏或改成纯图标。标签条自身的响应式能力与之独立：标签保持 96px 最小宽度，放不下时横向滚动并自动把活动标签滚入可视范围；窄组可隐藏两个分屏按钮（标签右键菜单仍可分屏），保存与模式切换互不影响。
 - **源码是默认模式**。切换只改变该 view 的运行时展示方式，不修改正文、`savedText`、脏态、预览 / 固定状态，不触发读盘、写盘、持久化或 Monaco 模型写入。
 - **模式按 editor view 保存**，不是按 buffer：存放于 layout 的 `FilesEditorView.markdownViewMode`，不进入 localStorage 或会话快照。分屏复制出的新 view 默认源码；同一 buffer 的两边可分别处于源码 / 预览。
-- view 更换 `bufferId`（预览槽替换、另存为等）时清除模式，回到源码默认。活动 buffer 不再满足适用条件时，控件隐藏并忽略残留模式。
+- view 更换 `bufferId`（预览槽替换、另存为等）时清除模式，回到源码默认。活动 buffer 不再满足适用条件时，Header 隐藏并忽略残留模式。
 - **预览直接渲染当前缓冲 `text`**（含未保存编辑），不读盘、不复制正文。复用共享 `MarkdownPreviewContent`（与 Side Pane 相同的 `MessageResponse` / Streamdown GFM、代码块与安全管线），只注入 `content`、`workspacePath`、`theme`、`codePreviewSettings` 与现有平台外链回调，不传 `sourceKey` / `selectionTarget`；不修改共享渲染器。
 - **保留编辑器状态**：源码与预览切换时 Monaco 编辑器保持挂载，预览作为同区域覆盖层显示并对被覆盖编辑器声明 `inert`；撤销 / 重做历史与光标 / 滚动位置不丢失，不引入第二份正文或 editor state。预览态不向编辑菜单上报编辑器句柄，撤销 / 重做 / 查找不会命中隐藏的源码编辑器。
 - 保存、脏态、冲突、关闭与外部变更提示继续由 Files Editor Store 和现有控制器处理；预览态不改变保存入口，保存后仍可停留在预览。
@@ -192,7 +192,7 @@ VS Code 编辑器组里 **unpinned = 预览**：斜体标题；一组最多一�
 FilesEditorGroupPane（活动 view + buffer）
   → 共用 resolveFilesEditorLanguage（用户关联 → 内置文件名 / 扩展名）
   → 可用性：text + 有路径 + 已加载 + 非截断 + markdown
-  → 标签条分段控件（源码 | 预览）
+  → 文档 Header 分段控件（Markdown | 预览）
        → filesEditorStore.setViewMarkdownViewMode(viewId, mode)
             → filesEditorLayout.setFilesEditorViewMarkdownViewMode
                  （唯一所有者：layout；不触碰 buffers、不 persist）
@@ -207,7 +207,7 @@ FilesEditorGroupPane（活动 view + buffer）
 2. 预览态执行保存：写盘成功，正文与基准一致，脏态清除，模式不被保存流程改变。
 3. 同一 Markdown 右侧分屏：一边源码、另一边预览分别独立；源码侧继续编辑后，预览侧显示最新缓冲正文。
 4. `.ts`、大文本、图片等非 Markdown 不显示开关或预览；切回 Markdown 时恢复该 view 自己保存的模式。
-5. Desktop、Web、手机远控布局一致；不新增协议消息或持久化字段。
+5. Desktop、Web、手机远控布局一致；Header 位于标签条下方、正文上方且不遮挡首行，320 / 375 窄屏与分屏文本可读；不新增协议消息或持久化字段。
 
 ### 图片预览体积与读取
 

@@ -218,3 +218,37 @@ export const readSourceEditorNodeState = (page, groupId) =>
       value: textarea instanceof HTMLTextAreaElement ? textarea.value : undefined,
     };
   }, groupId);
+
+/**
+ * 正文第一行的指针 / 焦点探针。
+ * Header 若是 absolute 覆盖层，textarea 顶部文字区域会被它挡住：
+ * elementFromPoint 不再命中编辑器，Playwright 的 fill/click 也会失败。
+ */
+export const firstLinePointerState = (page, groupId) =>
+  page.evaluate((id) => {
+    const pane = document.querySelector(`[data-editor-group-id="${CSS.escape(id)}"]`);
+    const textarea = pane?.querySelector('[data-testid="files-e2e-source-editor"]');
+    if (!(textarea instanceof HTMLElement)) {
+      return { ok: false, reason: "missing source editor" };
+    }
+    const rect = textarea.getBoundingClientRect();
+    const point = { x: rect.left + 16, y: rect.top + 10 };
+    const top = document.elementFromPoint(point.x, point.y);
+    textarea.focus();
+    const activeIsEditor = document.activeElement === textarea;
+    return {
+      ok: Boolean(top && (top === textarea || textarea.contains(top))) && activeIsEditor,
+      point,
+      topTarget:
+        top instanceof HTMLElement
+          ? `${top.tagName.toLowerCase()}.${String(top.className).slice(0, 120)}`
+          : null,
+      activeIsEditor,
+      editorRect: {
+        left: rect.left,
+        top: rect.top,
+        width: rect.width,
+        height: rect.height,
+      },
+    };
+  }, groupId);

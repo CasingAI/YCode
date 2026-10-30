@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   FILES_EDITOR_TAB_CROWD_THRESHOLD,
   filesEditorTabFlex,
+  isFilesEditorTabBarCompact,
   resolveFilesEditorTabScrollLeft,
   shouldCrowdFilesEditorTabs,
 } from "../src/files-workbench/filesEditorTabSizing.js";
@@ -21,6 +22,15 @@ test("拥挤模式只扩展活动或悬停标签", () => {
   assert.equal(filesEditorTabFlex(true, true, false), "2.4 1 0%");
   assert.equal(filesEditorTabFlex(true, false, true), "2.4 1 0%");
   assert.equal(filesEditorTabFlex(true, false, false), "1 1 0%");
+});
+
+test("标签条紧凑阈值按组容器宽度判断，320 / 375 均为窄组", () => {
+  assert.equal(isFilesEditorTabBarCompact(320), true);
+  assert.equal(isFilesEditorTabBarCompact(375), true);
+  assert.equal(isFilesEditorTabBarCompact(419), true);
+  assert.equal(isFilesEditorTabBarCompact(420), false);
+  assert.equal(isFilesEditorTabBarCompact(0), false);
+  assert.equal(isFilesEditorTabBarCompact(Number.NaN), false);
 });
 
 test("程序激活右侧标签时把活动标签滚入可视区", () => {

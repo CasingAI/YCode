@@ -8,9 +8,7 @@ import { PlatformProvider } from "../src/hooks/usePlatform.js";
 import { ServiceProvider } from "../src/hooks/useServices.js";
 import { ZCodeIntlProvider } from "../src/i18n/IntlProvider.js";
 import { FilesEditorGroupPane } from "../src/files-workbench/FilesEditorGroupPane.js";
-import { FilesEditorMarkdownModeSwitch } from "../src/files-workbench/FilesEditorMarkdownModeSwitch.js";
-import { FilesEditorTabBar } from "../src/files-workbench/FilesEditorTabBar.js";
-import { isFilesEditorTabBarCompact } from "../src/files-workbench/filesEditorTabSizing.js";
+import { FilesMarkdownDocumentHeader } from "../src/files-workbench/FilesMarkdownDocumentHeader.js";
 import { createFilesEditorStore } from "../src/files-workbench/filesEditorStore.js";
 import {
   createFilesEditorLayoutWithViews,
@@ -33,7 +31,6 @@ import type {
   FilesTextBuffer,
   FilesWorkspaceRef,
 } from "../src/files-workbench/filesEditorTypes.js";
-import type { FilesEditorTabEntry } from "../src/files-workbench/filesEditorTabAnimation.js";
 
 const workspace: FilesWorkspaceRef = { workspacePath: "/workspace" };
 
@@ -41,13 +38,13 @@ function textBuffer(path: string, text = "# Saved"): FilesTextBuffer {
   return createTextFileBuffer({ workspace, path, text });
 }
 
-function render(children: ReactNode): string {
+function render(children: ReactNode, locale: "zh-CN" | "en-US" = "zh-CN"): string {
   return renderToStaticMarkup(
     createElement(ServiceProvider, {
       services: {} as IServiceAccessor,
       children: createElement(PlatformProvider, {
         platform: {} as IPlatformService,
-        children: createElement(ZCodeIntlProvider, { initialLocale: "zh-CN", children }),
+        children: createElement(ZCodeIntlProvider, { initialLocale: locale, children }),
       }),
     }),
   );
@@ -221,119 +218,42 @@ test("辅助函数对当前 view 返回展示模式，并用最新语言关联�
   );
 });
 
-function createTab(viewId: string, buffer: FilesBuffer): FilesEditorTabEntry {
-  return { viewId, buffer };
-}
-
-function tabBarProps(
-  tabs: readonly FilesEditorTabEntry[],
-  markdownViewMode?: "source" | "preview",
-): ComponentProps<typeof FilesEditorTabBar> {
-  const noop = () => {};
-  return {
-    groupId: "main",
-    tabs,
-    activeViewId: tabs[0]?.viewId,
-    canCloseSaved: true,
-    canRevealInFileTree: () => true,
-    onActivate: noop,
-    onKeepOpen: noop,
-    onClose: noop,
-    onCloseOthers: noop,
-    onCloseToRight: noop,
-    onCloseSaved: noop,
-    onCloseAll: noop,
-    onCopyPath: noop,
-    onRevealInFileTree: noop,
-    onSplit: noop,
-    onMoveView: noop,
-    onCreateUntitled: noop,
-    onSave: noop,
-    onSaveAs: noop,
-    ...(markdownViewMode ? { markdownViewMode, onSetMarkdownViewMode: noop } : undefined),
-  };
-}
-
 function modeButtons(markup: string): string[] {
   return Array.from(markup.matchAll(/<button\b[^>]*>/g), (match) => match[0]).filter((tag) =>
     tag.includes("data-files-markdown-mode="),
   );
 }
 
-test("标签条分段控件只对 Markdown 活动标签出现，两态 aria-pressed 明确", () => {
+test("Markdown 文档 Header 使用 Markdown / 预览两段并标出当前模式", () => {
   const source = render(
-    createElement(
-      ZCodeIntlProvider,
-      { initialLocale: "zh-CN" },
-      createElement(
-        FilesEditorTabBar,
-        tabBarProps([createTab("view", textBuffer("/workspace/README.md"))], "source"),
-      ),
-    ),
+    createElement(FilesMarkdownDocumentHeader, { mode: "source", onChange: () => {} }),
   );
+  assert.match(source, /data-files-markdown-header=""/);
   assert.match(source, /data-files-markdown-mode-switch=""/);
   const sourceButtons = modeButtons(source);
   assert.equal(sourceButtons.length, 2);
   assert.match(sourceButtons[0]!, /aria-pressed="true"/);
   assert.match(sourceButtons[0]!, /data-files-markdown-mode="source"/);
-  assert.match(source, />源码<\/button>/);
+  assert.match(sourceButtons[0]!, /aria-label="源码"/);
+  assert.match(source, />Markdown<\/button>/);
   assert.match(sourceButtons[1]!, /aria-pressed="false"/);
   assert.match(sourceButtons[1]!, /data-files-markdown-mode="preview"/);
+  assert.match(sourceButtons[1]!, /aria-label="预览"/);
   assert.match(source, />预览<\/button>/);
 
   const preview = render(
-    createElement(
-      ZCodeIntlProvider,
-      { initialLocale: "zh-CN" },
-      createElement(
-        FilesEditorTabBar,
-        tabBarProps([createTab("view", textBuffer("/workspace/README.md"))], "preview"),
-      ),
-    ),
+    createElement(FilesMarkdownDocumentHeader, { mode: "preview", onChange: () => {} }),
   );
   const previewButtons = modeButtons(preview);
   assert.match(previewButtons[0]!, /aria-pressed="false"/);
   assert.match(previewButtons[1]!, /aria-pressed="true"/);
 
-  const nonMarkdown = render(
-    createElement(
-      ZCodeIntlProvider,
-      { initialLocale: "zh-CN" },
-      createElement(
-        FilesEditorTabBar,
-        tabBarProps([createTab("view", textBuffer("/workspace/main.ts"))]),
-      ),
-    ),
+  const english = render(
+    createElement(FilesMarkdownDocumentHeader, { mode: "source", onChange: () => {} }),
+    "en-US",
   );
-  assert.doesNotMatch(nonMarkdown, /data-files-markdown-mode-switch/);
-});
-
-test("窄组分段控件改用图标并保留完整无障碍名称", () => {
-  const markup = render(
-    createElement(FilesEditorMarkdownModeSwitch, {
-      mode: "source",
-      onChange: () => {},
-      compact: true,
-    }),
-  );
-  assert.match(markup, /data-files-markdown-mode-compact=""/);
-  const buttons = modeButtons(markup);
-  assert.equal(buttons.length, 2);
-  assert.match(buttons[0]!, /aria-label="源码"/);
-  assert.match(buttons[0]!, /title="源码"/);
-  assert.match(buttons[1]!, /aria-label="预览"/);
-  assert.match(buttons[1]!, /title="预览"/);
-  assert.doesNotMatch(markup, />源码<\/button>/);
-  assert.match(markup, /<svg[^>]*aria-hidden="true"/);
-});
-
-test("紧凑阈值按组容器宽度判断，320 / 375 均为窄组", () => {
-  assert.equal(isFilesEditorTabBarCompact(320), true);
-  assert.equal(isFilesEditorTabBarCompact(375), true);
-  assert.equal(isFilesEditorTabBarCompact(419), true);
-  assert.equal(isFilesEditorTabBarCompact(420), false);
-  assert.equal(isFilesEditorTabBarCompact(0), false);
-  assert.equal(isFilesEditorTabBarCompact(Number.NaN), false);
+  assert.match(english, />Markdown<\/button>/);
+  assert.match(english, />Preview<\/button>/);
 });
 
 type GroupProps = ComponentProps<typeof FilesEditorGroupPane>;
@@ -394,11 +314,20 @@ test("预览渲染当前缓冲正文而不是已保存正文，源码态不挂�
   assert.doesNotMatch(preview, /Saved Heading/);
   // 源码编辑器仍挂载并被覆盖层隔离。
   assert.match(preview, /inert=""/);
+  // Header 位于标签条之后、预览之前，占独立一行而不是标签条右簇或悬浮层。
+  assert.match(preview, /data-files-markdown-header=""/);
+  assert.match(preview, /data-files-markdown-mode-switch=""/);
+  const previewTabBarAt = preview.indexOf('role="tablist"');
+  const previewHeaderAt = preview.indexOf('data-files-markdown-header=""');
+  const previewContentAt = preview.indexOf('data-files-markdown-preview=""');
+  assert.ok(previewTabBarAt >= 0 && previewHeaderAt > previewTabBarAt);
+  assert.ok(previewContentAt > previewHeaderAt);
 
   const source = render(createElement(FilesEditorGroupPane, groupProps(buffer, "source")));
   assert.doesNotMatch(source, /data-files-markdown-preview/);
   assert.doesNotMatch(source, /Unsaved Heading/);
   assert.doesNotMatch(source, /inert=""/);
+  assert.match(source, /data-files-markdown-header=""/);
   assert.match(source, /data-files-markdown-mode-switch=""/);
 });
 
@@ -410,6 +339,7 @@ test("非 Markdown 缓冲即使布局残留预览模式也不渲染预览", () =
     ),
   );
   assert.doesNotMatch(markup, /data-files-markdown-preview/);
+  assert.doesNotMatch(markup, /data-files-markdown-header/);
   assert.doesNotMatch(markup, /data-files-markdown-mode-switch/);
   assert.doesNotMatch(markup, /inert=""/);
 });

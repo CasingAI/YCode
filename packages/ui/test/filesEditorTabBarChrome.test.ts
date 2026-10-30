@@ -170,6 +170,14 @@ test("空组标签条的空白双击仍只调用新建，不接到窗口标题�
   assert.doesNotMatch(source, /FilesWorkbenchCaption|FilesWorkbenchHeader|\[app-region:drag\]/);
 });
 
+test("文件标签条不感知 Markdown 展示模式，模式切换留给文档 Header", async () => {
+  const source = await readWorkbenchSource("FilesEditorTabBar.tsx");
+  assert.doesNotMatch(
+    source,
+    /FilesEditorMarkdownModeSwitch|markdownViewMode|onSetMarkdownViewMode|data-files-markdown-mode/,
+  );
+});
+
 test("Tab 激活、关闭和拖拽继续按 viewId 接线，关闭按钮阻止冒泡激活", async () => {
   const source = await readWorkbenchSource("FilesEditorTabItem.tsx");
   assert.match(source, /onClick=\{\(event\) => \{[\s\S]*?onActivate\(viewId\)/);

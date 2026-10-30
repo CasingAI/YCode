@@ -21,7 +21,7 @@ const FilesMonacoEditor = lazy(async () => {
 /**
  * 一组编辑器的主体区域：加载态、大文本、Monaco、只读预览与空态。
  *
- * 从 `FilesEditorGroupPane` 拆出，让组外壳只保留标签条、提示条、状态栏与拖放。
+ * 从 `FilesEditorGroupPane` 拆出，让组外壳只保留标签条、文档头、提示条、状态栏与拖放。
  * Markdown 预览在这里以覆盖层呈现，源码编辑器保持挂载并 `inert`，
  * 因此切换模式不丢撤销历史、光标与滚动位置。
  */

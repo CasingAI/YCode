@@ -5,17 +5,13 @@ import { resolveFilesWorkspaceDisambiguatedIds } from "@/files-workbench/filesEd
 import { FilesEditorTabItem } from "@/files-workbench/FilesEditorTabItem.js";
 import { FilesEditorTabSaveButton } from "@/files-workbench/FilesEditorTabSaveButton.js";
 import { FILES_EDITOR_VIEW_DRAG_MIME } from "@/files-workbench/filesEditorDragTypes.js";
-import type {
-  FilesEditorSplitEdge,
-  FilesEditorMarkdownViewMode,
-} from "@/files-workbench/filesEditorLayout.js";
+import type { FilesEditorSplitEdge } from "@/files-workbench/filesEditorLayout.js";
 import {
   FILES_EDITOR_TAB_MIN_WIDTH,
   isFilesEditorTabBarCompact,
   resolveFilesEditorTabScrollLeft,
   shouldCrowdFilesEditorTabs,
 } from "@/files-workbench/filesEditorTabSizing.js";
-import { FilesEditorMarkdownModeSwitch } from "@/files-workbench/FilesEditorMarkdownModeSwitch.js";
 import type { FilesBuffer } from "@/files-workbench/filesEditorTypes.js";
 import { useAnimatedFilesEditorTabs } from "@/files-workbench/filesEditorTabAnimation.js";
 import type { FilesEditorTabEntry } from "@/files-workbench/filesEditorTabAnimation.js";
@@ -41,8 +37,6 @@ export function FilesEditorTabBar({
   onCreateUntitled,
   onSave,
   onSaveAs,
-  markdownViewMode,
-  onSetMarkdownViewMode,
 }: {
   groupId: string;
   isGroupFocused?: boolean;
@@ -64,9 +58,6 @@ export function FilesEditorTabBar({
   onCreateUntitled?: () => void;
   onSave: (bufferId: string) => void;
   onSaveAs: (bufferId: string) => void;
-  /** 当前活动标签是可用 Markdown 时由容器传入；undefined 不显示切换。 */
-  markdownViewMode?: FilesEditorMarkdownViewMode;
-  onSetMarkdownViewMode?: (mode: FilesEditorMarkdownViewMode) => void;
 }) {
   const { intl } = useZCodeIntl();
   const barRef = useRef<HTMLDivElement | null>(null);
@@ -225,13 +216,6 @@ export function FilesEditorTabBar({
         ) : null}
       </div>
       <div className="flex shrink-0 items-center gap-0.5 px-1">
-        {markdownViewMode && onSetMarkdownViewMode ? (
-          <FilesEditorMarkdownModeSwitch
-            mode={markdownViewMode}
-            compact={compact}
-            onChange={onSetMarkdownViewMode}
-          />
-        ) : null}
         <FilesEditorTabSaveButton activeBuffer={activeBuffer} onSave={onSave} />
         {compact ? null : (
           <>

@@ -2,12 +2,14 @@
 
 独立 Vite 站点，挂载真实 `FilesEditorGroupPane`、真实
 `FilesEditorStoreProvider`/`filesEditorStore` 和真实 `FilesEditorTabBar`，只替换
-服务边界，用于验证文件编辑器标签条右侧的 Markdown「源码 / 预览」切换。不接入运行中的
-YCode，不连接桌面端、Web 应用或任何既有服务。
+服务边界，用于验证文件编辑器「标签条下方、正文上方」轻量 Header 中的 Markdown
+「源码 / 预览」切换。不接入运行中的 YCode，不连接桌面端、Web 应用或任何既有服务。
 
 ## 覆盖范围
 
-- Markdown 标签默认源码视图；标签条内出现源码/预览切换。
+- Markdown 标签默认源码视图；切换器位于标签条下方的 Header，不在标签行、不占标签右簇。
+- Header 在文档流中位于标签条之后、正文之前；切换控件完整位于 Header 内，源码态与
+  预览态位置一致，不覆盖正文第一行，保存按钮仍在标签条内且不被 Header 遮挡。
 - 编辑后切到预览：预览渲染当前 `buffer.text`（包含未保存草稿），底层编辑器以 `inert`
   隔离；切换前后源码编辑器仍是同一个 DOM 节点，不是重建后靠缓存恢复。
 - 预览切回源码：草稿、dirty 与撤销/重做保持；保存按钮仍把当前草稿交给 `onSave`，
@@ -15,12 +17,13 @@ YCode，不连接桌面端、Web 应用或任何既有服务。
 - 编辑器句柄：源码态向工作台上报句柄，预览态上报 `null`，回到源码后恢复同一个句柄。
 - 分屏：同一 buffer 在两个 view 中分别保持 source / preview，互不覆盖；源码侧继续编辑，
   预览侧直接渲染最新 `buffer.text`，仍只有一个真实 buffer。
-- 非 Markdown（`.ts` / `.txt`）与大文本 `.md` 不显示切换控件；同组普通 Markdown 标签
-  仍有控件。
-- 响应式：暗色桌面（1280px）、窄屏 375/320px 与 375px 分屏下，切换/保存/拆分控件都在
-  标签条内，页面与标签条无横向溢出，标签仍有可见宽度；保存操作在预览态仍可用。
+- 非 Markdown（`.ts` / `.txt`）与大文本 `.md` 不显示 Markdown Header 或切换控件；
+  同组普通 Markdown 标签仍有 Header。
+- 响应式：暗色桌面（1280px）、窄屏 375/320px 与 375px 分屏下，Header 位于标签条与正文
+  之间且文字标签（Markdown / 预览）始终可见、不裁切；保存与拆分控件仍留在标签条内，
+  页面、标签条与 Header 无横向溢出；保存操作在预览态仍可用。
 - 国际化：默认 `zh-CN`，可切到最小 `en-US`；375 / 320 混合标签和窄分屏下，英文
-  `Source / Preview` 控件仍可点击、活动标签标题至少保留 24px 可读区域且无横向溢出。
+  `Markdown / Preview` 文字仍可见可点、活动标签标题至少保留 24px 可读区域且无横向溢出。
 
 ## 服务边界（降级说明）
 
@@ -50,17 +53,25 @@ Host 写盘和远端 workspace 行为。
 
 ## 窄屏验收口径
 
-375px 分屏（每侧约 187px）和 320px 三标签 + 预览 + 保存时，右侧控件会挤压标签。测试
-要求活动标签标题至少保留 24px 可读区域，切换与保存按钮中心点都能命中自身（未被覆盖或
-移出视口），页面与标签条无横向溢出。达到该口径需要实现侧压缩切换控件或隐藏拆分按钮；
-夹具不模拟修复，也不放宽断言。
+375px 分屏（每侧约 187px）和 320px 三标签 + 预览 + 保存时，标签行仍要保留可读标签。
+测试要求活动标签标题至少保留 24px 可读区域，保存按钮中心点能命中自身（未被覆盖或移出
+视口），页面与标签条无横向溢出。Markdown 切换已移出标签行，因此窄组也必须继续显示
+「Markdown / 预览」文字，不能退化为纯图标；Header 文字被裁切、切换控件不在 Header 内、
+Header 覆盖正文第一行或重新占用标签右簇都算失败。夹具不模拟修复，也不放宽断言。
+
+## DOM 契约
+
+布局断言优先读取生产的显式钩子 `data-files-markdown-header`（兼容
+`data-files-markdown-mode-header`）；没有钩子时退回切换控件
+`data-files-markdown-mode-switch` 的直接父级，只做真实 DOM 测量，不复制生产布局。
+模式按钮沿用 `data-files-markdown-mode="source|preview"`，点击仍由生产组件处理。
 
 ## 文件结构
 
 - `run.mjs`：入口、构建、静态服务、浏览器生命周期与运行时错误汇总。
 - `harness.mjs`：Playwright / Chromium 发现与静态服务。
-- `probes.mjs`：控件扫描、点击、等待、源码编辑器和句柄状态探针。
-- `layout.mjs`：标签条布局指标与响应式 / 可读标题 / 命中断言。
+- `probes.mjs`：控件扫描、点击、等待、源码编辑器 / 第一行命中与句柄状态探针。
+- `layout.mjs`：标签条与 Markdown Header 的位置 / 文字 / 溢出 / 命中 / 文档顺序断言。
 - `scenarios-core.mjs`：Markdown、分屏、混合标签与大文本场景。
 - `scenarios-responsive.mjs`：暗色桌面、窄屏、窄分屏与 en-US 场景。
 

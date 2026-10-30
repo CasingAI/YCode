@@ -3,6 +3,7 @@ import {
   checkActiveTabReachable,
   checkActiveTabReadable,
   checkControlClickable,
+  checkMarkdownHeaderAbsent,
   checkResponsiveLayout,
   layoutMetrics,
 } from "./layout.mjs";
@@ -69,12 +70,16 @@ export async function runResponsiveScenarios({ page, check, shot, mount, snapsho
     typeof metrics.appLuminance === "number" && metrics.appLuminance < 0.2,
     { appLuminance: metrics.appLuminance, appBackground: metrics.appBackground },
   );
-  checkResponsiveLayout(check, "dark-desktop", metrics, 1);
+  checkResponsiveLayout(check, "dark-desktop", metrics, 1, {
+    headerTexts: ["Markdown", "预览"],
+  });
   let controls = await scanModeControls(page, darkView.groupId);
   await clickCandidate(page, darkView.groupId, pickMode(controls.candidates, "preview"));
   await waitForMode(page, darkView.groupId, "preview");
   metrics = await layoutMetrics(page, darkView.groupId);
-  checkResponsiveLayout(check, "dark-desktop-preview", metrics, 1);
+  checkResponsiveLayout(check, "dark-desktop-preview", metrics, 1, {
+    headerTexts: ["Markdown", "预览"],
+  });
   await shot(page, "06-dark-desktop-preview");
 
   // 375 窄屏 + 三个标签：切换/保存不能把标签挤没，也不能横向溢出。
@@ -91,6 +96,7 @@ export async function runResponsiveScenarios({ page, check, shot, mount, snapsho
     metrics.tabs.every((tab) => tab.visibleWidth > 0),
     metrics.tabs,
   );
+  checkMarkdownHeaderAbsent(check, "narrow375-mixed", metrics);
   await clickTab(narrowMd.groupId, narrowMd.viewId);
   await poll(async () => {
     const next = await scanModeControls(page, narrowMd.groupId);
@@ -104,7 +110,9 @@ export async function runResponsiveScenarios({ page, check, shot, mount, snapsho
   await waitForMode(page, narrowMd.groupId, "preview");
   await findSaveButton(page, narrowMd.groupId);
   metrics = await layoutMetrics(page, narrowMd.groupId);
-  checkResponsiveLayout(check, "narrow375-preview-dirty", metrics, 3);
+  checkResponsiveLayout(check, "narrow375-preview-dirty", metrics, 3, {
+    headerTexts: ["Markdown", "预览"],
+  });
   check("narrow375: 预览态仍显示保存按钮", Boolean(metrics.saveRect), metrics);
   const narrowSave = await page.evaluate((id) => {
     const button = document.querySelector(
@@ -123,6 +131,7 @@ export async function runResponsiveScenarios({ page, check, shot, mount, snapsho
   await page.waitForTimeout(300);
   metrics = await layoutMetrics(page, narrow320Txt.groupId);
   checkResponsiveLayout(check, "narrow320-mixed", metrics, 3, { requireSwitch: false });
+  checkMarkdownHeaderAbsent(check, "narrow320-mixed", metrics);
   await shot(page, "08-narrow320-mixed");
 
   const narrow320Md = await pathInfo(MD_PATH);
@@ -142,7 +151,9 @@ export async function runResponsiveScenarios({ page, check, shot, mount, snapsho
   await waitForMode(page, narrow320Md.groupId, "preview");
   await findSaveButton(page, narrow320Md.groupId);
   metrics = await layoutMetrics(page, narrow320Md.groupId);
-  checkResponsiveLayout(check, "narrow320-preview-dirty", metrics, 3);
+  checkResponsiveLayout(check, "narrow320-preview-dirty", metrics, 3, {
+    headerTexts: ["Markdown", "预览"],
+  });
   check(
     "narrow320: 预览态同时容纳切换与保存按钮",
     Boolean(metrics.switchRect && metrics.saveRect),
@@ -166,14 +177,18 @@ export async function runResponsiveScenarios({ page, check, shot, mount, snapsho
   for (const [index, group] of splitGroups.entries()) {
     await waitForMode(page, group.id, "source");
     const paneMetrics = await layoutMetrics(page, group.id);
-    checkResponsiveLayout(check, `split-narrow375-${index}`, paneMetrics, 1);
+    checkResponsiveLayout(check, `split-narrow375-${index}`, paneMetrics, 1, {
+      headerTexts: ["Markdown", "预览"],
+    });
   }
   const firstSplitControls = await scanModeControls(page, splitGroups[0].id);
   await clickCandidate(page, splitGroups[0].id, pickMode(firstSplitControls.candidates, "preview"));
   await waitForMode(page, splitGroups[0].id, "preview");
   await waitForMode(page, splitGroups[1].id, "source");
   const splitMetrics = await layoutMetrics(page, splitGroups[0].id);
-  checkResponsiveLayout(check, "split-narrow375-preview", splitMetrics, 1);
+  checkResponsiveLayout(check, "split-narrow375-preview", splitMetrics, 1, {
+    headerTexts: ["Markdown", "预览"],
+  });
   await shot(page, "10-split-narrow375-preview");
 
   // 横滚回归 1：320px 单组 4 个标签（每个至少 96px），先停在首标签，
@@ -306,7 +321,9 @@ export async function runResponsiveScenarios({ page, check, shot, mount, snapsho
     await waitForMode(page, enMd.groupId, "preview");
     await findSaveButton(page, enMd.groupId);
     const enMetrics = await layoutMetrics(page, enMd.groupId);
-    checkResponsiveLayout(check, name, enMetrics, 3);
+    checkResponsiveLayout(check, name, enMetrics, 3, {
+      headerTexts: ["Markdown", "Preview"],
+    });
     checkActiveTabReadable(check, name, enMetrics);
     checkControlClickable(check, name, enMetrics, "switch", "源码/预览切换");
     checkControlClickable(check, name, enMetrics, "save", "保存");
@@ -329,7 +346,9 @@ export async function runResponsiveScenarios({ page, check, shot, mount, snapsho
     await findSaveButton(page, group.id);
     const paneMetrics = await layoutMetrics(page, group.id);
     const splitName = `en-split-narrow375-${index}`;
-    checkResponsiveLayout(check, splitName, paneMetrics, 1);
+    checkResponsiveLayout(check, splitName, paneMetrics, 1, {
+      headerTexts: ["Markdown", "Preview"],
+    });
     checkActiveTabReadable(check, splitName, paneMetrics);
     checkControlClickable(check, splitName, paneMetrics, "switch", "源码/预览切换");
     checkControlClickable(check, splitName, paneMetrics, "save", "保存");
