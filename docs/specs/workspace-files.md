@@ -149,7 +149,7 @@ VS Code 编辑器组里 **unpinned = 预览**：斜体标题；一组最多一�
 
 - 任务 Side Pane 与文件工作台共用一套路径预览分类规则，组合现有图片、音视频、PDF、PPTX 和 Office 格式识别能力；不得在工作台另外维护支持格式列表。
 - 已支持的位图 / 动图、音视频、PDF、PPTX、Word 和 Excel 均进入现有 `PreviewPane`。两处只保留容器与顶部操作的差异，复用预览渲染、工作区文件服务、加载失败和不支持类型的提示；不新增预览器、文件读取服务或协议。
-- 普通文本、Markdown 和 SVG 在工作台仍用 Monaco 编辑；Side Pane 中的 Markdown / SVG 仍按现有规则预览或查看源码。统一分类不得把 SVG 源码编辑改成只读图片，也不把所有文本文件送入只读预览。
+- 普通文本与 SVG 在工作台仍用 Monaco 编辑；Markdown 默认仍用 Monaco 编辑，并可在本组标签条切换共享 Markdown 预览，见下节「Markdown 源码 / 预览」。Side Pane 中的 Markdown / SVG 仍按现有规则预览或查看源码。统一分类不得把 SVG 源码编辑改成只读图片，也不把所有文本文件送入只读预览。
 - 未知扩展名不能单凭路径断定为文本。现有 `IFileService.readTextFile` 返回 `isBinary` 时，工作台打开只读预览标签，复用 `PreviewPane` 的二进制提示，不建立可保存的空文本缓冲。重新打开和延迟恢复遵守同一规则。
 - 干净标签恢复时按当前共用分类修正旧版本错误记录的文本类型，不在恢复元数据时读盘；未知类型仅在标签按需加载时根据 `isBinary` 修正。缓冲 ID、工作区身份、标签顺序、焦点及预览 / 固定状态保持不变，无需变更持久化版本。
 - 已恢复的未保存草稿优先于路径分类与异步读盘结果，不因文件扩展名、外部文件类型变化或过期读取而丢弃。Files Editor Store 继续独占缓冲和标签状态；分类是纯派生结果，不新增缓存或第二份类型状态。
@@ -169,10 +169,45 @@ VS Code 编辑器组里 **unpinned = 预览**：斜体标题；一组最多一�
 验收场景（单元 / 集成回归；交互 E2E 需获准操作隔离应用后执行）：
 
 1. 从文件树打开 PNG / JPG / GIF / WebP / AVIF、音频 / 视频、PDF / PPTX / Word / Excel，再从任务 Side Pane 查看同一路径：均复用对应预览，不出现空 Monaco；非文本标签不可保存。
-2. 工作台打开 Markdown / SVG / 代码仍可编辑；Side Pane 保留 Markdown / SVG 的只读预览和源码切换。未知扩展的真实文本仍可编辑，真实二进制显示已有二进制提示。
+2. 工作台打开 Markdown 默认进入源码编辑并可切换共享预览；SVG / 代码仍可编辑；Side Pane 保留 Markdown / SVG 的只读预览和源码切换。未知扩展的真实文本仍可编辑，真实二进制显示已有二进制提示。
 3. 恢复旧会话中的干净图片文本标签时无需预读文件即修正为只读标签；未知二进制在激活读取后修正。两者保留身份、顺序、焦点、分屏视图与预览状态。
 4. 已有脏草稿（包括旧版本图片误开后产生的草稿）仍按草稿恢复，不被类型修正或异步读取覆盖；读取期间的改名 / 删除不得让旧结果重新建立旧路径标签。
 5. 两个本地 / 远程工作区具有同名同路径资源时，文件服务仍按 `workspaceIdentity?.trim() || workspacePath` 和 `workspaceRemoteSessionId` 隔离；首次进入文件视图前不新增读盘。
+
+### Markdown 源码 / 预览（2026-10-30）
+
+- **适用对象**：已加载（`loadState === undefined`）、有路径、非未命名、非旧版截断的普通 text 缓冲，且共用 `resolveFilesEditorLanguage` 解析为 `markdown`：含 `md` / `markdown` / `mdx`、`README` / `README.md` 等内置文件名，以及用户文件 / 模式关联到 markdown 的路径。大文本、图片 / PDF / Office / 媒体预览、非 Markdown 文本不出现该控件。
+- **位置**：每组 36px 标签条右侧、保存按钮与分屏按钮之前的紧凑分段控件「源码 | 预览」，不新增标题行、说明文案或侧栏；Desktop、Web、手机远控使用同一 UI。
+- **窄组**：按组容器宽度（分屏后的单侧同样计算）判断；小于 420px 时源码 / 预览改为 Code / Eye 图标，完整文字保留在 `aria-label` 与 `title`，并隐藏两个分屏按钮（标签右键菜单仍可分屏）。标签最小宽度 96px，放不下时标签区横向滚动，活动标签标题不被压成 0；保存与模式切换始终可见。
+- **源码是默认模式**。切换只改变该 view 的运行时展示方式，不修改正文、`savedText`、脏态、预览 / 固定状态，不触发读盘、写盘、持久化或 Monaco 模型写入。
+- **模式按 editor view 保存**，不是按 buffer：存放于 layout 的 `FilesEditorView.markdownViewMode`，不进入 localStorage 或会话快照。分屏复制出的新 view 默认源码；同一 buffer 的两边可分别处于源码 / 预览。
+- view 更换 `bufferId`（预览槽替换、另存为等）时清除模式，回到源码默认。活动 buffer 不再满足适用条件时，控件隐藏并忽略残留模式。
+- **预览直接渲染当前缓冲 `text`**（含未保存编辑），不读盘、不复制正文。复用共享 `MarkdownPreviewContent`（与 Side Pane 相同的 `MessageResponse` / Streamdown GFM、代码块与安全管线），只注入 `content`、`workspacePath`、`theme`、`codePreviewSettings` 与现有平台外链回调，不传 `sourceKey` / `selectionTarget`；不修改共享渲染器。
+- **保留编辑器状态**：源码与预览切换时 Monaco 编辑器保持挂载，预览作为同区域覆盖层显示并对被覆盖编辑器声明 `inert`；撤销 / 重做历史与光标 / 滚动位置不丢失，不引入第二份正文或 editor state。预览态不向编辑菜单上报编辑器句柄，撤销 / 重做 / 查找不会命中隐藏的源码编辑器。
+- 保存、脏态、冲突、关闭与外部变更提示继续由 Files Editor Store 和现有控制器处理；预览态不改变保存入口，保存后仍可停留在预览。
+- **链接与资源**：公开网页链接沿用共享渲染与现有平台 `openExternal` 能力；相对图片 / 链接按工作区根解析，文档目录相对路径、文档内锚点与本地文件跳转不在本次范围。
+- **无协议、持久化版本、Host 或文件服务改动**；Desktop / Web / 远控、本地与远程工作区共享同一规则。
+
+```text
+FilesEditorGroupPane（活动 view + buffer）
+  → 共用 resolveFilesEditorLanguage（用户关联 → 内置文件名 / 扩展名）
+  → 可用性：text + 有路径 + 已加载 + 非截断 + markdown
+  → 标签条分段控件（源码 | 预览）
+       → filesEditorStore.setViewMarkdownViewMode(viewId, mode)
+            → filesEditorLayout.setFilesEditorViewMarkdownViewMode
+                 （唯一所有者：layout；不触碰 buffers、不 persist）
+  → 预览：FilesMarkdownPreview → MarkdownPreviewContent(content = buffer.text)
+  → 源码：FilesMonacoEditor 保持挂载；预览时被覆盖并 inert
+换 buffer / 另存为 → replaceFilesEditorViewBuffer 清除 markdownViewMode
+```
+
+交互 E2E 验收场景（需获准操作隔离应用后执行）：
+
+1. 打开 Markdown，编辑未保存标题后切到预览：预览显示新标题；切回源码，草稿内容、脏态与光标位置仍在。
+2. 预览态执行保存：写盘成功，正文与基准一致，脏态清除，模式不被保存流程改变。
+3. 同一 Markdown 右侧分屏：一边源码、另一边预览分别独立；源码侧继续编辑后，预览侧显示最新缓冲正文。
+4. `.ts`、大文本、图片等非 Markdown 不显示开关或预览；切回 Markdown 时恢复该 view 自己保存的模式。
+5. Desktop、Web、手机远控布局一致；不新增协议消息或持久化字段。
 
 ### 图片预览体积与读取
 

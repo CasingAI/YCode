@@ -1,8 +1,8 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { DragEvent } from "react";
-import { Loader2 } from "lucide-react";
 import type {
   FilesEditorGroup,
+  FilesEditorMarkdownViewMode,
   FilesEditorSplitEdge,
 } from "@/files-workbench/filesEditorLayout.js";
 import { FilesEditorStatusBar } from "@/files-workbench/FilesEditorStatusBar.js";
@@ -17,9 +17,9 @@ import type {
   FilesEditorStatusMarker,
 } from "@/files-workbench/filesEditorStatusModel.js";
 import type { FilesEditorTabEntry } from "@/files-workbench/filesEditorTabAnimation.js";
-import { isFilesPreviewBuffer, isFilesTextBuffer } from "@/files-workbench/filesEditorModel.js";
-import { FilesLargeTextViewer } from "@/files-workbench/FilesLargeTextViewer.js";
+import { isFilesTextBuffer } from "@/files-workbench/filesEditorModel.js";
 import { FilesEditorExternalChangeBanner } from "@/files-workbench/FilesEditorExternalChangeBanner.js";
+import { FilesEditorContent } from "@/files-workbench/FilesEditorContent.js";
 import type {
   FilesBuffer,
   FilesEditorFocusRequest,
@@ -39,13 +39,8 @@ import { useSettings } from "@/hooks/useSettingService.js";
 import { toast } from "@/components/ui/toast.js";
 import { logger } from "@/logger.js";
 import { filesEditorAssociationPatternForPath } from "@/files-workbench/filesEditorLanguageAssociations.js";
-import { PreviewPane } from "@/PreviewPane.js";
+import { resolveFilesEditorMarkdownViewMode } from "@/files-workbench/filesEditorMarkdownMode.js";
 import { cn } from "@/components/lib/utils.js";
-
-const FilesMonacoEditor = lazy(async () => {
-  const module = await import("@/files-workbench/FilesMonacoEditor.js");
-  return { default: module.FilesMonacoEditor };
-});
 
 export function FilesEditorGroupPane({
   group,
@@ -76,6 +71,7 @@ export function FilesEditorGroupPane({
   onCreateUntitled,
   onSave,
   onSaveAs,
+  onSetMarkdownViewMode,
   onFocusGroup,
   onEditorHandleChange,
   onExternalChangeAction,
@@ -114,6 +110,8 @@ export function FilesEditorGroupPane({
   onCreateUntitled: () => void;
   onSave: (bufferId: string) => void;
   onSaveAs: (bufferId: string) => void;
+  /** Markdown 源码 / 预览模式只写到运行时 layout，不触发持久化。 */
+  onSetMarkdownViewMode?: (viewId: string, mode: FilesEditorMarkdownViewMode) => void;
   onFocusGroup: (groupId: string) => void;
   /** 上报本组的编辑器句柄：菜单的撤销/重做/查找按聚焦组定位编辑器。 */
   onEditorHandleChange?: (
@@ -141,6 +139,14 @@ export function FilesEditorGroupPane({
   );
   const activeEntry = tabs.find((entry) => entry.viewId === group.activeViewId) ?? tabs[0];
   const activeBuffer = activeEntry?.buffer;
+  const activeView = group.views.find((view) => view.id === activeEntry?.viewId);
+  // 模式按 view 保存；语言或加载状态变化时可用性重新派生，残留模式自动忽略。
+  const markdownViewMode = resolveFilesEditorMarkdownViewMode(
+    activeView ?? { markdownViewMode: undefined },
+    activeBuffer,
+    settings?.fileLanguageAssociations,
+  );
+  const markdownPreviewActive = markdownViewMode === "preview";
   // 只有真正进入过文件视图才挂载编辑器；外壳与提示条不依赖重量级编辑器挂载。
   const editorBuffer = hasEnteredFiles ? activeBuffer : undefined;
   // 状态栏句柄由 Monaco 编辑器交出；这里只订阅快照并转发命令。
@@ -171,9 +177,14 @@ export function FilesEditorGroupPane({
   }, [statusHandle]);
   // 句柄上报给文件工作台：菜单命令据此找到「聚焦组」的编辑器。
   // 大文件同样上报，Store 的 saveToken guards 会拒绝保存中的撤销 / 重做。
+  // 预览态不上报：隐藏的源码编辑器已 inert，撤销 / 重做 / 查找不得暗中改源码。
   useEffect(() => {
-    onEditorHandleChange?.(group.id, statusHandle ?? null, activeBuffer?.id);
-  }, [activeBuffer?.id, group.id, onEditorHandleChange, statusHandle]);
+    onEditorHandleChange?.(
+      group.id,
+      markdownPreviewActive ? null : (statusHandle ?? null),
+      activeBuffer?.id,
+    );
+  }, [activeBuffer?.id, group.id, markdownPreviewActive, onEditorHandleChange, statusHandle]);
   // 卸载时清掉本组句柄，避免菜单命令命中已销毁的编辑器。
   useEffect(
     () => () => {
@@ -325,83 +336,34 @@ export function FilesEditorGroupPane({
         onCreateUntitled={onCreateUntitled}
         onSave={onSave}
         onSaveAs={onSaveAs}
+        markdownViewMode={markdownViewMode}
+        onSetMarkdownViewMode={
+          onSetMarkdownViewMode && activeView
+            ? (mode) => onSetMarkdownViewMode(activeView.id, mode)
+            : undefined
+        }
       />
       <FilesEditorExternalChangeBanner
         buffer={editorBuffer}
         onReload={() => editorBuffer && onExternalChangeAction(editorBuffer.id, "reload")}
         onKeep={() => editorBuffer && onExternalChangeAction(editorBuffer.id, "dismiss")}
       />
-      <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden [app-region:no-drag]">
-        {editorBuffer &&
-        isFilesTextBuffer(editorBuffer) &&
-        (editorBuffer.loadState === "unloaded" || editorBuffer.loadState === "loading") ? (
-          <div
-            className="flex h-full items-center justify-center gap-2 text-ui-sm text-foreground-subtle"
-            role="status"
-            aria-live="polite"
-          >
-            <Loader2
-              className="size-4 animate-spin motion-reduce:animate-none"
-              aria-hidden="true"
-            />
-            <span>{intl.formatMessage({ id: "filesWorkbench.loadingFile" })}</span>
-          </div>
-        ) : editorBuffer &&
-          isFilesTextBuffer(editorBuffer) &&
-          editorBuffer.loadState === "error" ? (
-          <div
-            className="flex h-full flex-col items-center justify-center gap-2 text-center text-ui-sm text-foreground-subtle"
-            role="alert"
-          >
-            <span>{intl.formatMessage({ id: "filesWorkbench.loadFileError" })}</span>
-            <button
-              type="button"
-              className="rounded-md border border-border px-2 py-1 text-ui-sm hover:bg-surface-hover"
-              onClick={() => void loadRestoredTextFile(editorBuffer.id)}
-            >
-              {intl.formatMessage({ id: "filesWorkbench.retryLoadFile" })}
-            </button>
-          </div>
-        ) : editorBuffer?.kind === "large-text" ? (
-          <FilesLargeTextViewer
-            buffer={editorBuffer}
-            active={isActiveView}
-            onEditorStatusHandleChange={onStatusHandleChange}
-            onReloadRequested={() => onExternalChangeAction(editorBuffer.id, "reload")}
-          />
-        ) : editorBuffer && isFilesTextBuffer(editorBuffer) ? (
-          <Suspense fallback={null}>
-            <FilesMonacoEditor
-              buffer={editorBuffer}
-              onChange={(text) => onChange(editorBuffer.id, text)}
-              onOpenPath={onOpenPath}
-              revealPosition={revealPosition}
-              onRevealPositionApplied={onRevealPositionApplied}
-              focusRequest={focusRequest}
-              onFocusApplied={onFocusApplied}
-              onStatusHandleChange={onStatusHandleChange}
-            />
-          </Suspense>
-        ) : editorBuffer && isFilesPreviewBuffer(editorBuffer) ? (
-          <PreviewPane
-            source={{
-              type: "file",
-              title: editorBuffer.title,
-              path: editorBuffer.path,
-              workspacePath: editorBuffer.workspace.workspacePath,
-              workspaceIdentity: editorBuffer.workspace.workspaceIdentity,
-              workspaceRemoteSessionId: editorBuffer.workspace.workspaceRemoteSessionId,
-            }}
-            workspacePath={editorBuffer.workspace.workspacePath}
-            onClose={() => onClose(editorBuffer.id, activeEntry?.viewId ?? "")}
-            variant="workbench"
-          />
-        ) : (
-          <p className="px-6 py-12 text-center text-ui-sm text-foreground-subtle">
-            {intl.formatMessage({ id: "filesWorkbench.emptyEditor" })}
-          </p>
-        )}
-      </div>
+      <FilesEditorContent
+        buffer={editorBuffer}
+        viewId={activeEntry?.viewId}
+        isActiveView={isActiveView}
+        markdownPreviewActive={markdownPreviewActive}
+        loadRestoredTextFile={loadRestoredTextFile}
+        onChange={onChange}
+        onOpenPath={onOpenPath}
+        revealPosition={revealPosition}
+        onRevealPositionApplied={onRevealPositionApplied}
+        focusRequest={focusRequest}
+        onFocusApplied={onFocusApplied}
+        onStatusHandleChange={onStatusHandleChange}
+        onClose={onClose}
+        onExternalChangeAction={onExternalChangeAction}
+      />
       {activeBuffer?.kind !== "large-text" && statusHandle && statusState ? (
         <FilesEditorStatusBar
           state={statusState}

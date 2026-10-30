@@ -99,7 +99,7 @@ export function FilesWorkbenchSurface({
     [openBuffers],
   );
   const activeWorkspace = buffers.find((buffer) => buffer.id === activeId)?.workspace;
-  const resolveServices = controller.resolveServices;
+  const { resolveServices, persist, closeView, closeOtherViews } = controller;
   useFilesMonacoTypescriptWorkspaceSync({
     enabled: isActiveView && hasEnteredFiles,
     entries: typescriptEntries,
@@ -108,9 +108,6 @@ export function FilesWorkbenchSurface({
     resolveServices,
   });
 
-  const persist = controller.persist;
-  const closeView = controller.closeView;
-  const closeOtherViews = controller.closeOtherViews;
   const dirtyCloseBuffer = controller.dirtyCloseBufferId
     ? findFilesBuffer({ buffers, openIds, untitledSerial: 1 }, controller.dirtyCloseBufferId)
     : undefined;
@@ -190,6 +187,8 @@ export function FilesWorkbenchSurface({
     },
     [persist, store],
   );
+  // Markdown 源码 / 预览只改运行时 layout，不持久化，也不触发读写；store action 引用稳定。
+  const onSetMarkdownViewMode = store.getState().setViewMarkdownViewMode;
 
   // 标签栏保存按钮与标签右键「保存 / 另存为」：与菜单、快捷键共用同一条写盘路径。
   const onSave = controller.saveBufferById;
@@ -302,6 +301,7 @@ export function FilesWorkbenchSurface({
           onCreateUntitled={onCreateUntitled}
           onSave={onSave}
           onSaveAs={onSaveAs}
+          onSetMarkdownViewMode={onSetMarkdownViewMode}
           onFocusGroup={onFocusGroup}
           onEditorHandleChange={onEditorHandleChange}
           onExternalChangeAction={(bufferId, action) =>

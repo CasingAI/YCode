@@ -24,6 +24,7 @@ function source(relative: string): string {
 
 const surfaceSource = source("FilesWorkbenchSurface.tsx");
 const groupPaneSource = source("FilesEditorGroupPane.tsx");
+const contentSource = source("FilesEditorContent.tsx");
 const viewerSource = source("FilesLargeTextViewer.tsx");
 const saveAsSource = source("FilesWorkbenchSaveAsDialog.tsx");
 const dialogsSource = source("FilesWorkbenchDialogs.tsx");
@@ -69,10 +70,13 @@ test("GroupPane 把外部变更 banner 与重载 / 保留回调接在编辑区�
 });
 
 test("大文件菜单句柄与大文件刷新确认独立接线，但不显示普通全文件状态栏", () => {
-  assert.match(groupPaneSource, /onEditorStatusHandleChange=\{onStatusHandleChange\}/);
+  // 内容区分支已拆到 FilesEditorContent：组外壳只负责把句柄与外部变更动作传下去。
+  assert.match(groupPaneSource, /onStatusHandleChange=\{onStatusHandleChange\}/);
+  assert.match(groupPaneSource, /onExternalChangeAction=\{onExternalChangeAction\}/);
+  assert.match(contentSource, /onEditorStatusHandleChange=\{onStatusHandleChange\}/);
   assert.match(
-    groupPaneSource,
-    /onReloadRequested=\{\(\) => onExternalChangeAction\(editorBuffer\.id, "reload"\)\}/,
+    contentSource,
+    /onReloadRequested=\{\(\) => onExternalChangeAction\(buffer\.id, "reload"\)\}/,
   );
   // 状态栏仍只读取普通文本的 statusHandle / statusState，大文件标签显式隐藏。
   assert.match(

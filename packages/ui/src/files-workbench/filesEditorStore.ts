@@ -9,9 +9,11 @@ import {
   focusFilesEditorView,
   setFilesEditorBranchRatio,
   replaceFilesEditorViewBuffer,
+  setFilesEditorViewMarkdownViewMode,
 } from "@/files-workbench/filesEditorLayout.js";
 import type {
   FilesEditorLayoutState,
+  FilesEditorMarkdownViewMode,
   FilesEditorSplitEdge,
 } from "@/files-workbench/filesEditorLayout.js";
 import {
@@ -85,6 +87,11 @@ export interface FilesEditorStoreState extends FilesEditorState, FilesLargeTextE
   focusGroup: (groupId: string) => void;
   moveViewToGroup: (viewId: string, groupId: string, targetIndex?: number) => void;
   setBranchRatio: (branchId: string, ratio: number) => void;
+  /**
+   * 切换某个 view 的 Markdown 源码 / 预览展示模式。
+   * 只改运行时 layout；不动正文、脏态，也不写 localStorage。
+   */
+  setViewMarkdownViewMode: (viewId: string, mode: FilesEditorMarkdownViewMode) => void;
   splitViewToEdge: (
     viewId: string,
     groupId: string,
@@ -257,6 +264,12 @@ export function createFilesEditorStore() {
 
     setBranchRatio: (branchId, ratio) => {
       set((state) => ({ layout: setFilesEditorBranchRatio(state.layout, branchId, ratio) }));
+    },
+
+    setViewMarkdownViewMode: (viewId, mode) => {
+      set((state) => ({
+        layout: setFilesEditorViewMarkdownViewMode(state.layout, viewId, mode),
+      }));
     },
 
     splitViewToEdge: (viewId, groupId, edge, mode = "move") => {

@@ -1,12 +1,21 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Columns2, Rows2 } from "lucide-react";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { resolveFilesWorkspaceDisambiguatedIds } from "@/files-workbench/filesEditorModel.js";
 import { FilesEditorTabItem } from "@/files-workbench/FilesEditorTabItem.js";
 import { FilesEditorTabSaveButton } from "@/files-workbench/FilesEditorTabSaveButton.js";
 import { FILES_EDITOR_VIEW_DRAG_MIME } from "@/files-workbench/filesEditorDragTypes.js";
-import type { FilesEditorSplitEdge } from "@/files-workbench/filesEditorLayout.js";
-import { shouldCrowdFilesEditorTabs } from "@/files-workbench/filesEditorTabSizing.js";
+import type {
+  FilesEditorSplitEdge,
+  FilesEditorMarkdownViewMode,
+} from "@/files-workbench/filesEditorLayout.js";
+import {
+  FILES_EDITOR_TAB_MIN_WIDTH,
+  isFilesEditorTabBarCompact,
+  resolveFilesEditorTabScrollLeft,
+  shouldCrowdFilesEditorTabs,
+} from "@/files-workbench/filesEditorTabSizing.js";
+import { FilesEditorMarkdownModeSwitch } from "@/files-workbench/FilesEditorMarkdownModeSwitch.js";
 import type { FilesBuffer } from "@/files-workbench/filesEditorTypes.js";
 import { useAnimatedFilesEditorTabs } from "@/files-workbench/filesEditorTabAnimation.js";
 import type { FilesEditorTabEntry } from "@/files-workbench/filesEditorTabAnimation.js";
@@ -32,6 +41,8 @@ export function FilesEditorTabBar({
   onCreateUntitled,
   onSave,
   onSaveAs,
+  markdownViewMode,
+  onSetMarkdownViewMode,
 }: {
   groupId: string;
   isGroupFocused?: boolean;
@@ -53,10 +64,15 @@ export function FilesEditorTabBar({
   onCreateUntitled?: () => void;
   onSave: (bufferId: string) => void;
   onSaveAs: (bufferId: string) => void;
+  /** 当前活动标签是可用 Markdown 时由容器传入；undefined 不显示切换。 */
+  markdownViewMode?: FilesEditorMarkdownViewMode;
+  onSetMarkdownViewMode?: (mode: FilesEditorMarkdownViewMode) => void;
 }) {
   const { intl } = useZCodeIntl();
+  const barRef = useRef<HTMLDivElement | null>(null);
   const tabsContainerRef = useRef<HTMLDivElement | null>(null);
   const [crowded, setCrowded] = useState(false);
+  const [compact, setCompact] = useState(false);
   const [hoveredViewId, setHoveredViewId] = useState<string | undefined>();
   const { displayTabs, onEnterComplete, onExitComplete } = useAnimatedFilesEditorTabs(tabs);
   const buffers = useMemo(() => tabs.map((tab) => tab.buffer), [tabs]);
@@ -69,27 +85,65 @@ export function FilesEditorTabBar({
   const activeTab = tabs.find((tab) => tab.viewId === activeViewId);
   const activeBuffer = activeTab?.buffer;
 
+  const revealActiveTab = useCallback(() => {
+    const tabsElement = tabsContainerRef.current;
+    if (!tabsElement || !activeViewId) return;
+    const activeElement = Array.from(
+      tabsElement.querySelectorAll<HTMLElement>('[role="tab"][data-editor-view-id]'),
+    ).find((element) => element.dataset.editorViewId === activeViewId);
+    if (!activeElement) return;
+    const containerRect = tabsElement.getBoundingClientRect();
+    const tabRect = activeElement.getBoundingClientRect();
+    const nextScrollLeft = resolveFilesEditorTabScrollLeft({
+      scrollLeft: tabsElement.scrollLeft,
+      viewportWidth: tabsElement.clientWidth,
+      scrollWidth: tabsElement.scrollWidth,
+      tabOffsetLeft: tabRect.left - containerRect.left,
+      tabWidth: tabRect.width,
+    });
+    // 只改标签区自身的 scrollLeft，避免 scrollIntoView 连带滚动外层页面。
+    if (nextScrollLeft !== tabsElement.scrollLeft) tabsElement.scrollLeft = nextScrollLeft;
+  }, [activeViewId]);
+
+  const handleEnterComplete = useCallback(
+    (viewId: string) => {
+      onEnterComplete(viewId);
+      // 新标签从 0 宽展开，展开结束后的真实宽度才能算出最终滚动位置。
+      if (viewId === activeViewId) revealActiveTab();
+    },
+    [activeViewId, onEnterComplete, revealActiveTab],
+  );
+
   useEffect(() => {
-    const element = tabsContainerRef.current;
-    if (!element) return;
-    const updateCrowdedState = () => {
-      const nextCrowded = shouldCrowdFilesEditorTabs(element.clientWidth, tabs.length);
+    const tabsElement = tabsContainerRef.current;
+    const barElement = barRef.current;
+    if (!tabsElement) return;
+    const updateLayoutState = () => {
+      const nextCrowded = shouldCrowdFilesEditorTabs(tabsElement.clientWidth, tabs.length);
       setCrowded((current) => (current === nextCrowded ? current : nextCrowded));
+      // 按组容器宽度判断，分屏后的窄组不依赖 viewport 宽度。
+      const nextCompact = isFilesEditorTabBarCompact(barElement?.clientWidth ?? 0);
+      setCompact((current) => (current === nextCompact ? current : nextCompact));
+      // 组宽或标签可用宽度变化后，活动标签可能落到横向滚动区外。
+      revealActiveTab();
     };
-    updateCrowdedState();
+    updateLayoutState();
     if (typeof ResizeObserver === "undefined") {
-      window.addEventListener("resize", updateCrowdedState);
-      return () => window.removeEventListener("resize", updateCrowdedState);
+      window.addEventListener("resize", updateLayoutState);
+      return () => window.removeEventListener("resize", updateLayoutState);
     }
-    const observer = new ResizeObserver(updateCrowdedState);
-    observer.observe(element);
+    const observer = new ResizeObserver(updateLayoutState);
+    observer.observe(tabsElement);
+    if (barElement) observer.observe(barElement);
     return () => observer.disconnect();
-  }, [tabs.length]);
+  }, [displayTabs, revealActiveTab, tabs.length]);
 
   return (
     <div
+      ref={barRef}
       role="tablist"
       aria-label={intl.formatMessage({ id: "filesWorkbench.tabList" })}
+      data-files-tabbar-compact={compact ? "" : undefined}
       className="flex h-9 shrink-0 items-stretch overflow-x-hidden border-b border-border bg-background-alt select-none [app-region:no-drag]"
       // 只在真实控件相交处消费局部避让，不能为整窗再插入一条拖动行。
       style={{
@@ -126,7 +180,7 @@ export function FilesEditorTabBar({
     >
       <div
         ref={tabsContainerRef}
-        className="flex min-w-0 flex-1 items-stretch overflow-hidden"
+        className="flex min-w-0 flex-1 items-stretch overflow-x-auto overflow-y-hidden !scrollbar-hide"
         onMouseLeave={() => setHoveredViewId(undefined)}
       >
         {displayTabs.map((entry) => (
@@ -142,6 +196,7 @@ export function FilesEditorTabBar({
             canCloseSaved={canCloseSaved}
             canRevealInFileTree={canRevealInFileTree(entry.buffer)}
             crowded={crowded}
+            minTabWidth={FILES_EDITOR_TAB_MIN_WIDTH}
             hovered={hoveredViewId === entry.viewId}
             entering={entry.entering}
             exiting={entry.exiting}
@@ -161,7 +216,7 @@ export function FilesEditorTabBar({
             onSplit={onSplit}
             onMoveView={onMoveView}
             onHover={setHoveredViewId}
-            onEnterComplete={onEnterComplete}
+            onEnterComplete={handleEnterComplete}
             onExitComplete={onExitComplete}
           />
         ))}
@@ -170,27 +225,38 @@ export function FilesEditorTabBar({
         ) : null}
       </div>
       <div className="flex shrink-0 items-center gap-0.5 px-1">
+        {markdownViewMode && onSetMarkdownViewMode ? (
+          <FilesEditorMarkdownModeSwitch
+            mode={markdownViewMode}
+            compact={compact}
+            onChange={onSetMarkdownViewMode}
+          />
+        ) : null}
         <FilesEditorTabSaveButton activeBuffer={activeBuffer} onSave={onSave} />
-        <button
-          type="button"
-          aria-label={intl.formatMessage({ id: "filesWorkbench.splitRight" })}
-          title={intl.formatMessage({ id: "filesWorkbench.splitRight" })}
-          disabled={!activeTab}
-          className="flex size-6 items-center justify-center rounded-sm text-foreground-subtle hover:bg-surface-hover hover:text-foreground disabled:opacity-40"
-          onClick={() => activeTab && onSplit(activeTab.viewId, groupId, "right")}
-        >
-          <Columns2 aria-hidden="true" className="size-3.5" />
-        </button>
-        <button
-          type="button"
-          aria-label={intl.formatMessage({ id: "filesWorkbench.splitDown" })}
-          title={intl.formatMessage({ id: "filesWorkbench.splitDown" })}
-          disabled={!activeTab}
-          className="flex size-6 items-center justify-center rounded-sm text-foreground-subtle hover:bg-surface-hover hover:text-foreground disabled:opacity-40"
-          onClick={() => activeTab && onSplit(activeTab.viewId, groupId, "bottom")}
-        >
-          <Rows2 aria-hidden="true" className="size-3.5" />
-        </button>
+        {compact ? null : (
+          <>
+            <button
+              type="button"
+              aria-label={intl.formatMessage({ id: "filesWorkbench.splitRight" })}
+              title={intl.formatMessage({ id: "filesWorkbench.splitRight" })}
+              disabled={!activeTab}
+              className="flex size-6 items-center justify-center rounded-sm text-foreground-subtle hover:bg-surface-hover hover:text-foreground disabled:opacity-40"
+              onClick={() => activeTab && onSplit(activeTab.viewId, groupId, "right")}
+            >
+              <Columns2 aria-hidden="true" className="size-3.5" />
+            </button>
+            <button
+              type="button"
+              aria-label={intl.formatMessage({ id: "filesWorkbench.splitDown" })}
+              title={intl.formatMessage({ id: "filesWorkbench.splitDown" })}
+              disabled={!activeTab}
+              className="flex size-6 items-center justify-center rounded-sm text-foreground-subtle hover:bg-surface-hover hover:text-foreground disabled:opacity-40"
+              onClick={() => activeTab && onSplit(activeTab.viewId, groupId, "bottom")}
+            >
+              <Rows2 aria-hidden="true" className="size-3.5" />
+            </button>
+          </>
+        )}
       </div>
     </div>
   );

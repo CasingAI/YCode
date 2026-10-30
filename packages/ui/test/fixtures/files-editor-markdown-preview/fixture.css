@@ -1,0 +1,77 @@
+/* 只给隔离夹具排版，不替代生产 styles.css 的 Tailwind 产物。 */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: #f4f4f5;
+  color: #18181b;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+}
+
+.files-e2e-app {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  border: 1px solid #d4d4d8;
+  background: #ffffff;
+}
+
+/* 暗色复核：夹具外壳跟随生产 .dark 变量，避免硬编码浅色遮住主题。
+   生产 html/body/#root 是透明背景（Electron vibrancy），所以外壳用显式深色。 */
+.dark .files-e2e-app {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: #171717;
+}
+
+.dark body {
+  color: #fafafa;
+}
+
+.dark .files-e2e-pane {
+  border-color: var(--color-border);
+}
+
+.files-e2e-pane {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  flex-direction: column;
+  border-right: 1px solid #d4d4d8;
+}
+
+.files-e2e-pane:last-child {
+  border-right: 0;
+}
+
+.files-e2e-pane > section {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.files-e2e-source-editor {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  min-height: 240px;
+  padding: 8px;
+  border: 0;
+  outline: none;
+  resize: none;
+  font:
+    13px/1.5 ui-monospace,
+    monospace;
+}
+
+.files-e2e-meta {
+  padding: 8px 12px;
+  font:
+    12px/1.5 ui-monospace,
+    monospace;
+  color: #52525b;
+}

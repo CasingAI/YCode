@@ -29,6 +29,8 @@ export interface FilesEditorTabItemProps {
   canCloseSaved: boolean;
   canRevealInFileTree: boolean;
   crowded: boolean;
+  /** 标签最小可读宽度；容器不足时由标签条横向滚动承接。 */
+  minTabWidth?: number;
   hovered: boolean;
   entering: boolean;
   exiting: boolean;
@@ -64,6 +66,7 @@ export const FilesEditorTabItem = memo(function FilesEditorTabItem({
   canCloseSaved,
   canRevealInFileTree,
   crowded,
+  minTabWidth,
   hovered,
   entering,
   exiting,
@@ -115,7 +118,7 @@ export const FilesEditorTabItem = memo(function FilesEditorTabItem({
           title={filesBufferTabTooltip(buffer)}
           style={{
             flex: collapsed ? "0 1 0%" : filesEditorTabFlex(crowded, selected, hovered),
-            minWidth: collapsed ? 0 : undefined,
+            minWidth: collapsed ? 0 : minTabWidth,
             opacity: collapsed ? 0 : 1,
           }}
           className={cn(

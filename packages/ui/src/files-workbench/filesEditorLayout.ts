@@ -7,11 +7,19 @@
 export type FilesEditorSplitDirection = "horizontal" | "vertical";
 export type FilesEditorSplitEdge = "left" | "right" | "top" | "bottom";
 
+/** Markdown 源码 / 预览展示模式；源码是默认值。 */
+export type FilesEditorMarkdownViewMode = "source" | "preview";
+
 export interface FilesEditorView {
   /** 编辑器视图的唯一身份；同一 buffer 在不同组中可以有多个 view。 */
   id: string;
   /** 指向 FilesEditorStore 中唯一的文件缓冲。 */
   bufferId: string;
+  /**
+   * Markdown 展示模式，按 view 保存（不按 buffer），因此分屏可同文一源码一预览。
+   * 运行时 layout 字段，不写入持久化会话；源码默认时省略。
+   */
+  markdownViewMode?: FilesEditorMarkdownViewMode;
 }
 
 export interface FilesEditorGroup {
@@ -161,7 +169,42 @@ export function replaceFilesEditorViewBuffer(
       [groupId]: {
         ...group,
         views: group.views.map((candidate) =>
-          candidate.id === viewId ? { ...candidate, bufferId } : candidate,
+          // 同一 view 换到另一个 buffer 时，旧的 Markdown 预览模式不再适用。
+          candidate.id === viewId
+            ? { ...candidate, bufferId, markdownViewMode: undefined }
+            : candidate,
+        ),
+      },
+    },
+  };
+}
+
+/**
+ * 设置某个 view 的 Markdown 展示模式。
+ *
+ * 只改运行时 layout：不触碰 buffer / 正文 / 脏态，也不触发持久化。
+ * `source` 是默认值，写入时删除字段；未知 view 是幂等 no-op。
+ */
+export function setFilesEditorViewMarkdownViewMode(
+  layout: FilesEditorLayoutState,
+  viewId: string,
+  mode: FilesEditorMarkdownViewMode,
+): FilesEditorLayoutState {
+  const groupId = findFilesEditorGroupForView(layout, viewId);
+  const group = groupId ? layout.groups[groupId] : undefined;
+  if (!group || !groupId) return layout;
+  const view = group.views.find((candidate) => candidate.id === viewId);
+  if (!view) return layout;
+  const nextMode = mode === "preview" ? "preview" : undefined;
+  if (view.markdownViewMode === nextMode) return layout;
+  return {
+    ...layout,
+    groups: {
+      ...layout.groups,
+      [groupId]: {
+        ...group,
+        views: group.views.map((candidate) =>
+          candidate.id === viewId ? { ...candidate, markdownViewMode: nextMode } : candidate,
         ),
       },
     },
