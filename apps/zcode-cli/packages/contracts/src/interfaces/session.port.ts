@@ -267,6 +267,14 @@ export interface TurnSteerInput {
   traceContext?: TraceContext;
   /** 当前输入消费时不向 provider 暴露的工具名。 */
   toolDisallowlist?: readonly string[];
+  /**
+   * 本条输入是被正式接纳的真实人工新消息；只有这种输入能解除无人值守锁。
+   * 带 automationId/offPeakTaskId 归因的输入即使置 true 也不解锁。
+   */
+  unlocksUnattendedModeSwitch?: boolean;
+  /** 仅用于无人值守锁的归因判断；turn 自身归因仍由 ExecuteTurnOptions 持有。 */
+  automationId?: string;
+  offPeakTaskId?: string;
 }
 
 export type TurnSteerCommandKind = "sendText" | "sendGoalCommand" | "compact";

@@ -92,6 +92,8 @@ export function toModelAutomation(automation: CronAutomation): CronAutomation {
     runCount: automation.runCount,
     recurring: automation.recurring,
     maxRuns: automation.maxRuns,
+    // 任务轴只写入 Agent / Team；工具输出必须回显 mode，列表不能丢失 Team。
+    mode: automation.mode,
     // 工具输出曾在此处重新投影 automation 时遗漏 scheduleRule，导致 CronCreate /
     // CronUpdate / CronList 虽收到真实间隔仍只展示兼容 cron，错误显示成每小时或每天。
     scheduleRule: automation.scheduleRule,
@@ -209,6 +211,7 @@ export const cronCreateToolEntry: ToolEntry = {
       "Pin minute, hour, day-of-month, and month in cron only for an absolute wall-clock date the user names outright, such as 'tomorrow at 9am' or 'on July 30 at 20:00'; set recurring=false and omit maxRuns (the default limit is 1). A relative one-shot such as '8分钟后' or 'in 2 hours' must use delayMinutes instead, because a self-computed one-shot time that has just passed silently rolls a full year forward.",
       "For exactly N scheduled runs, set recurring=false and maxRuns=N. recurring=true is indefinite and must not be combined with maxRuns.",
       "Automations persist in the current workspace until the user deletes them. Finite automations become completed and retain their history; they are not session-only or auto-deleted.",
+      "By default create an Agent automation (mode='yolo' or omitted). Set mode='team' only when the user explicitly asks the scheduled work to run as a Team. Ask and Plan are not automation modes.",
       "Honor exact user-provided times without adding jitter or shifting the schedule.",
       "Do not include workspace paths or identities in the input; the current session workspace is used.",
       "Always set title and preserve the user's natural-language schedule phrase verbatim in it. The title may be concise, but must not omit timing such as '每20分钟', '每天早上9点', or 'every Friday'.",
@@ -307,7 +310,8 @@ export const cronUpdateToolEntry: ToolEntry = {
       // 更新“每 N 单位”时同样必须使用 carrier；否则小间隔会退化为墙钟 cron，长间隔会生成非法 cron。
       "To create or change every N minutes/hours/days/weeks/months/years, pass intervalUnit and interval together for every N-unit schedule. interval must be an integer from 1 to 200 even when cron could express N. Also pass a legal compatible cron with only the time/day/weekday/month slot; for example, every 40 days at 09:00 uses intervalUnit='daily', interval=40, cron='0 9 * * *'. Omit the pair only when preserving or using an ordinary calendar cron schedule.",
       "Use numeric maxRuns only with recurring=false. Setting recurring=true clears any old finite limit automatically; never combine recurring=true with a numeric maxRuns.",
-      "CronUpdate cannot change workspace, session binding, model, provider, mode, thought level, run count, history, or enabled state.",
+      "To switch between Agent and Team execution, pass mode='yolo' (Agent) or mode='team' (Team). Omit mode to preserve the existing mode. Ask and Plan are not automation modes.",
+      "CronUpdate cannot change workspace, session binding, model, provider, thought level, run count, history, or enabled state.",
       "Do not simulate an update by deleting and recreating the automation.",
       "After a successful update, reply with only a brief confirmation. Do not restate the automation fields in a fenced code block or simulate a text file because the UI renders the updated automation card.",
     ],

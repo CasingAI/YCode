@@ -12,6 +12,7 @@ import { randomUUID } from "node:crypto";
 import {
   AUTOMATION_CREATE_LIMIT,
   AUTOMATION_CREATE_LIMIT_ERROR_CODE,
+  isAutomationWritableMode,
   resolveWorkspaceKey,
   modelGroupIntentSchema,
   modelSelectionSchema,
@@ -228,9 +229,10 @@ function normalizeAutomationMode(mode: string | null): ZCodeAutomation["mode"] |
 }
 
 function assertValidAutomationMode(mode: unknown): void {
-  if (mode === undefined || mode === null) return;
-  if (!zcodeTaskModeSchema.safeParse(mode).success) {
-    // 读取兼容历史脏数据不代表允许继续写脏数据；Repo 是绕过 RPC 时的最终持久化边界。
+  // undefined = 调用方不写档位（内部兼容）；显式值只能是 Agent / Team。
+  // 读取路径仍用 zcodeTaskModeSchema 容忍历史 NULL 与旧值，但写入不得继续产生旧档位。
+  if (mode === undefined) return;
+  if (!isAutomationWritableMode(mode)) {
     throw new Error(`Invalid automation mode: ${String(mode)}`);
   }
 }
@@ -1107,7 +1109,12 @@ export class AutomationRepo {
               enabled = 0, running = 0, claimed_at = NULL,
               last_error = @error, updated_at = @now
           WHERE ${claimCondition}`,
-        ).run({ id: automationId, scheduled_at: options.scheduledAt ?? null, error: options.error, now });
+        ).run({
+          id: automationId,
+          scheduled_at: options.scheduledAt ?? null,
+          error: options.error,
+          now,
+        });
         db.exec("COMMIT");
         return true;
       }
@@ -1135,7 +1142,12 @@ export class AutomationRepo {
                 enabled = 0, running = 0, claimed_at = NULL,
                 last_error = @error, updated_at = @now
             WHERE ${claimCondition}`,
-          ).run({ id: automationId, scheduled_at: options.scheduledAt ?? null, error: options.error, now });
+          ).run({
+            id: automationId,
+            scheduled_at: options.scheduledAt ?? null,
+            error: options.error,
+            now,
+          });
         }
       } else {
         // 未达上限：写退避 retry_at，复位 running 等下轮重认领。

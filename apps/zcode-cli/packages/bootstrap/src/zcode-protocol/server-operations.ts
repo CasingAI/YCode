@@ -2327,6 +2327,8 @@ export async function goalSession(context: ZCodeProtocolAgentServerContext, rawP
     reason: replacesExistingGoal ? "goal_replaced" : "goal_set",
     target,
     title: "Goal active",
+    // 用户显式 set/replace 是人工新消息；resume 与自主续跑不解锁。
+    unlocksUnattendedModeSwitch: true,
   });
 }
 
@@ -2542,6 +2544,9 @@ async function runPromptTurnInBackground(
                 ...(params.offPeakRunType ? { offPeakRunType: params.offPeakRunType } : {}),
               }
             : {}),
+        // legacy session/send 的自动化派发同样要先确认锁；无归因的输入才是人工新消息。
+        // inputId 前缀兜底已并入 activeAutomationId/activeOffPeakTaskId。
+        unlocksUnattendedModeSwitch: !activeAutomationId && !activeOffPeakTaskId,
         // legacy session/send 同样可能复用 active runtime；只做 port 拒绝时模型仍看得到
         // CronCreate，并可能在失败后改调 CronDelete。automation turn 与 cron task 会话后续输入
         // 都直接从本轮 provider 工具面移除。
@@ -2646,6 +2651,7 @@ async function continueGoalAfterChange(
     reason: string;
     target: ProtocolGoalTarget;
     title: string;
+    unlocksUnattendedModeSwitch?: boolean;
   },
 ) {
   const response = formatGoalChanged(params.title, params.target);
@@ -2665,6 +2671,7 @@ async function continueGoalAfterChange(
       runGoalContinuationInBackground(context, record, {
         abortController,
         inputId: params.inputId,
+        ...(params.unlocksUnattendedModeSwitch ? { unlocksUnattendedModeSwitch: true } : {}),
       }),
     ).catch(() => {
       // 后台 goal continuation 的失败会通过状态/事件流降级上报；这里兜底防 unhandled rejection。
@@ -2685,6 +2692,7 @@ async function runGoalContinuationInBackground(
   params: {
     abortController: AbortController;
     inputId?: string;
+    unlocksUnattendedModeSwitch?: boolean;
   },
 ): Promise<void> {
   let mutationReason = "goal_continuation_completed";
@@ -2692,6 +2700,7 @@ async function runGoalContinuationInBackground(
     await record.app.continueActiveTarget?.({
       abortSignal: params.abortController.signal,
       inputId: params.inputId,
+      ...(params.unlocksUnattendedModeSwitch ? { unlocksUnattendedModeSwitch: true } : {}),
     });
   } catch {
     mutationReason = "goal_continuation_failed";

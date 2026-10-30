@@ -1,4 +1,5 @@
 import type { ZCodeTaskMode } from "./zcode-task-types-core.js";
+import type { ZCodeAutomationWritableMode } from "./automation-types.js";
 import type { ModelSelection } from "./model-selection.js";
 
 // ---- 闲时任务(Off-Peak Task)领域类型 ----
@@ -117,7 +118,10 @@ export interface ZCodeOffPeakTask {
   sessionTitle?: string;
   /** 表单 Instructions。 */
   prompt: string;
-  /** 权限四档全开放，映射现有 ZCodeTaskMode，默认 "default"（Ask for approval）。 */
+  /**
+   * 执行档位。新写入只接受 yolo（Agent）/ team（Team），默认 yolo；
+   * 读取仍兼容历史 NULL / 旧值（plan / readonly / bare 等）。
+   */
   permissionMode: ZCodeTaskMode;
   /**
    * 创建被接受时固定的结构化 Submission 选择。
@@ -168,7 +172,8 @@ export interface ZCodeOffPeakTask {
 export interface ZCodeOffPeakTaskCreateParams {
   title: string;
   prompt: string;
-  permissionMode: ZCodeTaskMode;
+  /** 执行档位；只接受 yolo（Agent）/ team（Team），省略时服务端落盘为 yolo。 */
+  permissionMode?: ZCodeAutomationWritableMode;
   modelSelection: ModelSelection;
   workspacePath: string;
   workspaceIdentity?: string;

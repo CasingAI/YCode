@@ -12,11 +12,33 @@ import { resolveV4ModelTriggerLabel } from "@/v4/composer/modelTriggerDisplay.js
 // 定时任务表单必须是纯本地草稿，不能借用 workspace 默认配置写接口来获取选项；
 // 否则仅打开或取消编辑也会改掉当前项目和 draft session 的运行配置。
 
-/**
- * 定时 / 闲时任务只能以完全访问执行（产品决策：计划与只读档的任务无人可应答，跑不动），
- * 因此任务表单不再提供权限选择器，创建与更新都固定写这个值。
- */
+/** 自动化任务只开放 Agent / Team，两档都不需要人工逐步确认；新建默认 Agent。 */
 export const AUTOMATION_DEFAULT_MODE = "yolo";
+export type AutomationModeValue = "yolo" | "team";
+export const AUTOMATION_MODE_VALUES = [
+  "yolo",
+  "team",
+] as const satisfies readonly AutomationModeValue[];
+
+/**
+ * 历史 automations.mode / off_peak_tasks.permission_mode 可能是 NULL 或旧档位。
+ * 这里只做展示与初始草稿回退，不写回存储；旧 bare 按既有规则视为 Team，其余回退 Agent。
+ */
+export function resolveAutomationModeValue(value: unknown): AutomationModeValue {
+  const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return normalized === "team" || normalized === "bare" ? "team" : AUTOMATION_DEFAULT_MODE;
+}
+
+/**
+ * 创建始终写入选中的档位；更新只有用户实际碰过选择器才写，
+ * 避免仅改标题 / 提示词 / 时间时把历史 NULL 或旧值迁移成 yolo。
+ */
+export function shouldSubmitAutomationMode(params: {
+  isEditing: boolean;
+  touched: boolean;
+}): boolean {
+  return !params.isEditing || params.touched;
+}
 
 /** 新建任务必须把目标 Host 的 preferredSelection 固化为具体模型，而不是保存虚拟“默认模型”。 */
 export function resolveAutomationPreferredModelValue(
@@ -25,8 +47,6 @@ export function resolveAutomationPreferredModelValue(
   const preferred = view.preferredSelection;
   return preferred ? encodeCustomModelValue(preferred.providerId, preferred.modelId) : null;
 }
-
-const AUTOMATION_MODE_VALUES = ["yolo"] as const;
 
 export function buildAutomationModelSelectGroups(params: {
   selectedProvider: ZCodeProvider;
@@ -50,14 +70,16 @@ export function buildAutomationModelSelectGroups(params: {
   });
 }
 
-export function buildAutomationModeOption(currentValue: string): ZCodeConfigOption {
+export function buildAutomationModeOption(
+  currentValue: string | null | undefined,
+): ZCodeConfigOption {
+  const modeValue = resolveAutomationModeValue(currentValue);
   return {
     id: "mode",
     name: "Mode",
     category: "mode",
     type: "select",
-    // 只读展示：值域只剩完全访问，保留 build 调用点仍能渲染当前档位文案。
-    currentValue: AUTOMATION_MODE_VALUES.includes(currentValue as "yolo") ? currentValue : "yolo",
+    currentValue: modeValue,
     options: AUTOMATION_MODE_VALUES.map((value) => ({ value, name: value })),
   };
 }

@@ -190,7 +190,7 @@ export const offPeakCreateToolEntry: ToolEntry = {
       "Use this only when the user explicitly asks for idle-time/off-peak execution (闲时任务/闲时执行/低峰跑), or explicitly accepts deferring the work to the free idle-time queue.",
       "Choose CronCreate instead for anything time-scheduled or recurring ('every day at 9', 'in 10 minutes'). OffPeakCreate has no clock: the server decides when the task starts.",
       "The task later continues THIS conversation unattended with the full history available, so prompt may refer to context already established here; still state the expected deliverable explicitly because nobody will answer questions during the run.",
-      "By default the task runs in full-automatic mode with the default allowed model at the highest reasoning level. Only set permissionMode/model/thoughtLevel when the user explicitly asks for confirmation-gated execution, a specific model, or a lower reasoning effort.",
+      "By default the task runs as an Agent (mode='yolo') with the default allowed model at the highest reasoning level. Set permissionMode='team' only when the user explicitly asks for Team execution; Ask and Plan are not idle-time modes. Set model/thoughtLevel only when the user explicitly asks for a specific model or a lower reasoning effort.",
       "Do not include workspace paths or identities in the input; the current session workspace is used.",
       "Keep title concise and task-descriptive without file paths.",
       "Creation consumes a limited free take-number quota. If creation fails with a quota error, relay the limit to the user instead of retrying.",

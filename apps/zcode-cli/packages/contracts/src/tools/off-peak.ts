@@ -19,10 +19,10 @@ export const OffPeakCreateInputSchema = z
       "Instructions for the deferred run, which later continues THIS conversation unattended with the full history available, so it may refer to context already established here. State the expected deliverable explicitly (nobody will answer questions during the run); never ask the run to create, schedule, or configure another idle-time task or automation.",
     ),
     permissionMode: z
-      .literal("yolo")
+      .enum(["yolo", "team"])
       .optional()
       .describe(
-        "Unattended run permission mode. Tasks always run with full access, so this may only be 'yolo' (the default) or omitted.",
+        "Unattended run mode: 'yolo' (Agent, full access) or 'team' (Team). Omit for Agent, which is the default. Ask/Plan are not available because nobody can answer questions during the run.",
       ),
     model: nonEmptyString
       .optional()
@@ -56,6 +56,10 @@ export const OffPeakTaskSummarySchema = z
     offPeakTaskId: nonEmptyString,
     title: z.string(),
     status: OffPeakTaskStatusSchema,
+    // 读取兼容历史 plan / readonly / bare 等旧值；新任务只写 yolo / team，列表不得丢失 team。
+    permissionMode: z
+      .enum(["yolo", "team", "plan", "readonly", "bare", "edit", "auto", "autoEdit", "build"])
+      .optional(),
     queuePosition: z.number().int().positive().optional(),
     sessionId: nonEmptyString.optional(),
     createdAt: z.number().int().nonnegative(),

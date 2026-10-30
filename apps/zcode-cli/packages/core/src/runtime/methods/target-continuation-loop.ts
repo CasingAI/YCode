@@ -30,6 +30,9 @@ export async function continueActiveTargetLoop(
         ...(options.intent ? { intent: options.intent } : {}),
         traceContext,
         trigger: options.trigger,
+        ...(options.unlocksUnattendedModeSwitch !== undefined
+          ? { unlocksUnattendedModeSwitch: options.unlocksUnattendedModeSwitch }
+          : {}),
         ...(options.verifyBeforeFirstContinue !== undefined
           ? { verifyBeforeFirstContinue: options.verifyBeforeFirstContinue }
           : {}),
@@ -70,6 +73,9 @@ export async function runActiveTargetContinuationLoop(
       ...(options.inputId !== undefined ? { inputId: options.inputId } : {}),
       ...(continuationIntent ? { intent: continuationIntent } : {}),
       traceContext,
+      ...(options.unlocksUnattendedModeSwitch !== undefined
+        ? { unlocksUnattendedModeSwitch: options.unlocksUnattendedModeSwitch }
+        : {}),
       verifyBeforeContinue,
     });
     if (!result) return lastResult;

@@ -19,8 +19,26 @@ export function isAutomationCreateLimitError(error: unknown): boolean {
   return message.includes(AUTOMATION_CREATE_LIMIT_ERROR_CODE);
 }
 
+/**
+ * 自动化任务（定时 / 延时 / 闲时）允许写入的执行档位：Agent（yolo）与 Team（team）。
+ * Ask / Plan 不进入任务轴；历史 NULL 与 plan/build/edit/bare 等旧值只在读取路径兼容。
+ */
+export const AUTOMATION_WRITABLE_MODES = ["yolo", "team"] as const;
+export type ZCodeAutomationWritableMode = (typeof AUTOMATION_WRITABLE_MODES)[number];
+/** 新建任务省略档位时由服务端落盘的值（不是空值）。 */
+export const AUTOMATION_DEFAULT_WRITABLE_MODE: ZCodeAutomationWritableMode = "yolo";
+
+export function isAutomationWritableMode(value: unknown): value is ZCodeAutomationWritableMode {
+  return value === "yolo" || value === "team";
+}
+
 /** 整条 automation 的生命周期。 */
-export type ZCodeAutomationLifecycleStatus = "active" | "completed" | "failed" | "paused" | "missed";
+export type ZCodeAutomationLifecycleStatus =
+  | "active"
+  | "completed"
+  | "failed"
+  | "paused"
+  | "missed";
 
 /** 单条 automation 当前一轮的派发信息态（供 UI/诊断）。 */
 export type ZCodeAutomationDispatchStatus =
@@ -79,7 +97,10 @@ export interface ZCodeAutomation {
    * 执行时刻现读组名单哈希钉死并固定进 run。
    */
   modelGroupIntent?: ModelGroupIntent;
-  /** 权限模式；派发时透传给 createTask，缺省走 workspace 默认。 */
+  /**
+   * 执行档位；派发时透传给 createTask，缺省走 workspace 默认。
+   * 新写入只会是 yolo / team；读取路径仍可能遇到历史 NULL 与旧值（plan / readonly / bare 等）。
+   */
   mode?: ZCodeTaskMode;
   /** workspaceIdentity?.trim() || workspacePath */
   workspaceKey: string;
@@ -170,7 +191,8 @@ export interface ZCodeAutomationCreateParams {
   modelSelection?: ModelSelection;
   /** 组意图（docs/specs/model-group.md）：与 modelSelection 互斥，调用方保证只传一侧。 */
   modelGroupIntent?: ModelGroupIntent;
-  mode?: ZCodeTaskMode;
+  /** 执行档位；只接受 yolo（Agent）/ team（Team），省略时服务端落盘为 yolo。 */
+  mode?: ZCodeAutomationWritableMode;
   workspacePath: string;
   workspaceIdentity?: string;
   /** 当前会话内创建时由 runtime 注入，模型不可控。 */
@@ -203,8 +225,11 @@ export interface ZCodeAutomationUpdateParams {
    * undefined=不修改；null=清空组意图（不同时清空具体模型则回退 Workspace 首选）。
    */
   modelGroupIntent?: ModelGroupIntent | null;
-  /** undefined=不修改；null=清空，回退到 workspace 默认权限模式。 */
-  mode?: ZCodeTaskMode | null;
+  /**
+   * undefined=不修改（保留已存档位）；只接受显式 yolo / team。
+   * 历史 NULL 仍表示「未指定」，但新更新不能用 null 把任务清回空值。
+   */
+  mode?: ZCodeAutomationWritableMode;
   recurring?: boolean;
   /** undefined=通常不修改；recurring=true 时领域层会自动清空旧上限；显式 null 必须同时传 recurring=true。 */
   maxRuns?: number | null;

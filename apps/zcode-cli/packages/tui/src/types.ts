@@ -182,6 +182,8 @@ export type TuiSubmitPrompt = (
     abortSignal: AbortSignal;
     onEvent?: (event: SessionEvent) => void | Promise<void>;
     requestPermission?: TuiRequestPermission;
+    /** 真实人工新消息可解除无人值守锁；/compact 等控制命令不传。 */
+    unlocksUnattendedModeSwitch?: boolean;
   },
 ) => Promise<TuiSubmitPromptResult>;
 
@@ -204,6 +206,8 @@ export type TuiSendInput = (
     expectedTurnId?: TurnId;
     onEvent?: (event: SessionEvent) => void | Promise<void>;
     requestPermission?: TuiRequestPermission;
+    /** 真实人工新消息可解除无人值守锁；/compact 等控制命令不传。 */
+    unlocksUnattendedModeSwitch?: boolean;
   },
 ) => Promise<TuiSendInputResult>;
 

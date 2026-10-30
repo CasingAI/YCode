@@ -138,6 +138,7 @@ export function createInputFacade(deps: CreateInputFacadeDeps): InputFacade {
       toolDisallowlist: options?.toolDisallowlist,
       traceContext: options?.traceContext ?? deps.traceContext,
       modelExecution: options?.modelExecution,
+      unlocksUnattendedModeSwitch: options?.unlocksUnattendedModeSwitch,
     });
   };
 
@@ -176,6 +177,7 @@ export function createInputFacade(deps: CreateInputFacadeDeps): InputFacade {
           traceContext: options?.traceContext ?? deps.traceContext,
           trigger: "manual",
           verifyBeforeFirstContinue: false,
+          unlocksUnattendedModeSwitch: options?.unlocksUnattendedModeSwitch,
         });
       } finally {
         unsubscribe?.();
@@ -261,6 +263,7 @@ export function createInputFacade(deps: CreateInputFacadeDeps): InputFacade {
         ...(options?.intent?.queueItemId ? { pendingInputId: options.intent.queueItemId } : {}),
         ...(options?.inputId ? { inputId: options.inputId } : {}),
         ...(options?.queryId ? { queryId: options.queryId } : {}),
+        ...(options?.unlocksUnattendedModeSwitch ? { unlocksUnattendedModeSwitch: true } : {}),
         traceContext: options?.traceContext ?? deps.traceContext,
       });
       if (result.kind === "queued") {
@@ -290,6 +293,7 @@ export function createInputFacade(deps: CreateInputFacadeDeps): InputFacade {
           input,
           toolDisallowlist: options?.toolDisallowlist,
           traceContext: options?.traceContext ?? deps.traceContext,
+          unlocksUnattendedModeSwitch: options?.unlocksUnattendedModeSwitch,
         });
         if (result.kind === "queued") {
           await recordAcceptedInputHistory(

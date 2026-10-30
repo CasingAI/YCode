@@ -1,7 +1,9 @@
 import { resolveExecutionState, type ExecutionState } from "@zcode/shared";
 import {
+  CoreErrorType,
   SESSION_ENTRY_EXECUTION_STATE,
   SessionEventType,
+  createCoreError,
   type CollaborationMode,
   type TraceContext,
   type SessionId,
@@ -12,6 +14,7 @@ import {
   unpublishedPermissionGrants,
   recoverPendingPermissionGrant,
 } from "./permission-grant-recovery.js";
+import { UNATTENDED_MODE_SWITCH_BLOCKED_MESSAGE } from "./unattended-execution-lock.js";
 
 export function readRuntimeExecutionState(runtime: AgentRuntimeInternal): ExecutionState {
   return resolveExecutionState(runtime.config);
@@ -52,6 +55,21 @@ export async function applyRuntimeExecutionState(
   const previous = readRuntimeExecutionState(runtime);
   const next = resolveExecutionState(input, previous);
   if (next.mode === previous.mode) return next;
+  // 无人值守锁只阻止模型经工具切档；人工 command（UI 选择器、/mode）仍然放行且不清锁。
+  // 拒绝必须发生在任何落盘/内存/事件副作用之前，工具层拿到的就是最终事实。
+  if (cause.source === "tool" && runtime.unattendedExecutionLocked) {
+    throw createCoreError(
+      CoreErrorType.InvalidStateTransition,
+      UNATTENDED_MODE_SWITCH_BLOCKED_MESSAGE,
+      {
+        context: {
+          currentMode: previous.mode,
+          requestedMode: next.mode,
+          sessionId: runtime.sessionId,
+        },
+      },
+    );
+  }
   // 受限档会让 Goal 的自主循环无法落盘，所以进入前必须先把 Goal 收口。
   if (isRestrictedMode(next.mode) && !isRestrictedMode(previous.mode)) {
     const trace = cause.traceContext ?? runtime.rootTraceContext;
@@ -108,4 +126,3 @@ export async function applyRuntimeExecutionState(
 function isRestrictedMode(mode: CollaborationMode): boolean {
   return mode === "plan" || mode === "readonly";
 }
-

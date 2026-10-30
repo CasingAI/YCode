@@ -443,7 +443,11 @@ async function editUserQuery(
       editCommandKind === "sendGoalCommand" ? payload.newText : undefined,
       // 抢占路径的重发必须占用空闲位直接启动：缺 requireIdle 会在旧 turn 收尾尾巴
       // （drain/队列残留）仍算 busy 时被 admission 推进队列。静态编辑不传，保持原语义。
-      editResendBusy ? { requireIdle: true } : undefined,
+      // 编辑是人工新消息，可解锁；retryTurn 不传该标记。
+      {
+        ...(editResendBusy ? { requireIdle: true } : {}),
+        unlocksUnattendedModeSwitch: true,
+      },
     );
   } finally {
     releaseEditResendLease();
@@ -600,7 +604,7 @@ async function startCanonicalIntent(
   /** goal 重发的落库可见文本（编辑原文含 token）；缺省由落库单点构造 `/goal <objective>`。 */
   goalDisplayText?: string,
   /** 抢占路径的重发占用空闲位：透传给 startPromptTurn → Core admission requireIdle。 */
-  options?: { requireIdle?: boolean },
+  options?: { requireIdle?: boolean; unlocksUnattendedModeSwitch?: boolean },
 ): Promise<void> {
   // goal 的 canonical text 必须是 token 之后的正文：旧行 intent.text 历史上就是
   // 纯目标正文（无 token，slice 原样返回 trim 全文），编辑进来的新文本则是整段
@@ -643,6 +647,8 @@ async function startCanonicalIntent(
       inputId: envelope.commandId,
       objective: goalText,
       intent,
+      // 编辑历史消息后重发是人工新消息；retryTurn 重发原文不携带该标记。
+      ...(options?.unlocksUnattendedModeSwitch ? { unlocksUnattendedModeSwitch: true } : {}),
       // goal 行落库形态（goal-command-scope-and-decoration.md「落库形态」）：编辑场景
       // 必须传编辑原文——它含 token 之前的前文与原大小写，依赖缺省构造会静默抹掉。
       // retry 场景不传（旧行 intent.text 是纯 objective），由落库单点构造
@@ -658,6 +664,7 @@ async function startCanonicalIntent(
     intent,
     ...(attachments ? { attachments } : {}),
     ...(options?.requireIdle ? { requireIdle: true } : {}),
+    ...(options?.unlocksUnattendedModeSwitch ? { unlocksUnattendedModeSwitch: true } : {}),
   });
 }
 

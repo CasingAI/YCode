@@ -68,7 +68,8 @@ harness 层的 Ask（管助手工具箱）此前对 Bash 整 Tool 拒绝，与�
 - **完全访问授权不解除计划模式**，与只读一致：计划模式下写工具是 `deny` 而非 `ask`，本就不会弹授权框。
 - **每条模型请求都注入模式标签。** 每个 model step 在请求尾部强制注入一行 `<mode>` 标签（`<mode>Plan</mode>` / `<mode>Ask</mode>` / `<mode>Agent</mode>` / `<mode>Team</mode>`），无节流、无完整版/精简版交替：标签极短，成本可忽略，换来模型在每次生成前都拿到当前档位。四档行为指令由系统 Prompt 的静态 Collaboration modes 段交代，不随档位变化，避免切档打爆 system prompt 前缀缓存。模型可调的切档工具只有一个 `EnterPlanMode`（见下），`CreatePlan` 不切档。
 - **模型可调的切档工具只有一个：`EnterPlanMode`。** 全档工具表可见，仅 Ask / Agent 档可成功调用（切进 Plan）；Plan 档内调用返回可读错误（已在 Plan，直接调 `CreatePlan`），不抛权限拒绝。Team 档权限上与 Agent 相同、可成功调用，但引导上不进 Plan（Team 档内就地拆解与设计，见 `team-mode.md`）。从 Ask / Agent 切到 Plan 是收紧（不构成提权），无需额外确认。`CreatePlan` 不切档。`previousMode` 只是记录，不是退档栈。
-- **任务轴只跑完全访问。** off-peak / automation 的任务表单不再提供权限选择器，创建与更新固定写 `yolo`；协议上的 `permissionMode` 收敛为 `z.literal("yolo")`。
+- **任务轴可选 Agent / Team。** off-peak / automation 的任务表单只提供 `yolo`（Agent）与 `team`（Team）两档，不提供 Ask / Plan；新建省略默认 Agent，更新省略保留原值，列表与协议输出保留 Team。所有创建入口（UI、`CronCreate` / `CronUpdate` / `OffPeakCreate`）同规。详见 [`automation-execution-mode.md`](./automation-execution-mode.md)。
+- **自动化执行期间禁止模型自行切档。** runtime 在自动化输入真正开始执行时加无人值守锁（归因 `automationId` / `offPeakTaskId` 与既有 queryId 前缀），锁定期间任何 `source: "tool"` 的档位写入硬拒绝；人工 UI 命令可改档但不解锁，只有之后被接受的人工新消息才解锁。锁的持久化、解锁边界与 fail-closed 规则见 [`automation-execution-mode.md`](./automation-execution-mode.md)。
 - **默认档与计划工具。** `CreatePlan` 仅 Plan 档可成功调用（Plan 专属），不切档、不询问、不还原任何档位；Ask / Agent 档调用返回可读错误，指引模型先调 `EnterPlanMode` 再重试，不走权限拒绝。`EnterPlanMode` 全档工具面可见，仅 Ask / Agent / Team 档成功切进 Plan，Plan 档内调用返回可读错误（已在 Plan）。`prePlanMode` 的退出还原逻辑已删除（历史 `EnterPlanMode` / `ExitPlanMode` 行仍按旧规则水合，见「兼容面」）。
 
 ## 状态所有者与事件顺序
@@ -153,7 +154,7 @@ flowchart TD
 8. 受限档下，一条项目 `allow` 规则或 `allowedTools` 不能放行写工具。
 9. CLI `/mode` 接受四项，`/mode build` 被拒。
 10. 升级前数据：`{mode:"build", planEnabled:true}` → 计划模式；`{mode:"build"}` → 完全访问；`{mode:"edit", readOnlyEnabled:true}` → 只读；`{mode:"bare"}` → Team；旧 localStorage 草稿同样归一；旧 `permission_full_access` receipt（`previousMode` 为 `build` / `bare`）仍能解析并完成授权重试。
-11. off-peak / automation 表单没有权限选择器，创建与更新的 `permissionMode` 恒为 `yolo`。
+11. off-peak / automation 表单提供 Agent / Team 两档，新建省略为 Agent，更新省略保留，列表保留 Team；历史 `NULL` / 旧值不迁移、不因无关编辑被改写；执行期模型切档硬拒绝，锁的时序见 [`automation-execution-mode.md`](./automation-execution-mode.md)。
 12. 受限档下 git 全局参数按分类表判定：
     - 放行：`git status`、`git --no-pager status`、`git --paginate log --oneline`、`git -C <工作区内目录> status --short --branch`、`git -C<工作区内目录> log`、`git -C a -C b status`（两个目标都在工作区内）。
     - 拒绝：`git -C <工作区外目录> status`、`git -C .. status`、`git -C <不存在的路径> status`、缺 `workspaceRoot` 时的 `git -C . status`、`git -c core.hooksPath=/tmp status`、`git --git-dir=/tmp/x status`、`git --exec-path=/tmp log`、`git --attr-source=/tmp diff`、未登记的全局参数 `git --some-new-global status`。

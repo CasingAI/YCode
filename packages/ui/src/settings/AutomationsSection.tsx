@@ -79,6 +79,7 @@ import {
 } from "@/settings/automationFormat.js";
 import { describeAutomationCardSchedule } from "@/settings/automationCardSchedule.js";
 import { AutomationEditView, type AutomationEditSubmit } from "@/settings/AutomationEditView.js";
+import { resolveAutomationModeValue } from "@/settings/automationAgentConfigOptions.js";
 import { AutomationScheduleBadge } from "@/settings/AutomationScheduleBadge.js";
 import {
   AutomationClockIcon,
@@ -673,8 +674,7 @@ export function AutomationsSection({
   );
   const visibleAutomations = filterAutomationsByStatus(tabAutomations, statusFilter);
   const visibleOffPeakTasks = filterOffPeakTasksByStatus(offPeakTasks, statusFilter);
-  const hasVisibleTaskCards =
-    tab === "idle" ? offPeakTasks.length > 0 : tabAutomations.length > 0;
+  const hasVisibleTaskCards = tab === "idle" ? offPeakTasks.length > 0 : tabAutomations.length > 0;
   const hasFilteredTaskCards =
     tab === "idle" ? visibleOffPeakTasks.length > 0 : visibleAutomations.length > 0;
   const [loadedWorkspaceKey, setLoadedWorkspaceKey] = useState<string | null>(null);
@@ -919,14 +919,17 @@ export function AutomationsSection({
     };
   }, [openAutomationId, offPeakRefresh, offPeakTaskService]);
 
-  const handleEditAutomation = useCallback((automation: ZCodeAutomation) => {
-    setTab(automation.scheduleType === "delay" ? "delay" : "scheduled");
-    setView(
-      automation.scheduleType === "delay"
-        ? { mode: "delay-edit", automation }
-        : { mode: "edit", automation },
-    );
-  }, [setTab]);
+  const handleEditAutomation = useCallback(
+    (automation: ZCodeAutomation) => {
+      setTab(automation.scheduleType === "delay" ? "delay" : "scheduled");
+      setView(
+        automation.scheduleType === "delay"
+          ? { mode: "delay-edit", automation }
+          : { mode: "edit", automation },
+      );
+    },
+    [setTab],
+  );
 
   useEffect(() => {
     // 闲时轮尾卡携带 offpeak- 前缀 id，从并行路径解析进 offpeak-edit 视图；
@@ -1043,11 +1046,7 @@ export function AutomationsSection({
       workspaceIdentity: targetIdentity,
     }: AutomationEditSubmit) => {
       if (view.mode === "edit" || view.mode === "delay-edit") {
-        const ok = await updateAutomation(
-          view.automation.automationId,
-          input,
-          zcodeAgentService,
-        );
+        const ok = await updateAutomation(view.automation.automationId, input, zcodeAgentService);
         if (!ok) {
           toast(
             intl.formatMessage({
@@ -1066,7 +1065,9 @@ export function AutomationsSection({
       const created = await createAutomation(
         {
           ...(input as Parameters<typeof createAutomation>[0]),
-          ...(view.mode === "delay-create" ? { relativeDelayMinutes: Number(input.relativeDelayMinutes) } : {}),
+          ...(view.mode === "delay-create"
+            ? { relativeDelayMinutes: Number(input.relativeDelayMinutes) }
+            : {}),
           workspacePath: targetPath,
           workspaceIdentity: targetIdentity,
         },
@@ -1353,7 +1354,8 @@ export function AutomationsSection({
           {
             title: input.title,
             prompt: input.prompt,
-            permissionMode: input.permissionMode,
+            // 未触碰档位时字段为 undefined，不把历史空值 / 旧档位写成 Agent。
+            ...(input.permissionMode !== undefined ? { permissionMode: input.permissionMode } : {}),
             modelSelection: input.modelSelection,
           },
           offPeakTaskService,
@@ -1364,12 +1366,17 @@ export function AutomationsSection({
         return updated;
       }
 
+      // 创建始终带明确档位；表单正常会给 yolo / team，这里只兜底类型边界。
+      const createInput = {
+        ...input,
+        permissionMode: resolveAutomationModeValue(input.permissionMode),
+      };
       const result =
         telemetrySnapshot !== null
           ? await createAndReportOffPeakTask(platform, telemetrySnapshot, () =>
-              offPeakCreate(input, offPeakTaskService),
+              offPeakCreate(createInput, offPeakTaskService),
             )
-          : await offPeakCreate(input, offPeakTaskService);
+          : await offPeakCreate(createInput, offPeakTaskService);
       if (!result.ok) {
         toast(
           intl.formatMessage({
@@ -1459,8 +1466,7 @@ export function AutomationsSection({
           onDelete={(automation) => handleDelete(automation, "editor")}
           runsEntry={isEditView ? runsCache[view.automation.automationId] : undefined}
           onLoadRuns={() => {
-            if (isEditView)
-              void loadRuns(view.automation.automationId, zcodeAgentService, true);
+            if (isEditView) void loadRuns(view.automation.automationId, zcodeAgentService, true);
           }}
           onDeleteRun={(runId) => {
             if (isEditView) {
@@ -1691,7 +1697,8 @@ export function AutomationsSection({
                           const remaining = automation.nextRunAt
                             ? formatRelativeToNow(automation.nextRunAt, now, intl)
                             : "-";
-                          const busy = operationId?.endsWith(`:${automation.automationId}`) ?? false;
+                          const busy =
+                            operationId?.endsWith(`:${automation.automationId}`) ?? false;
                           return (
                             <div
                               key={automation.automationId}
@@ -1715,11 +1722,19 @@ export function AutomationsSection({
                                   {automationPromptSummary(automation.prompt)}
                                 </p>
                                 <div className="mt-auto flex min-w-0 items-center gap-2 text-ui-base">
-                                  <StatusIcon className={cn("size-4 shrink-0", STATUS_META[status].className)} aria-hidden="true" />
+                                  <StatusIcon
+                                    className={cn("size-4 shrink-0", STATUS_META[status].className)}
+                                    aria-hidden="true"
+                                  />
                                   <span className="truncate text-foreground-subtle">
                                     {status === "active"
-                                      ? intl.formatMessage({ id: "automations.delay.remaining" }, { amount: remaining })
-                                      : intl.formatMessage({ id: `automations.lifecycle.${status}` })}
+                                      ? intl.formatMessage(
+                                          { id: "automations.delay.remaining" },
+                                          { amount: remaining },
+                                        )
+                                      : intl.formatMessage({
+                                          id: `automations.lifecycle.${status}`,
+                                        })}
                                   </span>
                                   <span className="shrink-0 text-foreground-subtle">
                                     {intl.formatMessage(
@@ -1818,11 +1833,11 @@ export function AutomationsSection({
                             data-testid={TID_AUTOMATION_CARD}
                             role="button"
                             tabIndex={0}
-          onClick={() => handleEditAutomation(automation)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" || event.key === " ") {
-              event.preventDefault();
-              handleEditAutomation(automation);
+                            onClick={() => handleEditAutomation(automation)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                handleEditAutomation(automation);
                               }
                             }}
                             className={cn(
@@ -1963,7 +1978,9 @@ export function AutomationsSection({
                       />
                       {/* 有闲时任务时右上已有创建入口，空卡不再重复（4866-1735 vs 4889-2013）。
                           被拦时入口整体不渲染，不再展示灰色 disabled 按钮。 */}
-                      {offPeakCreationEnabled && !offPeakCreateBlocked && offPeakTasks.length === 0 ? (
+                      {offPeakCreationEnabled &&
+                      !offPeakCreateBlocked &&
+                      offPeakTasks.length === 0 ? (
                         <OffPeakCreateButton
                           greyReason={offPeakCreateGrey.reason}
                           greyTooltip={offPeakCreateGrey.tooltip}

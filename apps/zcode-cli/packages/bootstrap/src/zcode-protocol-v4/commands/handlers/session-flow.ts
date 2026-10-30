@@ -70,6 +70,8 @@ export async function enqueueDeferredInputForBusyWork(
     intent?: SteerTurnOptions["intent"];
     attachments?: TurnAttachment[];
     toolDisallowlist?: SteerTurnOptions["toolDisallowlist"];
+    /** 真实人工新消息走 busy 入队时也要解锁；compact / 系统输入不传。 */
+    unlocksUnattendedModeSwitch?: boolean;
   },
 ): Promise<boolean> {
   if (!record.app.enqueueDeferredInput) return false;
@@ -80,6 +82,7 @@ export async function enqueueDeferredInputForBusyWork(
     ...(options.intent ? { intent: options.intent } : {}),
     ...(options.attachments ? { attachments: options.attachments } : {}),
     ...(options.toolDisallowlist ? { toolDisallowlist: options.toolDisallowlist } : {}),
+    ...(options.unlocksUnattendedModeSwitch ? { unlocksUnattendedModeSwitch: true } : {}),
     queryId: options.queryId,
   });
   if (result.kind === "queued") return true;
@@ -280,6 +283,8 @@ async function sendText(
         ? { browserAmbientContext: payload.browserAmbientContext }
         : {}),
       inputId: envelope.commandId,
+      // 用户直接发送的正文是真实人工新消息；自动化载荷即使走到这里也由 Core 归因优先拦下。
+      unlocksUnattendedModeSwitch: true,
       // 立即发送切换了 runtime turn，导致运行中用户输入遗漏 human 提示。
       // 只按 Core 的实际抢占回执标记纯文本；空闲及附件输入保留原路径。
       ...(preempted && !attachments?.length ? { inputPresentation: "user_steer" as const } : {}),

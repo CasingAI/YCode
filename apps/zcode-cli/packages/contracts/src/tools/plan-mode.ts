@@ -109,12 +109,19 @@ export interface EnterPlanModeTransitionResult {
   previousMode: CollaborationMode;
 }
 
+/** 当前不可切档时给模型的直接原因；真正的拒绝仍由 runtime 写入点兜底。 */
+export interface SessionModeSwitchRestriction {
+  reason: string;
+}
+
 export interface SessionModePort {
   supportsPermissionFullAccess?(): boolean;
   /** mode 的派生查询；权限轴是单值，这里只是给既有调用点省一次比较。 */
   isPlanEnabled?(): boolean;
   isReadOnlyEnabled?(): boolean;
   getMode(): CollaborationMode;
+  /** 自动化无人值守期间返回不可切档原因，便于工具层给出可读失败。 */
+  getModeSwitchRestriction?(): SessionModeSwitchRestriction | undefined;
   /**
    * 模型经 EnterPlanMode 切进 Plan。实现走既有档位写入点（applyRuntimeExecutionState，
    * source: "tool"），不新增写入路径；Goal 处于 active 时按既有规则先收口再切档。

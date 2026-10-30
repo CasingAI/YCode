@@ -374,6 +374,7 @@ async function sendGoalCommand(
         inputId: envelope.commandId,
         queryId: envelope.commandId as SteerTurnOptions["queryId"],
         intent: submissionIntent({ requestedDelivery: "queue", text: objective }),
+        unlocksUnattendedModeSwitch: true,
       })
     ) {
       return undefined;
@@ -383,6 +384,7 @@ async function sendGoalCommand(
       inputId: envelope.commandId,
       queryId: envelope.commandId as SteerTurnOptions["queryId"],
       intent: submissionIntent({ requestedDelivery: "queue", text: objective }),
+      unlocksUnattendedModeSwitch: true,
     });
     if (queued.kind === "rejected") {
       throw new V4InputAdmissionRejectedError(
@@ -404,6 +406,8 @@ async function sendGoalCommand(
     inputId: envelope.commandId,
     objective,
     intent: submissionIntent({ requestedDelivery: "startNow", text: objective }),
+    // 用户显式 /goal 是真实人工新消息；队列提升调用缺省不带，保持锁。
+    unlocksUnattendedModeSwitch: true,
   });
   return undefined;
 }
@@ -425,6 +429,8 @@ export async function applyGoalCommand(
     objective: string;
     foregroundPromotionLeaseId?: string;
     intent?: SteerTurnOptions["intent"];
+    /** 用户显式 /goal 才解锁；队列提升与自主续跑缺省保持锁。 */
+    unlocksUnattendedModeSwitch?: boolean;
   },
 ): Promise<void> {
   // held choice 裁决（同 sendText；sendGoalCommand）。
@@ -463,6 +469,7 @@ export async function applyGoalCommand(
     inputId: params.inputId,
     intent: params.intent,
     reason: replacesExistingGoal ? "goal_replaced" : "goal_set",
+    ...(params.unlocksUnattendedModeSwitch ? { unlocksUnattendedModeSwitch: true } : {}),
   });
 }
 
@@ -592,6 +599,7 @@ async function continueGoalAfterChange(
     inputId: string;
     intent?: SteerTurnOptions["intent"];
     reason: string;
+    unlocksUnattendedModeSwitch?: boolean;
   },
 ): Promise<void> {
   const mode = record.app.getMode?.();
@@ -610,6 +618,7 @@ async function continueGoalAfterChange(
         foregroundPromotionLeaseId: params.foregroundPromotionLeaseId,
         inputId: params.inputId,
         intent: params.intent,
+        ...(params.unlocksUnattendedModeSwitch ? { unlocksUnattendedModeSwitch: true } : {}),
       }),
     ).catch(() => {
       // 后台 goal continuation 的失败经事件流降级上报；兜底防 unhandled rejection。
@@ -628,6 +637,7 @@ async function runGoalContinuationInBackground(
     foregroundPromotionLeaseId?: string;
     inputId: string;
     intent?: SteerTurnOptions["intent"];
+    unlocksUnattendedModeSwitch?: boolean;
   },
 ): Promise<void> {
   let mutationReason = "goal_continuation_completed";
@@ -637,6 +647,7 @@ async function runGoalContinuationInBackground(
       inputId: params.inputId,
       intent: params.intent,
       queryId: params.inputId as SubmitPromptOptions["queryId"],
+      ...(params.unlocksUnattendedModeSwitch ? { unlocksUnattendedModeSwitch: true } : {}),
     });
   } catch {
     mutationReason = "goal_continuation_failed";

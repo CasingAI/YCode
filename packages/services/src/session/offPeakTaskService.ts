@@ -11,6 +11,8 @@
 import { randomUUID } from "node:crypto";
 import { ZodError } from "zod";
 import {
+  AUTOMATION_DEFAULT_WRITABLE_MODE,
+  isAutomationWritableMode,
   isOffPeakTerminalStatus,
   resolveWorkspaceKey,
   type OffPeakCodingPlanSupport,
@@ -63,10 +65,9 @@ interface OffPeakTaskServiceDeps {
   onDispose?: () => void;
 }
 
-/** 闲时任务只能以完全访问执行：计划/只读档的任务无人可应答，跑不动（产品决策）。 */
-const VALID_CREATE_PERMISSION_MODES = new Set(["yolo"]);
-
+/** 闲时任务只提供 Agent / Team 两档；Ask / Plan 无人可应答，不属于任务轴（产品决策）。 */
 function isValidCreateParams(params: ZCodeOffPeakTaskCreateParams): boolean {
+  const permissionMode = params.permissionMode ?? AUTOMATION_DEFAULT_WRITABLE_MODE;
   return (
     typeof params.title === "string" &&
     params.title.trim().length > 0 &&
@@ -74,8 +75,8 @@ function isValidCreateParams(params: ZCodeOffPeakTaskCreateParams): boolean {
     params.prompt.trim().length > 0 &&
     typeof params.workspacePath === "string" &&
     params.workspacePath.trim().length > 0 &&
-    typeof params.permissionMode === "string" &&
-    VALID_CREATE_PERMISSION_MODES.has(params.permissionMode)
+    typeof permissionMode === "string" &&
+    isAutomationWritableMode(permissionMode)
   );
 }
 
@@ -187,6 +188,8 @@ export class OffPeakTaskService implements IOffPeakTaskService {
     }
     const normalizedParams: ZCodeOffPeakTaskCreateParams = {
       ...params,
+      // 省略档位时在服务端落盘 Agent，不留空值。
+      permissionMode: params.permissionMode ?? AUTOMATION_DEFAULT_WRITABLE_MODE,
       modelSelection: selection.selection,
     };
     // 绑定会话已有未终态任务即拒，先于取号避免浪费额度；
@@ -368,6 +371,10 @@ export class OffPeakTaskService implements IOffPeakTaskService {
     if (!existing) return null;
     if (existing.status !== "queued" && existing.status !== "paused") {
       // running 起锁定编辑（仅取消），终态只读。
+      return null;
+    }
+    // 更新省略档位即保留；显式值只接受 Agent / Team，历史 NULL / 旧值读取兼容但不回写。
+    if (params.permissionMode !== undefined && !isAutomationWritableMode(params.permissionMode)) {
       return null;
     }
     // 闲时任务必须保存一个可由当前 Registry 解析的明确模型；清空模型不能退化成

@@ -177,6 +177,10 @@ export async function executeTargetContinuationCommand(
     inputVisibility: "model-only",
     targetId: continuationTarget.targetID,
     traceContext: continuationTrace,
+    // 人工 /goal set|replace 的首次续跑可解锁；自主续跑不带此标记。
+    ...(options.unlocksUnattendedModeSwitch !== undefined
+      ? { unlocksUnattendedModeSwitch: options.unlocksUnattendedModeSwitch }
+      : {}),
   });
 }
 

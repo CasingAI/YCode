@@ -123,6 +123,15 @@ export interface AgentRuntimeInternal
   sessionStore?: SessionStorePort;
   sessionMailboxPort?: SessionMailboxPort;
   sessionPersisted: boolean;
+  /**
+   * 无人值守执行锁的唯一内存副本。
+   * 只由 unattended-execution-lock.ts 的加锁/解锁/冷恢复改写，不作为业务投影外露。
+   */
+  unattendedExecutionLocked: boolean;
+  /** 人工新消息被接纳的单调计数；自动化 admission 在 await 前记录基线。 */
+  unattendedHumanInputEpoch: number;
+  /** 加锁/解锁串行链；保证写入顺序与内存最终状态一致。 */
+  unattendedLockTransition: Promise<void>;
   latestConversationMessageId?: MessageId;
   latestAssistantMessageId?: MessageId;
   latestAssistantTurnId?: TurnId;

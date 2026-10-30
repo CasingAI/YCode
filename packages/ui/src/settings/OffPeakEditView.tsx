@@ -1,7 +1,7 @@
-/* eslint-disable max-lines -- 闲时任务整页集中维护创建/编辑/History 与 composer 项目、权限、模型工具条，拆分会割裂表单状态。 */
+/* eslint-disable max-lines -- 闲时任务整页集中维护创建/编辑/History 与 composer 项目、模式、模型工具条，拆分会割裂表单状态。 */
 /* 闲时任务创建/编辑整页。composer 范式：页标题 +
    返回行 + 内联保持电脑运行开关 + Settings/History tab + 标题输入 + 大 composer 盒
-   （textarea + 工具条：项目/权限｜模型/推理档位）。权限四档默认 build，模型走白名单。 */
+   （textarea + 工具条：项目/模式｜模型/推理档位）。模式为 Agent / Team，模型走白名单。 */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ModelSelectionView } from "@zcode/services";
 import { completeNewModelSelection } from "@zcode/provider";
@@ -42,7 +42,12 @@ import { SETTINGS_FRAME_CONTENT_CLASSNAME } from "@/settings/SettingsPageParts.j
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useSettings } from "@/hooks/useSettingService.js";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog.js";
-import { AUTOMATION_DEFAULT_MODE } from "@/settings/automationAgentConfigOptions.js";
+import {
+  resolveAutomationModeValue,
+  shouldSubmitAutomationMode,
+  type AutomationModeValue,
+} from "@/settings/automationAgentConfigOptions.js";
+import { AutomationModeSelect } from "@/settings/AutomationModeSelect.js";
 import { ChatEmptyWorkspacePreviewMenu, type ChatEmptyWorkspaceMenuTab } from "@/ChatEmptyState.js";
 import { useAutomationProjectOptions } from "@/hooks/useAutomationProjectOptions.js";
 import {
@@ -77,7 +82,8 @@ function buildOffPeakSubmissionModelSelection(
 export interface OffPeakEditSubmit {
   title: string;
   prompt: string;
-  permissionMode: string;
+  /** 编辑未触碰档位时省略，避免把历史空值 / 旧档位顺手迁移。 */
+  permissionMode?: string;
   modelSelection: ModelSelection;
   workspacePath: string;
   workspaceIdentity?: string;
@@ -148,6 +154,15 @@ export function OffPeakEditView({
   const previousLocalizedDefaultTitleRef = useRef(localizedDefaultCreateTitle);
   const [title, setTitle] = useState(editing?.title ?? defaultCreateTitle);
   const [prompt, setPrompt] = useState(editing?.prompt ?? initialDraft?.prompt ?? "");
+  // 只展示 Agent / Team；历史 NULL 或旧档位回退展示，未触碰时不写回。
+  const [permissionMode, setPermissionMode] = useState<AutomationModeValue>(() =>
+    resolveAutomationModeValue(editing?.permissionMode),
+  );
+  const permissionModeTouchedRef = useRef(false);
+  const handlePermissionModeChange = useCallback((value: AutomationModeValue) => {
+    permissionModeTouchedRef.current = true;
+    setPermissionMode(value);
+  }, []);
   const offPeakProviderId =
     editing?.modelSelection?.providerId ?? modelSelectionView.providers[0]?.providerId ?? "";
   const allowedModels = useMemo(
@@ -242,6 +257,7 @@ export function OffPeakEditView({
     prompt: editing?.prompt ?? initialDraft?.prompt ?? "",
     model: initialModel,
     thoughtLevel: editing?.modelSelection?.options?.reasoningLevel,
+    permissionMode: resolveAutomationModeValue(editing?.permissionMode),
     workspacePath: editing?.workspacePath ?? preferredLocalWorkspace?.workspacePath ?? "",
   });
   useEffect(() => {
@@ -266,6 +282,7 @@ export function OffPeakEditView({
     prompt !== initialRef.current.prompt ||
     model !== initialRef.current.model ||
     thoughtLevel !== initialRef.current.thoughtLevel ||
+    permissionMode !== initialRef.current.permissionMode ||
     (!editing && createWorkspacePath !== initialRef.current.workspacePath);
   // Web 离开守卫接入共享 webNavigationGuard（修复依据：页面内返回只拦自身确认，
   // Web 地址栏/前进后退等外部导航会绕过，导致未保存修改静默丢失；桌面端守卫自然放行）。
@@ -317,10 +334,14 @@ export function OffPeakEditView({
 
   const handleSubmit = useCallback(async () => {
     if (!canSubmit) return;
+    const includePermissionMode = shouldSubmitAutomationMode({
+      isEditing: Boolean(editing),
+      touched: permissionModeTouchedRef.current,
+    });
     const ok = await onSubmit({
       title: title.trim(),
       prompt: prompt.trim(),
-      permissionMode: AUTOMATION_DEFAULT_MODE,
+      ...(includePermissionMode ? { permissionMode } : {}),
       modelSelection: buildOffPeakSubmissionModelSelection(
         offPeakProviderId,
         model,
@@ -343,6 +364,7 @@ export function OffPeakEditView({
     offPeakProviderId,
     onBack,
     onSubmit,
+    permissionMode,
     prompt,
     title,
     workspacePath,
@@ -546,7 +568,7 @@ export function OffPeakEditView({
             />
           </div>
 
-          {/* 任务指令 = composer 盒：textarea + 底部工具条（项目 / 权限 | 模型） */}
+          {/* 任务指令 = composer 盒：textarea + 底部工具条（项目 | 模式 / 模型） */}
           <div className={AUTOMATION_FORM_FIELD_CLASSNAME}>
             <span className="text-ui-base font-normal leading-5 text-foreground-subtle">
               {intl.formatMessage({ id: "offPeak.form.instructionsLabel" })}
@@ -620,6 +642,15 @@ export function OffPeakEditView({
                 {/* 右侧组曾允许自身和子 trigger 收缩，模型与推理内容会被压成纵向多行。
                     小屏时整组占据下一行，组内始终保持单行。 */}
                 <div className="flex w-full shrink-0 flex-nowrap items-center justify-end gap-0 sm:w-auto">
+                  <AutomationModeSelect
+                    value={permissionMode}
+                    disabled={readOnly}
+                    onValueChange={handlePermissionModeChange}
+                    triggerClassName={cn(
+                      AUTOMATION_INSTRUCTIONS_TOOLBAR_TRIGGER_CLASSNAME,
+                      "shrink-0 gap-1 px-2 @max-sm/composer:size-7 @max-sm/composer:justify-center @max-sm/composer:gap-0 @max-sm/composer:p-0",
+                    )}
+                  />
                   {/* 模型仍由闲时白名单驱动，只复用 New Task 的纯展示选择器。 */}
                   <ModelConfigSelect
                     modelGroups={modelSelectGroups}
@@ -662,14 +693,6 @@ export function OffPeakEditView({
                 </div>
               </AutomationInstructionsToolbar>
             </AutomationInstructionsComposer>
-            {/* 该文案是运行机制说明而非风险告警，橙色三角会错误强化语义；
-                与复合输入额外拉开 4px，避免辅助说明贴近输入框边界。 */}
-            <div className="mt-1 flex items-start gap-1.5 text-ui-base leading-5 text-foreground-subtle">
-              <span className="flex size-5 shrink-0 items-center justify-center" aria-hidden="true">
-                <AutomationInfoIcon className="size-4" />
-              </span>
-              {intl.formatMessage({ id: "offPeak.form.permissionWarning" })}
-            </div>
           </div>
         </div>
       )}

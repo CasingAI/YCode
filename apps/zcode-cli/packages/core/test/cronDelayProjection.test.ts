@@ -15,10 +15,13 @@ test("Cron tool output preserves delay classification and duration", () => {
     lifecycleStatus: "active",
     runCount: 0,
     recurring: false,
+    mode: "team",
   };
 
   const projected = toModelAutomation(automation);
   assert.equal(projected.scheduleType, "delay");
   assert.equal(projected.delayMinutes, 120);
   assert.equal(projected.lifecycleStatus, "active");
+  // CronList / CronCreate 输出必须回显 Team，不能丢失任务档位。
+  assert.equal(projected.mode, "team");
 });

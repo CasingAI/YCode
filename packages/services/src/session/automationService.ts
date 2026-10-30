@@ -6,7 +6,11 @@ import type {
   ZCodeAutomationScheduleRule,
   ZCodeAutomationUpdateParams,
 } from "@zcode/shared";
-import { resolveWorkspaceKey } from "@zcode/shared";
+import {
+  AUTOMATION_DEFAULT_WRITABLE_MODE,
+  isAutomationWritableMode,
+  resolveWorkspaceKey,
+} from "@zcode/shared";
 import { AutomationRepo } from "#src/session/automationRepo.js";
 import { assertAutomationModelBindingExclusive } from "#src/session/automationModelGroup.js";
 import {
@@ -44,6 +48,14 @@ export class InvalidCronExprError extends Error {
   constructor(cronExpr: string) {
     super(`非法的 cron 表达式：${cronExpr}`);
     this.name = "InvalidCronExprError";
+  }
+}
+
+/** 自动化任务只允许 Agent / Team；非法档位必须拒绝，不能静默降级成 yolo。 */
+export class InvalidAutomationModeError extends Error {
+  constructor(mode: unknown) {
+    super(`自动化任务档位只支持 yolo（Agent）或 team（Team），收到：${String(mode)}`);
+    this.name = "InvalidAutomationModeError";
   }
 }
 
@@ -147,6 +159,12 @@ export class AutomationService {
     const createdAt = Date.now();
     // 组意图与具体模型互斥（docs/specs/model-group.md）：调用方保证只传一侧，这里 fail-fast。
     assertAutomationModelBindingExclusive(params);
+    // 新任务只写 Agent / Team；省略时在服务端落盘 yolo，而不是留 NULL。
+    const requestedMode = params.mode;
+    if (requestedMode !== undefined && !isAutomationWritableMode(requestedMode)) {
+      throw new InvalidAutomationModeError(requestedMode);
+    }
+    const mode = requestedMode ?? AUTOMATION_DEFAULT_WRITABLE_MODE;
     const relativeDelayMinutes = params.relativeDelayMinutes;
     if (
       relativeDelayMinutes !== undefined &&
@@ -177,13 +195,14 @@ export class AutomationService {
     });
     // carrier 只用于本次归一化，不能透传到 repository 形成未定义的持久化字段。
     const { intervalUnit: _intervalUnit, interval: _interval, ...persistedParams } = params;
+    const persistedParamsWithMode = { ...persistedParams, mode };
     // 模型只知道日期时会自行猜测当前时刻，把“3 分钟后”算成两小时后或过去时间。
     // 相对时间必须由领域层基于真实 Date.now() 建立锚点，不能信任模型换算的绝对 cron。
     const relativeNormalizedParams =
       relativeDelayMinutes === undefined
-        ? persistedParams
+        ? persistedParamsWithMode
         : {
-            ...persistedParams,
+            ...persistedParamsWithMode,
             ...buildRelativeDelaySchedule(relativeDelayMinutes, createdAt),
             recurring: false,
           };
@@ -261,6 +280,10 @@ export class AutomationService {
     if (!existing) return null;
     // 组意图与具体模型互斥（docs/specs/model-group.md）：两侧同传非空即拒绝，不做静默优先。
     assertAutomationModelBindingExclusive(params);
+    // 更新省略档位即保留已存值；显式值只接受 Agent / Team，历史 NULL 不在这里被迁移。
+    if (params.mode !== undefined && !isAutomationWritableMode(params.mode)) {
+      throw new InvalidAutomationModeError(params.mode);
+    }
 
     if (params.scheduleRule) assertValidAutomationScheduleRule(params.scheduleRule);
 

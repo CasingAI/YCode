@@ -143,6 +143,8 @@ async function createSession(
       const started = await startPromptTurn(host, record, {
         content: payload.firstInput.text,
         inputId: envelope.commandId,
+        // 新会话首条用户消息；无锁时不会产生任何额外写入。
+        unlocksUnattendedModeSwitch: true,
         intent,
         ...(attachments ? { attachments } : {}),
         // 命令绑定「未改即发送」：firstInput 与 sendText 一样可携带仅本轮执行语义，

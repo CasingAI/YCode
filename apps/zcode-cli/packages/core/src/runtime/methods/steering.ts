@@ -50,6 +50,7 @@ import {
   type RuntimeMessageEntry,
 } from "../../agent/message-history.js";
 import type { AgentRuntimeInternal } from "../internal.js";
+import { unlockUnattendedExecutionForAcceptedInput } from "../unattended-execution-lock.js";
 
 function requestForegroundGuideYield(
   runtime: AgentRuntimeInternal,
@@ -189,6 +190,14 @@ export async function steerTurn(
     },
   );
   await this.appendEvent(event, activeTurn.traceContext);
+  // 事件提交成功才算真正接纳：append 失败时输入没进队列，锁必须保持。
+  // 此后解锁写盘失败不能把已入队的输入报成失败，否则调用方重发会重复。
+  await unlockUnattendedExecutionForAcceptedInput(this, {
+    unlocksUnattendedModeSwitch: request.unlocksUnattendedModeSwitch,
+    queryId,
+    ...(request.automationId ? { automationId: request.automationId } : {}),
+    ...(request.offPeakTaskId ? { offPeakTaskId: request.offPeakTaskId } : {}),
+  });
   this.logger?.debug("Turn steer queued", {
     ...traceContextToLogContext(activeTurn.traceContext),
     activeTurnKind: activeTurn.kind,
@@ -289,6 +298,14 @@ export async function enqueueDeferredInput(
     },
   );
   await this.appendEvent(event, traceContext);
+  // 与 steer 同一接纳边界：事件提交成功后才写盘解锁；append 失败时锁保持。
+  // 已接纳后解锁失败只记警告，输入仍返回 queued。
+  await unlockUnattendedExecutionForAcceptedInput(this, {
+    unlocksUnattendedModeSwitch: request.unlocksUnattendedModeSwitch,
+    queryId,
+    ...(request.automationId ? { automationId: request.automationId } : {}),
+    ...(request.offPeakTaskId ? { offPeakTaskId: request.offPeakTaskId } : {}),
+  });
   this.logger?.debug("Deferred input queued", {
     ...traceContextToLogContext(traceContext),
     delivery,

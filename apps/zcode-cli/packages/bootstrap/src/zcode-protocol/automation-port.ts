@@ -127,8 +127,8 @@ export function createProtocolAutomationPort(
                 : (input.recurring ?? true),
             // workspace 仍由 protocol server 从当前 session 注入。
             ...(runtimeModelSelection ? { modelSelection: runtimeModelSelection } : {}),
-            // 任务轴固定完全访问：计划/只读档的任务无法自主干活（用户决策）。
-            mode: "yolo",
+            // 任务轴只提供 Agent / Team；模型省略时默认 Agent，显式 Team 原样透传。
+            mode: input.mode ?? "yolo",
             ...(createContext?.sessionId ? { targetTaskId: createContext.sessionId } : {}),
             ...(hasIntervalCarrier
               ? {
@@ -185,6 +185,8 @@ export function createProtocolAutomationPort(
           ...(input.title !== undefined ? { title: input.title } : {}),
           ...(input.cron !== undefined ? { cronExpr: input.cron } : {}),
           ...(input.prompt !== undefined ? { prompt: input.prompt } : {}),
+          // 省略 mode 表示保留已存档位；显式 Agent / Team 才提交。
+          ...(input.mode !== undefined ? { mode: input.mode } : {}),
           ...(input.delayMinutes !== undefined
             ? { recurring: false, maxRuns: null }
             : hasIntervalCarrier
@@ -225,13 +227,15 @@ export function createProtocolAutomationPort(
 }
 
 /**
- * 任务轴只跑完全访问（计划/只读档的任务无法自主干活）。协议里仍是六值任务轴，
- * 升级前落盘的 plan / build / edit / auto / autoEdit 统一在读取路径归一，不回写落盘数据。
+ * 任务轴读取出口：Team 必须原样保留，不能再降级成 Agent。
+ * 历史 bare（旧秘书档）按 shared 迁移规则归一为 Team；plan / build / edit / auto 等
+ * 无法映射到任务轴的历史值回退为 yolo。协议以后新增档位时由穷尽检查强制同步处理。
  */
 function normalizeCronAutomationMode(
   mode: ZCodeAutomationProtocol["mode"],
 ): CronAutomation["mode"] {
-  if (mode === undefined || mode === "yolo") return mode;
+  if (mode === undefined || mode === "yolo" || mode === "team") return mode;
+  if (mode === "bare") return "team";
   return "yolo";
 }
 
@@ -251,7 +255,7 @@ function toCronAutomation(input: ZCodeAutomationProtocol): CronAutomation {
     recurring: input.recurring,
     maxRuns: input.maxRuns,
     modelSelection: input.modelSelection,
-    // 显式按既有 session 权限语义降级，协议以后新增 mode 时由穷尽检查强制同步处理。
+    // Team 原样保留；历史旧档位由 normalizeCronAutomationMode 归一，不回写落盘数据。
     mode: normalizeCronAutomationMode(input.mode),
     // 透传权威 scheduleRule；会话卡片必须读到本字段才能展示 cron 无法表达的真实间隔
     // （如每50小时、每40天），否则只能从兼容 cronExpr 推断出「每小时的第00分」等错误展示。

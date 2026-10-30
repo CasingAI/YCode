@@ -117,6 +117,7 @@ import {
   type ZCodeToolExecResource,
   type ZCodePluginOperationProgressNotification,
   type ZCodeTaskMode,
+  type ZCodeAutomationWritableMode,
 } from "@zcode/shared";
 import { createServiceLogger } from "#src/logger/serviceLogger.js";
 import { createOfficialMcpIssuanceAudit } from "#src/official-mcp/officialMcpIssuanceAudit.js";
@@ -1001,6 +1002,7 @@ function toProtocolOffPeakTaskSnapshot(task: {
   offPeakTaskId: string;
   title: string;
   status: "queued" | "paused" | "running" | "completed" | "failed" | "cancelled";
+  permissionMode: ZCodeTaskMode;
   queuePosition?: number;
   sessionId?: string;
   createdAt: number;
@@ -1010,6 +1012,8 @@ function toProtocolOffPeakTaskSnapshot(task: {
     offPeakTaskId: task.offPeakTaskId,
     title: task.title,
     status: task.status,
+    // 原样带出 Team；历史旧值由读取 schema 兼容，协议出口不归一成 yolo。
+    permissionMode: task.permissionMode,
     ...(typeof task.queuePosition === "number" && task.queuePosition > 0
       ? { queuePosition: task.queuePosition }
       : {}),
@@ -2859,6 +2863,8 @@ export function createZCodeAgentService(
                   title: parsed.data.title,
                   cronExpr: parsed.data.cronExpr,
                   prompt: parsed.data.prompt,
+                  // undefined=保留已存档位；协议只接受 Agent / Team 显式值。
+                  ...(parsed.data.mode !== undefined ? { mode: parsed.data.mode } : {}),
                   recurring: parsed.data.recurring,
                   maxRuns: parsed.data.maxRuns,
                   // 会话侧长间隔 carrier（intervalUnit+interval）透传给 service 归一化为权威 scheduleRule。
@@ -4355,7 +4361,7 @@ export function createZCodeAgentService(
         modelSelection: params.modelSelection,
         // 组意图透传（docs/specs/model-group.md）：与 modelSelection 互斥，service 层 fail-fast。
         ...(params.modelGroupIntent ? { modelGroupIntent: params.modelGroupIntent } : {}),
-        mode: params.mode as ZCodeTaskMode | undefined,
+        mode: params.mode as ZCodeAutomationWritableMode | undefined,
         workspacePath: params.workspacePath,
         workspaceIdentity: params.workspaceIdentity,
         recurring: params.recurring ?? true,
@@ -4366,6 +4372,10 @@ export function createZCodeAgentService(
     },
 
     async updateAutomation(params: ZCodeAgentUpdateAutomationParams) {
+      // 历史 NULL 只做读取兼容；更新省略档位即保留，显式 null 不再清空任务档位。
+      if (params.mode === null) {
+        throw new Error("自动化任务档位不能清空；省略 mode 以保留已存档位。");
+      }
       return automationService.update(
         params.automationId,
         {
@@ -4378,7 +4388,7 @@ export function createZCodeAgentService(
           ...(params.modelGroupIntent === undefined
             ? {}
             : { modelGroupIntent: params.modelGroupIntent }),
-          mode: params.mode === null ? null : (params.mode as ZCodeTaskMode | undefined),
+          mode: params.mode as ZCodeAutomationWritableMode | undefined,
           recurring: params.recurring,
           maxRuns: params.maxRuns,
           endAt: params.endAt,

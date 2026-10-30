@@ -109,6 +109,9 @@ function toOffPeakTaskSummary(input: ZCodeOffPeakTaskProtocolSnapshot): OffPeakT
     offPeakTaskId: input.offPeakTaskId,
     title: input.title,
     status: input.status,
+    // 原样回显 Agent / Team；历史 bare（旧秘书档）按迁移规则归一为 Team，
+    // 其它旧档位保持读取兼容，不在这里静默迁移落盘数据。
+    permissionMode: input.permissionMode === "bare" ? "team" : input.permissionMode,
     queuePosition: input.queuePosition,
     sessionId: input.sessionId,
     createdAt: input.createdAt,

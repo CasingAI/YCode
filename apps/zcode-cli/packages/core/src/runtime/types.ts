@@ -538,6 +538,11 @@ export interface ExecuteTurnOptionsBase {
   skipInputRecord?: boolean;
   skipUserPromptSubmitHooks?: boolean;
   targetId?: string;
+  /**
+   * 本条输入是被正式接纳的真实人工新消息；只有这种输入能解除无人值守锁。
+   * 自动化归因优先：带 automationId/offPeakTaskId 的输入即使置 true 也不解锁。
+   */
+  unlocksUnattendedModeSwitch?: boolean;
   /** 仅当前 turn 对 provider 隐藏的工具；不修改 session runtime 的持久工具面。 */
   toolDisallowlist?: readonly string[];
   traceContext?: TraceContext;
@@ -580,6 +585,8 @@ export interface ContinueActiveTargetLoopOptions {
   intent?: TurnInputIntentMetadata;
   traceContext?: TraceContext;
   trigger: ActiveTargetLoopTrigger;
+  /** 人工 /goal set|replace 的续跑可解锁；自主续跑（缺省）必须保持锁。 */
+  unlocksUnattendedModeSwitch?: boolean;
   verifyBeforeFirstContinue?: boolean;
 }
 
@@ -879,6 +886,11 @@ export interface ActiveTurnStartReservation {
   kind: ActiveTurnKind;
   traceContext: TraceContext;
   turnId: TurnId;
+  /**
+   * admission 在第一个 await 之前捕获的人工消息接纳计数。
+   * 自动化 turn 启动期间若计数已变化，说明人工输入已被真正接纳，本轮不再上锁。
+   */
+  unattendedHumanInputEpochAtAdmission?: number;
 }
 
 export interface DrainedPendingInputDiagnostics {

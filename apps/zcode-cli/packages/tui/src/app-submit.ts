@@ -156,6 +156,7 @@ export async function submitDuringActiveTurn(input: {
         expectedTurnId: input.activeTurnId,
         onEvent: input.applySessionEvent,
         requestPermission: input.requestPermission,
+        ...(compactCommand ? {} : { unlocksUnattendedModeSwitch: true }),
       },
     );
     if (result.kind === "started_turn" || result.kind === "command_result") {
@@ -257,6 +258,7 @@ export async function submitIdleTurn(input: {
       abortSignal: abortController.signal,
       onEvent: input.applySessionEvent,
       requestPermission: input.requestPermission,
+      ...(compactCommand ? {} : { unlocksUnattendedModeSwitch: true }),
     });
     input.applyResult(compactCommand ? { ...result, response: "" } : result);
   } catch (error) {

@@ -4,6 +4,7 @@ import type { PromptRuntimeCommand } from "../command-queue.js";
 import { createRuntimeCommandId } from "../command-queue.js";
 import type { AgentRuntimeInternal } from "../internal.js";
 import { enqueueCancellableRuntimeCommand } from "./runtime-command-submit.js";
+import { unlockUnattendedExecutionForHumanInput } from "../unattended-execution-lock.js";
 import type {
   ActiveTurnStartReservation,
   ExecuteTurnOptions,
@@ -13,9 +14,9 @@ import type {
 } from "../types.js";
 
 /**
- * 每个 AgentRuntime 自己完成 prompt 的 admission：检查 busy 边界、建立 reservation、
- * 把 command 放进该 runtime 的 FIFO。Bootstrap 不应把这些步骤拆开，否则 reservation
- * 建立前的异步窗口会让同一 session 产生第二条 turn。
+ * 每个 AgentRuntime 自己完成 prompt 的 admission：检查 busy 边界、同步建立 reservation、
+ * 在接纳 commit 之后解锁，最后把 command 放进该 runtime 的 FIFO。Bootstrap 不应把这些
+ * 步骤拆开，否则预留与解锁之间的 await 窗口会破坏单 turn 保证和解锁顺序。
  */
 export async function admitPrompt(
   this: AgentRuntimeInternal,
@@ -69,6 +70,9 @@ export async function admitPrompt(
         queryId: options?.queryId,
         toolDisallowlist: options?.toolDisallowlist,
         traceContext: options?.traceContext,
+        unlocksUnattendedModeSwitch: options?.unlocksUnattendedModeSwitch,
+        ...(options?.automationId ? { automationId: options.automationId } : {}),
+        ...(options?.offPeakTaskId ? { offPeakTaskId: options.offPeakTaskId } : {}),
       });
     }
 
@@ -90,10 +94,16 @@ export async function admitPrompt(
       queryId: options?.queryId,
       toolDisallowlist: options?.toolDisallowlist,
       traceContext: options?.traceContext,
+      unlocksUnattendedModeSwitch: options?.unlocksUnattendedModeSwitch,
+      ...(options?.automationId ? { automationId: options.automationId } : {}),
+      ...(options?.offPeakTaskId ? { offPeakTaskId: options.offPeakTaskId } : {}),
     });
   }
 
   const queryId = options?.queryId ?? (options?.inputId as QueryId | undefined) ?? createQueryId();
+  // 人工接纳计数必须在第一个 await 之前捕获；自动化 turn 以它为基线，启动窗口内
+  // 已经 commit 的人工消息不会在本 turn 上锁时被覆盖。
+  const unattendedHumanInputEpochAtAdmission = this.unattendedHumanInputEpoch;
   const turnId = createTurnId();
   const turnTraceContext = createChildTraceContext(options?.traceContext ?? this.rootTraceContext, {
     queryId,
@@ -101,12 +111,30 @@ export async function admitPrompt(
     turnId,
     attributes: { turnNumber: this.turnNumber },
   });
+  // 预留必须同步建立，否则两个 admission 都能看到空闲；预留成功才进入解锁写盘，
+  // 写盘失败释放预留并让本次输入失败，不留下「已解锁但没接纳」的半程状态。
+  // 已取消的输入不会进入队列，不能触发解锁；取消判定沿用 runtime-command-submit
+  // 的 abortSignal 语义。
+  this.reserveTurnStart(turnId, turnTraceContext, "regular");
+  if (options?.abortSignal?.aborted !== true) {
+    try {
+      await unlockUnattendedExecutionForHumanInput(this, {
+        unlocksUnattendedModeSwitch: options?.unlocksUnattendedModeSwitch,
+        queryId,
+        ...(options?.automationId ? { automationId: options.automationId } : {}),
+        ...(options?.offPeakTaskId ? { offPeakTaskId: options.offPeakTaskId } : {}),
+      });
+    } catch (error) {
+      this.releaseTurnStart(turnId);
+      throw error;
+    }
+  }
   const reservation: ActiveTurnStartReservation = {
     kind: "regular",
     traceContext: turnTraceContext,
     turnId,
+    unattendedHumanInputEpochAtAdmission,
   };
-  this.reserveTurnStart(turnId, turnTraceContext, "regular");
 
   const executeOptions = options as ExecuteTurnOptions | undefined;
   const completion = enqueueCancellableRuntimeCommand<TurnResult, PromptRuntimeCommand>(this, {

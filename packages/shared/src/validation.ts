@@ -388,7 +388,7 @@ export const hostOffPeakRunMessageSchema = z.object({
   workspacePath: nonEmptyStringSchema,
   workspaceIdentity: z.string().optional(),
   prompt: nonEmptyStringSchema,
-  // 权限四档映射现有 ZCodeTaskMode；与 cron-run 的 mode 同样按宽松 string 传输
+  // 任务轴只写 Agent / Team；与 cron-run 的 mode 同样按宽松 string 传输以兼容历史旧值。
   permissionMode: nonEmptyStringSchema,
   modelSelection: modelSelectionSchema,
   conversationId: z.string().optional(),

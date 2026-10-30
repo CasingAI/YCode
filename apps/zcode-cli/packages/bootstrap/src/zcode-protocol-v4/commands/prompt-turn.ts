@@ -22,6 +22,8 @@ interface StartPromptTurnParamsBase {
   modelExecution?: SendInputOptions["modelExecution"];
   sharedContextRefs?: SendInputOptions["sharedContextRefs"];
   toolDisallowlist?: readonly string[];
+  /** 真实人工新消息（发送/编辑重发）可解除无人值守锁；队列提升与 retry 不传。 */
+  unlocksUnattendedModeSwitch?: boolean;
   /** sendQueuedNow 已持有 Core promotion lease，要求这次 admission 只能占用空闲位。 */
   requireIdle?: boolean;
 }
@@ -128,6 +130,7 @@ export async function startPromptTurn(
         ...(params.sharedContextRefs ? { sharedContextRefs: params.sharedContextRefs } : {}),
         ...(turnToolDisallowlist ? { toolDisallowlist: turnToolDisallowlist } : {}),
         ...(params.requireIdle ? { requireIdle: true } : {}),
+        ...(params.unlocksUnattendedModeSwitch ? { unlocksUnattendedModeSwitch: true } : {}),
         queryId: params.inputId as SendInputOptions["queryId"],
       },
     );

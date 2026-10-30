@@ -845,6 +845,13 @@ export const SESSION_ENTRY_MODEL_SELECTION = "runtime/model_selection" as const;
  */
 export const SESSION_ENTRY_MODEL_GROUP = "runtime/model_group" as const;
 export const SESSION_ENTRY_EXECUTION_STATE = "runtime/execution_state" as const;
+/**
+ * 无人值守执行锁（docs/specs/automation-execution-mode.md）：自动化 turn 运行期间
+ * 模型不得自行切档，只有之后真正接纳的人工新消息才能解除。runtime 是唯一 owner，
+ * 落盘只为冷恢复保持；固定 id 为 `${sessionId}:runtime-unattended-execution-lock`。
+ */
+export const SESSION_ENTRY_UNATTENDED_EXECUTION_LOCK =
+  "runtime/unattended_execution_lock" as const;
 /** 会话语言（创建时快照的界面语言）；会话级事实，冷恢复据此还原 runtime config。 */
 export const SESSION_ENTRY_SESSION_LANGUAGE = "runtime/session_language" as const;
 export const SESSION_ENTRY_USER_INPUT_AUTO_RESOLUTION =
@@ -885,6 +892,7 @@ export const SESSION_ENTRY_TYPES = [
   SESSION_ENTRY_MODEL_SELECTION,
   SESSION_ENTRY_MODEL_GROUP,
   SESSION_ENTRY_EXECUTION_STATE,
+  SESSION_ENTRY_UNATTENDED_EXECUTION_LOCK,
   SESSION_ENTRY_SESSION_LANGUAGE,
   SESSION_ENTRY_USER_INPUT_AUTO_RESOLUTION,
   SESSION_ENTRY_WORKSPACE_CHECKPOINT,

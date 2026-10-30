@@ -41,6 +41,8 @@ const ENTER_PLAN_MODE_DESCRIPTION = ENTER_PLAN_MODE_MODEL_INSTRUCTIONS[0];
 // 走 <tool_use_error> 通道回模型，不进 permissionDenial、不贴 failed 徽标。
 export const CREATE_PLAN_PLAN_MODE_ONLY_ERROR_CODE = 4001;
 export const ENTER_PLAN_MODE_ALREADY_IN_PLAN_ERROR_CODE = 4002;
+// 自动化无人值守期间模型切档的可读失败；runtime 写入点的硬拒绝仍是权威。
+export const ENTER_PLAN_MODE_UNATTENDED_LOCKED_ERROR_CODE = 4003;
 
 const CREATE_PLAN_PLAN_MODE_ONLY_MESSAGE =
   "CreatePlan is Plan-mode only, call EnterPlanMode first then retry submitting the plan.";
@@ -71,6 +73,15 @@ const enterPlanModeHandler: ToolHandler = async (input, context) => {
       result: false,
       errorCode: ENTER_PLAN_MODE_ALREADY_IN_PLAN_ERROR_CODE,
       message: ENTER_PLAN_MODE_ALREADY_IN_PLAN_MESSAGE,
+    } satisfies ToolHandlerFailure;
+  }
+
+  const restriction = sessionModePort.getModeSwitchRestriction?.();
+  if (restriction) {
+    return {
+      result: false,
+      errorCode: ENTER_PLAN_MODE_UNATTENDED_LOCKED_ERROR_CODE,
+      message: restriction.reason,
     } satisfies ToolHandlerFailure;
   }
 

@@ -34,6 +34,13 @@
 - `isGoalRestrictedMode` 只认 plan / readonly；Team 放行（与 Agent 同）。`isRestrictedMode` 不认 team。
 - JSVM / Sandbox / Bash 在 Team 下与 Agent 档同规则。
 
+### 自动化任务中的 Team
+
+- 定时、周期、自定义间隔、延时与闲时任务都可在创建时选择 Team；省略档位时新建默认 Agent，更新省略保留，列表保留 Team。模型入口 `CronCreate` / `CronUpdate` / `OffPeakCreate` 与 UI 同规。
+- Team 自动化任务运行期间由 runtime 持有无人值守锁，模型不能自行切档；Team 档「机制不拦 EnterPlanMode」的规则在自动化执行中不适用，`EnterPlanMode` 被 runtime 硬拒绝。
+- 用户手动切档仍可生效，但不会解除锁；只有之后被接受的人工新消息才解锁。锁的所有者、持久化与 fail-closed 规则见 [`automation-execution-mode.md`](./automation-execution-mode.md)。
+- 子代理不新增锁：所有子代理工具面已剔除 `EnterPlanMode` / `CreatePlan`，不存在子代理自行切档入口。
+
 ### 子代理
 
 - 内置子代理收回两项：`general-purpose` / `Explore`。Worker（SmartWorker）删除：派出场、设置页、内置覆盖表不再出现。
@@ -76,7 +83,8 @@ composer 四选草稿 → 提交载荷 mode("team") → resolveExecutionState
 5. Team 父派 Explore / general-purpose / 自定义均成功；plan / readonly 父派全权子仍拒绝；`SmartWorker` 不再是可派类型。
 6. 旧数据：`mode:"bare"` 会话恢复为 Team；`admissionMode:"bare"` 行丢弃该字段照常下发；SmartWorker 历史会话仍可显示（fallback 通用）。
 7. `team` 技能手册包含角色边界与失败处理：主 Agent 只拆解、派发、审阅证据、质量裁决与汇总，任务小、重复失败、上下文不足均不得亲自执行；首次失败先对原代理重试一次（未拿到 `agentId` 时重试创建调用一次）；第二次连续失败换新代理并交接目标、失败原因与已有证据，替代代理的一次尝试计第三次；同一工作切片跨代理连续三次失败才停止，无第四次尝试且主 Agent 不补做；有可用交付即清零，正常低上下文交接不计失败；停止时报告三次尝试的执行者、失败原因、已有成果与阻塞点。
-8. `pnpm typecheck` / `pnpm lint` / `pnpm architecture:check --changed` 通过。
+8. 自动化任务可选 Team：定时 / 延时 / 闲时与 `CronCreate` / `CronUpdate` / `OffPeakCreate` 均可显式写 `team`，列表保留 Team；运行期模型调用 `EnterPlanMode` 被硬拒绝，人工新消息解锁后恢复可切换。
+9. `pnpm typecheck` / `pnpm lint` / `pnpm architecture:check --changed` 通过。
 
 ## 废弃记录
 

@@ -71,6 +71,10 @@ import { scheduleProjectMemoryExtraction } from "../helpers/project-memory-extra
 import { appendBrowserTurnScreenshot } from "./browser-turn-screenshot.js";
 import { clearBrowserTurnState } from "../../repl/browser-turn-state.js";
 import { applySubmissionExecutionState, createTurnModel } from "./turn-model.js";
+import {
+  ensureUnattendedExecutionLock,
+  unlockUnattendedExecutionForHumanInput,
+} from "../unattended-execution-lock.js";
 import { rebuildContextPrefix } from "./context-refresh.js";
 import {
   admitSuccessTerminal,
@@ -112,6 +116,12 @@ export async function executeTurnCommand(
   options?: ExecuteTurnOptions,
   startReservation?: ActiveTurnStartReservation,
 ): Promise<TurnResult> {
+  // 直接 executeTurn 的人工输入（TUI 主输入、/goal 人工续跑）在预留建立后完成解锁；
+  // 队列提升、retry、compact 与自主续跑不携带该标记，因此保持锁。
+  // 先捕获人工接纳基线，保证后续任何 await 都不会让「窗口内已接纳的人工输入」被本
+  // 自动化 turn 的加锁覆盖。
+  const unattendedHumanInputEpochAtStart =
+    startReservation?.unattendedHumanInputEpochAtAdmission ?? this.unattendedHumanInputEpoch;
   // 普通 Turn 过去在异步初始化完成后才读取 Session Selection/输出样式，
   // 初始化期间发生的切模会越过 admission 边界，错误影响已经开始的 Turn。
   // 这里在任何 await 之前冻结本轮事实；后续配置变化只作用于下一轮。
@@ -138,7 +148,22 @@ export async function executeTurnCommand(
   const events: SessionEvent[] = [];
   let turnMachine = TurnMachineImpl.create(this.sessionId, this.turnNumber, input, traceId, turnId);
   this.currentTurnFileChanges = new Map();
-  if (!startReservation) this.reserveTurnStart(turnId, turnTraceContext, "regular");
+  if (!startReservation) {
+    this.reserveTurnStart(turnId, turnTraceContext, "regular");
+    // 预留（接纳 commit）成功后才写盘解锁；写盘失败释放预留并让本次输入失败。
+    try {
+      await unlockUnattendedExecutionForHumanInput(this, {
+        unlocksUnattendedModeSwitch: options?.unlocksUnattendedModeSwitch,
+        queryId: options?.queryId,
+        inputId: options?.inputId,
+        ...(options?.automationId ? { automationId: options.automationId } : {}),
+        ...(options?.offPeakTaskId ? { offPeakTaskId: options.offPeakTaskId } : {}),
+      });
+    } catch (error) {
+      this.releaseTurnStart(turnId);
+      throw error;
+    }
+  }
 
   const turnAbortScope = createTurnAbortScope(options?.abortSignal);
   const turnAbortSignal = turnAbortScope.signal;
@@ -289,6 +314,14 @@ export async function executeTurnCommand(
           options?.inputId,
         );
       }
+      turnMachine = new TurnMachineImpl(turnMachine.start());
+      phaseStartedAt = startTurnPhase("session_persistence");
+      await this.ensureSessionPersisted(displayInput, turnTraceContext);
+      // 自动化 turn 在首个模型请求前确认无人值守锁；写盘失败即拒绝执行（fail closed）。
+      // 必须在 beginActiveTurn 暴露 steerable 之前完成：初始化窗口内被接受的人工
+      // 输入会推进接纳计数，这里的基线不匹配就不再上锁。busy queue 的人工接纳同样
+      // 走这条判定，不依赖 steerable=false 来规避。
+      await ensureUnattendedExecutionLock(this, options, unattendedHumanInputEpochAtStart);
       activeTurn = this.beginActiveTurn(turnId, turnTraceContext, "regular", true, {
         ...(options?.inputId === undefined ? {} : { inputId: options.inputId }),
       });
@@ -299,10 +332,6 @@ export async function executeTurnCommand(
         module: "core.runtime",
         status: "started",
       });
-
-      turnMachine = new TurnMachineImpl(turnMachine.start());
-      phaseStartedAt = startTurnPhase("session_persistence");
-      await this.ensureSessionPersisted(displayInput, turnTraceContext);
       // execution-scoped 临时 Provider（例如闲时任务）拥有本轮自己的模型，不改写
       // Session Selection；普通 Submission 才在真正开跑时应用其原子选择。
       const submissionModel = await applySubmissionExecutionState(

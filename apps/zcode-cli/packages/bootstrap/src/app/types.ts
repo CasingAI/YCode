@@ -237,6 +237,8 @@ export interface SubmitPromptOptionsBase {
   browserAmbientContext?: ExecuteTurnOptions["browserAmbientContext"];
   /** 标准 Selection 的单次执行约束；不进入 Session Selection 或持久化。 */
   modelExecution?: ModelExecutionContext;
+  /** 真实人工新消息可解除无人值守锁；自动化归因优先，带归因时无效。 */
+  unlocksUnattendedModeSwitch?: boolean;
 }
 
 export type SubmitPromptOptions = SubmitPromptOptionsBase &
@@ -259,6 +261,8 @@ export interface SteerTurnOptions {
   toolDisallowlist?: readonly string[];
   onEvent?: (event: SessionEvent) => void | Promise<void>;
   traceContext?: TraceContext;
+  /** 真实人工新消息可解除无人值守锁；自动化归因优先，带归因时无效。 */
+  unlocksUnattendedModeSwitch?: boolean;
 }
 
 export type SendInputOptions = SubmitPromptOptions & {

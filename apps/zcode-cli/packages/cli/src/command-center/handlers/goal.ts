@@ -53,7 +53,6 @@ export async function handleTargetCommand(
     }
     return continueTargetAfterChange("Goal resumed", target, app, deps, options);
   }
-
   if (action === "clear") {
     const cleared = await app.clearTarget();
     return {
@@ -83,7 +82,7 @@ export async function handleTargetCommand(
   }
 
   const target = await app.setTarget({ objective, status: "active" });
-  return continueTargetAfterChange("Goal active", target, app, deps, options);
+  return continueTargetAfterChange("Goal active", target, app, deps, options, true);
 }
 
 async function continueTargetAfterChange(
@@ -92,6 +91,8 @@ async function continueTargetAfterChange(
   app: CommandCenterApp,
   deps: CommandCenterDeps,
   options: TuiSubmitOptions,
+  /** 只给用户显式 set/replace 传 true；resume 与自主续跑保持锁。 */
+  unlocksUnattendedModeSwitch = false,
 ): Promise<TuiSubmitPromptResult> {
   if (!app.continueActiveTarget) {
     return {
@@ -103,6 +104,7 @@ async function continueTargetAfterChange(
   const continuation = await app.continueActiveTarget({
     abortSignal: options.abortSignal,
     onEvent: options.onEvent,
+    ...(unlocksUnattendedModeSwitch ? { unlocksUnattendedModeSwitch: true } : {}),
   });
   const response = formatTargetChanged(title, target);
   return continuation

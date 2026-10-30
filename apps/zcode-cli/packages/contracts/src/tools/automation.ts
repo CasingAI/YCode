@@ -54,6 +54,12 @@ export const CronCreateInputSchema = z
     title: nonEmptyString.describe(
       "Concise automation title that preserves the user's natural-language schedule phrase verbatim. For example, for '每20分钟提醒我喝水', use '每20分钟喝水提醒', not '喝水提醒'.",
     ),
+    mode: z
+      .enum(["yolo", "team"])
+      .optional()
+      .describe(
+        "Execution mode for this automation: 'yolo' (Agent, full access) or 'team' (Team). Omit for Agent, which is the default.",
+      ),
     recurring: z
       .boolean()
       .optional()
@@ -155,6 +161,12 @@ const CronUpdateInputObjectSchema = z
     title: nonEmptyString.describe(
       "Required synchronized automation title describing the task after this update. Keep the user's natural-language schedule phrase consistent with cron (for example, changing every 5 minutes to every 6 minutes must also change the title), and update the title when the prompt meaning changes.",
     ),
+    mode: z
+      .enum(["yolo", "team"])
+      .optional()
+      .describe(
+        "Change the execution mode to 'yolo' (Agent) or 'team' (Team). Omit to preserve the automation's existing mode.",
+      ),
     recurring: z
       .boolean()
       .optional()
@@ -194,6 +206,7 @@ const CRON_UPDATE_FIELDS = [
   "cron",
   "prompt",
   "title",
+  "mode",
   "recurring",
   "maxRuns",
   "intervalUnit",
@@ -307,8 +320,9 @@ export const CronAutomationSchema = z
     recurring: z.boolean(),
     maxRuns: z.number().int().positive().optional(),
     modelSelection: cronModelSelectionSchema.optional(),
-    // 读取兼容值域：升级前落盘的任务可能是 plan/build/edit，读取路径归一为 yolo。
-    mode: z.enum(["yolo", "plan", "build", "edit"]).optional(),
+    // 读取兼容值域：升级前落盘的任务可能是 plan/build/edit，读取路径归一为 yolo；
+    // 历史 bare 归一为 team。team 是新任务轴的有效值，列表必须原样回显，不能丢失。
+    mode: z.enum(["yolo", "team", "plan", "build", "edit"]).optional(),
     // 自定义重复规则；缺省时调度回退到解析 cronExpr。会话卡片必须读到本字段才能展示
     // cron 无法表达的真实间隔（如每50小时、每40天，兼容 cronExpr 只是 0 * * * *）。
     scheduleRule: CronAutomationScheduleRuleSchema.optional(),

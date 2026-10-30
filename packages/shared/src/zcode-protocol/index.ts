@@ -49,6 +49,7 @@ import {
 import { browserCommandResultSchema } from "../browser-use/result.js";
 import { integratedTerminalShellSelectionSchema } from "../validationAppSettings.js";
 import { zcodeTaskModeSchema } from "../zcode-task-mode-schema.js";
+import { AUTOMATION_WRITABLE_MODES } from "../automation-types.js";
 import { OFFICIAL_MCP_AUTH_PORT_FAILURE_REASONS } from "../official-mcp-auth.js";
 import {
   zcodeDeliveryKindSchema,
@@ -3440,6 +3441,12 @@ export const zcodeAutomationIntervalUnitSchema = z.enum([
   "yearly",
 ]);
 
+/**
+ * 自动化任务写入档位（Agent / Team）。读取 schema 仍用 zcodeTaskModeSchema 容忍历史 NULL 与旧值；
+ * 创建 / 更新入口只允许这两个值，Ask / Plan 不能进入任务轴。
+ */
+export const zcodeAutomationWritableModeSchema = z.enum(AUTOMATION_WRITABLE_MODES);
+
 export const zcodeAutomationProtocolSchema = z
   .object({
     automationId: nonEmptyString,
@@ -3474,7 +3481,7 @@ export const zcodeAutomationCreateParamsSchema = z
     prompt: nonEmptyString,
     modelSelection: modelSelectionSchema.optional(),
     modelGroupIntent: modelGroupIntentSchema.optional(),
-    mode: zcodeTaskModeSchema.optional(),
+    mode: zcodeAutomationWritableModeSchema.optional(),
     targetTaskId: nonEmptyString.optional(),
     recurring: z.boolean().optional(),
     maxRuns: z.number().int().positive().optional(),
@@ -3516,6 +3523,8 @@ export const zcodeAutomationUpdateParamsSchema = z
     title: nonEmptyString.optional(),
     cronExpr: nonEmptyString.optional(),
     prompt: nonEmptyString.optional(),
+    // undefined=保留已存档位；显式值只接受 Agent / Team。历史 NULL 不会被这次更新迁移。
+    mode: zcodeAutomationWritableModeSchema.optional(),
     recurring: z.boolean().optional(),
     maxRuns: z.number().int().positive().nullable().optional(),
     // 会话侧自定义重复 carrier（同 create 侧语义）。
@@ -3529,6 +3538,7 @@ export const zcodeAutomationUpdateParamsSchema = z
       input.title !== undefined ||
       input.cronExpr !== undefined ||
       input.prompt !== undefined ||
+      input.mode !== undefined ||
       input.recurring !== undefined ||
       input.maxRuns !== undefined ||
       input.intervalUnit !== undefined,
@@ -3597,9 +3607,9 @@ export type ZCodeAutomationDeleteProtocolResult = z.infer<typeof zcodeAutomation
 
 // ---- Off-Peak（闲时任务）会话内创建协议----
 // 与 automation 兄弟并列（独立域，禁止互相复用标记/表）。workspace 由 host 端从
-// 当前 session 注入，不进协议参数（对称 automation/create）。permissionMode 只开放产品
-// 四档词表；缺省解析在 host 端（yolo / allowed_models 末位 / 最高推理档）。
-export const zcodeOffPeakPermissionModeSchema = z.enum(["build", "edit", "plan", "yolo"]);
+// 当前 session 注入，不进协议参数（对称 automation/create）。permissionMode 只开放
+// Agent / Team 两个任务轴档位；缺省解析在 host 端（yolo / allowed_models 末位 / 最高推理档）。
+export const zcodeOffPeakPermissionModeSchema = z.enum(AUTOMATION_WRITABLE_MODES);
 export type ZCodeOffPeakProtocolPermissionMode = z.infer<typeof zcodeOffPeakPermissionModeSchema>;
 
 export const zcodeOffPeakCreateParamsSchema = z
@@ -3624,6 +3634,9 @@ export const zcodeOffPeakTaskSnapshotSchema = z
     status: z.enum(["queued", "paused", "running", "completed", "failed", "cancelled"]),
     queuePosition: z.number().int().positive().optional(),
     sessionId: nonEmptyString.optional(),
+    // 读取兼容历史 plan / readonly / bare 等旧值；新任务只写 yolo / team。
+    // 省略以兼容升级前未返回该字段的旧 Host，新 Host 的列表必须带出 Team。
+    permissionMode: zcodeTaskModeSchema.optional(),
     createdAt: z.number().int().nonnegative(),
   })
   .strict();

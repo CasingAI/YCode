@@ -69,6 +69,8 @@ export interface TargetContinuationRuntimeCommandOptions {
   readonly inputId?: string;
   readonly intent?: ExecuteTurnOptions["intent"];
   readonly traceContext: TraceContext;
+  /** 人工 /goal set|replace 的续跑可解锁；自主续跑缺省保持锁。 */
+  readonly unlocksUnattendedModeSwitch?: boolean;
   readonly verifyBeforeContinue?: boolean;
 }
 

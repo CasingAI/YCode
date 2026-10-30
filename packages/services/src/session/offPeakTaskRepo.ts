@@ -14,6 +14,7 @@ import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import {
   OFF_PEAK_TERMINAL_STATUSES,
+  isAutomationWritableMode,
   modelSelectionSchema,
   resolveWorkspaceKey,
   type ZCodeOffPeakTask,
@@ -267,6 +268,11 @@ export class OffPeakTaskRepo {
       schedulable?: boolean;
     },
   ): Promise<ZCodeOffPeakTask> {
+    // 底层持久化边界再校验一次：新任务只写 Agent / Team，读取仍兼容历史 NULL / 旧值。
+    const permissionMode = params.permissionMode;
+    if (!isAutomationWritableMode(permissionMode)) {
+      throw new Error(`Invalid off-peak permission mode: ${String(permissionMode)}`);
+    }
     await this.ensureReady();
     const now = options?.now ?? Date.now();
     const offPeakTaskId = options?.offPeakTaskId ?? `offpeak-${randomUUID()}`;
@@ -297,7 +303,7 @@ export class OffPeakTaskRepo {
         // 会话内创建绑定当前会话；conversation_id 仍等首跑回填（非空 = 已跑过）。
         session_id: params.boundSessionId ?? null,
         prompt: params.prompt,
-        permission_mode: params.permissionMode,
+        permission_mode: permissionMode,
         model: null,
         thought_level: null,
         model_selection: serializeOffPeakModelSelection(params.modelSelection),
@@ -475,6 +481,9 @@ export class OffPeakTaskRepo {
     },
     options?: { now?: number },
   ): Promise<ZCodeOffPeakTask | null> {
+    if (params.permissionMode !== undefined && !isAutomationWritableMode(params.permissionMode)) {
+      throw new Error(`Invalid off-peak permission mode: ${String(params.permissionMode)}`);
+    }
     await this.ensureReady();
     const row = this.getRow(offPeakTaskId);
     if (!row) return null;

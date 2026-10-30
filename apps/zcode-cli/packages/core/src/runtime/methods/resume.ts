@@ -2,6 +2,7 @@ import { restorePermissionGrantMarker } from "../helpers/permission-grant-resume
 import { normalizeLegacyExecutionMode } from "@zcode/shared";
 import { SESSION_ENTRY_EXECUTION_STATE, SESSION_ENTRY_SESSION_LANGUAGE } from "@zcode/contracts";
 import { parseSessionLanguageEntry } from "../session-language.js";
+import { restoreUnattendedExecutionLockFromStore } from "../unattended-execution-lock.js";
 import {
   CoreErrorType,
   HookEventName,
@@ -229,6 +230,8 @@ export async function resumeFromStore(
     // 忽略失败会把旧计划会话当成完全访问（提权），所以统一走迁移函数还原。
     Object.assign(this.config, { mode: normalizeLegacyExecutionMode(savedExecutionData) });
   }
+  // 无人值守锁按最后一条 entry 还原；冷恢复本身不是人工消息，绝不自动解锁。
+  await restoreUnattendedExecutionLockFromStore(this);
   // 会话语言是创建时快照、之后不变，冷恢复时必须从 session entry 还原，否则恢复后的
   // 会话会退回「未知」，Bash 字段提示又变回通用英文文案。这里直接写 config 而不走
   // setSessionLanguage：resume 阶段 context 尚未构建，无需在此重建，与上面 mode 同一处理。

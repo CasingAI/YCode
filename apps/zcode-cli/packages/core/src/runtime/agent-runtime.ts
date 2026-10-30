@@ -204,6 +204,12 @@ export class AgentRuntime {
   private agentWorktree?: { branch: string; path: string };
   private sessionStore?: SessionStorePort;
   private sessionPersisted = false;
+  /** 无人值守执行锁，唯一 owner 是 runtime；落盘 entry 仅用于冷恢复。 */
+  private unattendedExecutionLocked = false;
+  /** 人工新消息接纳计数；用于判定自动化 turn 启动窗口内是否已被人工接管。 */
+  private unattendedHumanInputEpoch = 0;
+  /** 加锁/解锁串行链；避免并发写盘把内存锁覆盖成旧值。 */
+  private unattendedLockTransition: Promise<void> = Promise.resolve();
   private subagentExecutionFence?: import("@zcode/contracts").SubagentExecutionFence;
   private latestConversationMessageId?: MessageId;
   private latestAssistantMessageId?: MessageId;
