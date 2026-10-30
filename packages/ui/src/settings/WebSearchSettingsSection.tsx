@@ -48,6 +48,8 @@ import {
   type ProviderSettingsFormProvider,
 } from "@/lib/providerSettingsFormTypes.js";
 import { SettingsGroupCard, SettingsRow } from "@/settings/SettingsPageParts.js";
+import { useOptimisticReorder } from "@/settings/useOptimisticReorder.js";
+import { projectCandidatesToOrder } from "@/settings/webSearchCandidateOrder.js";
 import {
   WebSearchJinaSettingsDialog,
   type WebSearchProxyMode,
@@ -101,7 +103,7 @@ function WebSearchCandidateRow({
       style={{ transform: CSS.Transform.toString(transform), transition }}
       data-testid={`settings.webSearch.candidate.${candidate.providerId}`}
       className={`flex items-center gap-2 border-t border-border px-4 py-3 first:border-t-0 ${
-        isDragging ? "relative z-20 opacity-70" : ""
+        isDragging ? "relative z-20 bg-card shadow-md" : ""
       } ${disabled ? "opacity-60" : ""}`}
     >
       <button
@@ -249,26 +251,46 @@ export function WebSearchSettingsSection({
         templateId: candidate.templateId,
       })),
     });
-    const candidateById = new Map(candidates.map((candidate) => [candidate.providerId, candidate]));
-    return orderedIds.flatMap((providerId) => {
-      const candidate = candidateById.get(providerId);
-      return candidate ? [candidate] : [];
-    });
+    return projectCandidatesToOrder(candidates, orderedIds);
   }, [candidates, settings?.webSearchProviderOrder]);
 
-  const commitOrder = useCallback(
+  const authoritativeIds = useMemo(() => candidateIds(orderedCandidates), [orderedCandidates]);
+
+  const persistOrder = useCallback(
     async (ids: readonly string[]) => {
       await update({ webSearchProviderOrder: [...ids] });
     },
     [update],
   );
 
+  // 松手后 dnd-kit 会立即清 transform，而权威顺序要等写入回读；用唯一 UI pending
+  // 让拖拽和箭头都立即按新顺序渲染，避免旧 DOM 先回弹再跳位。
+  const optimisticOrder = useOptimisticReorder({
+    authoritativeIds,
+    persist: persistOrder,
+  });
+
+  const renderedCandidates = useMemo(
+    () => projectCandidatesToOrder(orderedCandidates, optimisticOrder.renderedIds),
+    [orderedCandidates, optimisticOrder.renderedIds],
+  );
+
+  const commitRenderedOrder = useCallback(
+    (ids: readonly string[]) => {
+      void optimisticOrder.commit(ids).catch((error: unknown) => {
+        // 失败由 hook 按 operationId 决定回退或保留更新的 pending，这里只记录日志。
+        logger.warn("[WebSearchSettingsSection] 保存搜索源顺序失败", { error });
+      });
+    },
+    [optimisticOrder],
+  );
+
   const handleMove = useCallback(
     (fromIndex: number, toIndex: number) => {
       if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0) return;
-      void commitOrder(arrayMove(candidateIds(orderedCandidates), fromIndex, toIndex));
+      commitRenderedOrder(arrayMove(candidateIds(renderedCandidates), fromIndex, toIndex));
     },
-    [commitOrder, orderedCandidates],
+    [commitRenderedOrder, renderedCandidates],
   );
 
   const handleDragEnd = useCallback(
@@ -276,13 +298,14 @@ export function WebSearchSettingsSection({
       const activeId = String(event.active.id);
       const overId = event.over ? String(event.over.id) : "";
       if (!overId || activeId === overId) return;
-      const ids = candidateIds(orderedCandidates);
+      // 落点索引基于当前渲染顺序，连续拖拽才能累积在未回读的 pending 上。
+      const ids = candidateIds(renderedCandidates);
       const activeIndex = ids.indexOf(activeId);
       const overIndex = ids.indexOf(overId);
       if (activeIndex < 0 || overIndex < 0) return;
-      void commitOrder(arrayMove(ids, activeIndex, overIndex));
+      commitRenderedOrder(arrayMove(ids, activeIndex, overIndex));
     },
-    [commitOrder, orderedCandidates],
+    [commitRenderedOrder, renderedCandidates],
   );
 
   const sensors = useSensors(
@@ -444,7 +467,8 @@ export function WebSearchSettingsSection({
           {addJinaButton}
         </div>
       </div>
-      <SettingsGroupCard>
+      {/* 拖动行会越过卡片顶部；只让这张排序卡片不裁切，其它设置卡片保持圆角裁切。 */}
+      <SettingsGroupCard className="overflow-visible">
         <DndContext
           sensors={sensors}
           modifiers={[restrictToVerticalAxis]}
@@ -452,17 +476,17 @@ export function WebSearchSettingsSection({
           onDragEnd={handleDragEnd}
         >
           <SortableContext
-            items={candidateIds(orderedCandidates)}
+            items={[...optimisticOrder.renderedIds]}
             strategy={verticalListSortingStrategy}
             disabled={!webSearchEnabled}
           >
             <ul>
-              {orderedCandidates.map((candidate, index) => (
+              {renderedCandidates.map((candidate, index) => (
                 <WebSearchCandidateRow
                   key={candidate.providerId}
                   candidate={candidate}
                   index={index}
-                  total={orderedCandidates.length}
+                  total={renderedCandidates.length}
                   disabled={!webSearchEnabled}
                   onMove={handleMove}
                   onOpenSettings={

@@ -147,9 +147,21 @@ export function SettingsRow({
   );
 }
 
-export function SettingsGroupCard({ children }: { children: ReactNode }) {
+export function SettingsGroupCard({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  /** 需要让拖拽行越过卡片边界时传 `overflow-visible`；默认仍裁切圆角。 */
+  className?: string;
+}) {
   return (
-    <Card className="overflow-hidden rounded-xl border border-border bg-card py-0 shadow-none">
+    <Card
+      className={cn(
+        "overflow-hidden rounded-xl border border-border bg-card py-0 shadow-none",
+        className,
+      )}
+    >
       <CardContent className="space-y-0 px-0">{children}</CardContent>
     </Card>
   );

@@ -23,6 +23,10 @@
 - jina 实例行的设置按钮打开模态，配置：API Key（附模板 `access.apiKeyManagementUrl` 的获取 Key 链接）、出站代理模式（`default`（跟随网络设置）/ `proxy`（强制走网络分区代理）/ `direct`（强制直连），语义与 per-provider `proxyMode` 一致，唯一事实在 provider rule，不新增第二份代理配置），以及删除实例。
 - jina 实例与其他搜索源共用排序、激活与快照语义；Key 非空才可被激活，按量计费（`billing: "per-call"`）。
 - 设置页展示候选列表，支持拖拽与上下移动排序；新出现的候选追加尾部；**排第一的激活使用**。
+- 排序交互（拖拽松手与上/下箭头）共用同一份 UI 即时呈现：操作完成后立刻按新顺序渲染，不等 `setting.json` 写入与回读返回；「激活」徽标跟随当前渲染的第一项。取消拖拽（Esc / 指针取消）不提交、不改变顺序。
+- UI 的 pending 顺序只有一个所有者：`packages/ui/src/settings/useOptimisticReorder.ts`。设置页不得再维护第二份临时顺序或第二条持久化路径；权威顺序始终是保存并回读后的 `AppSettings.webSearchProviderOrder`，pending 只做渲染投影。
+- 连续排序按最新 pending 立即渲染，持久化写入串行（前一笔完成后再写下一笔），迟到结果不能覆盖更晚的 pending；失败按 operationId 失效，只有仍是最新 pending 的那笔失败才回到权威顺序，迟到失败不得清除更晚的 pending；最终顺序以最后一次成功写入的权威回读为准。
+- 排序卡片允许正在拖动的行越过卡片顶部而不被裁切；仅该候选列表卡片取消裁切，其它设置卡片保持现有裁切。拖动中的行使用卡片背景与阴影，避免透出下层内容；非拖动状态不变。
 - `AppSettings.webSearchProviderOrder` 未初始化（字段缺省）时按固定优先级派生默认序：Z.ai Coding Plan → BigModel Coding Plan → MiniMax Token Plan → DeepSeek（套餐内优先、按量靠后）。派生结果在用户首次修改排序时才落盘；派生函数只有一份，UI 展示与 CLI 执行共用。
 - `AppSettings.webSearchEnabled` 总开关缺省 `true`；开关关闭、候选为空、或激活项无法解析（provider 已删除 / 无 apiKey）时，WebSearch 工具不暴露。
 - 策略（开关+排序）在会话 app 创建/恢复边界一次性快照绑定进 `WebSearchPort`；设置切换只影响之后创建/恢复的会话，已活跃会话的工具面与激活搜索源不随开关实时翻转（与 dynamic-workflow / off-peak 策略同构：只影响之后创建/恢复的 record）。正在执行的调用不中断。
@@ -54,6 +58,24 @@ AppSettings.webSearchEnabled / webSearchProviderOrder（~/.ycode/v2/setting.json
 3. 激活项解析失败（provider 删除、无 Key）按"不暴露工具"处理，不抛运行时错误。
 4. 旧 CLI（不认识 `workspace/updateWebSearchPolicy`）由 host 按 method-not-found 降级忽略；旧 host 未推送时 CLI 缺省为"无搜索源"，即不暴露 WebSearch。
 
+### 设置页排序的 UI 投影（不改变持久化链路）
+
+```text
+设置回读 webSearchProviderOrder ∪ 本机候选（resolveWebSearchProviderOrder）
+  → authoritativeIds（权威顺序，唯一事实源）
+  → useOptimisticReorder({ authoritativeIds, persist })
+       ├ pendingIds（唯一 UI pending owner，串行写入）
+       └ 最新 pending 失败 / 权威已同序 / 候选成员变化 → 清 pending
+  → renderedIds = pending ?? authoritative
+  → 候选对象投影 → <ul> 行顺序 + 激活徽标 + 箭头 disabled
+  → 拖拽松手 / 箭头点击 → commit(arrayMove(renderedIds, …))
+  → useSettings().update({ webSearchProviderOrder })（既有写入/回读/广播链路）
+```
+
+- pending 只在成员集合与权威顺序一致时生效；provider 增删导致成员变化时回退权威顺序，避免把已删除的 provider 继续展示。
+- 拖拽落点索引与箭头移动都基于当前 `renderedIds`，因此连续操作在写入未返回时仍能正确累积。
+- 不新增定时器、假延迟或 `flushSync`；即时呈现只来自 pending 投影。
+
 ## 接口与实现边界
 
 - `packages/shared/src/provider-search-capability.ts`：`WEB_SEARCH_CAPABLE_PROVIDER_TEMPLATE_IDS` 与模板 → 搜索端点描述（kind: `rest` | `mcp`、endpoint、toolName）的唯一映射；UI 与 CLI 共用。
@@ -67,7 +89,7 @@ AppSettings.webSearchEnabled / webSearchProviderOrder（~/.ycode/v2/setting.json
 - `apps/zcode-cli/packages/adapters/src/web-search/`：`common.ts`（fetchJson / 60s 超时 / 域名过滤与去重 / 输出归一化）、`deepseek-rest.ts`、`minimax-rest.ts`、`jina-rest.ts`（`POST {endpoint}{encodeURIComponent(query)}`，body `respondWith: "no-content"` 只取摘要不抓正文，映射 `data[]` 的 `title/url/description`）、`zhipu-mcp-search.ts`（StreamableHTTP + Bearer，按 endpoint|apiKey|proxyMode 池化）、`executor.ts`（`createRegistryWebSearchExecutor`：从进程级 Provider Registry 按偏好解析激活源，并按 `proxyMode` 缓存 proxy-aware fetch）。错误分类为可恢复工具失败并透传供应商信息。
 - `apps/zcode-cli/packages/bootstrap/src/app/create-app.ts`：把 `options.webSearchPort` 传入主 `AgentRuntime`；`workflow-facade.ts` 与 `script-workflow-child-runtime.ts` 从同一 `appOptions.webSearchPort` 传入子运行时，不另建端口。
 - `apps/zcode-cli/packages/core`：`config.ts` 的 `getTools`/`shouldExposeWebSearch` 按"开关 + 激活搜索源可解析"门控（与 model 无关）；`methods/subagent.ts` 把父端口传入子运行时；`handlers/websearch.ts` 只经注入的 `WebSearchPort` 调用执行器；`websearch-results.ts` 不再识别 Anthropic 形状。记忆提取继续在 `memory-agent-loop.ts` 按既有网络隔离策略拒绝搜索。
-- `packages/ui`：`settingsNavigation.ts` 新增 `webSearch` 分区 id（basics 组已有 `network`，不得撞名）；`settingsPageConfig.ts` 在 agentCapabilities 组注册；`SettingsPage.tsx` 增渲染分支；新组件 `settings/WebSearchSettingsSection.tsx` 用 dnd-kit 可排序行实现拖拽 + 上/下按钮排序，排序经 `resolveWebSearchProviderOrder` 合并后提交 `update({ webSearchProviderOrder })`；jina 实例行带设置按钮，模态 `settings/WebSearchJinaSettingsDialog.tsx`（Key / 出站代理 / 删除）经 `providerSettingsService` 现有 `savePersonalProviderOverlay`（稀疏 overlay + `proxyModeUpdate` 元数据）与 `deletePersonalProvider` 持久化，不新增写入路径；i18n 双语 `settings.webSearch.*`。
+- `packages/ui`：`settingsNavigation.ts` 新增 `webSearch` 分区 id（basics 组已有 `network`，不得撞名）；`settingsPageConfig.ts` 在 agentCapabilities 组注册；`SettingsPage.tsx` 增渲染分支；新组件 `settings/WebSearchSettingsSection.tsx` 用 dnd-kit 可排序行实现拖拽 + 上/下按钮排序，排序经 `resolveWebSearchProviderOrder` 合并后提交 `update({ webSearchProviderOrder })`；即时顺序复用 `settings/useOptimisticReorder.ts`（拖拽与箭头同一 commit 路径，页面不另存 pending），候选投影抽为纯函数便于回归测试；候选列表卡片通过 `SettingsGroupCard` 的可选 `className` 单独关闭裁切，其它卡片不变；jina 实例行带设置按钮，模态 `settings/WebSearchJinaSettingsDialog.tsx`（Key / 出站代理 / 删除）经 `providerSettingsService` 现有 `savePersonalProviderOverlay`（稀疏 overlay + `proxyModeUpdate` 元数据）与 `deletePersonalProvider` 持久化，不新增写入路径；i18n 双语 `settings.webSearch.*`。
 - `config/provider/zcode-builtin.json`：`templateRules` 新增 `jina` 模板（`access.type: "api-key"` + `apiKeyManagementUrl`、`api.baseUrl: "https://s.jina.ai"`、builtin logo `jina`，缺资源时 UI 回退通用图标；不带 `builtinModelIds`）；该模板不含 `supportsNativeWebSearch` 等模型能力字段。
 - 旧路径清理范围：`tool-transform.ts`、`runner-options.ts`、`model-execution.ts` 相关分支；`supportsNativeWebSearch` 从 `packages/shared/src/model-config.ts`、`packages/provider`（resolver、manual-model-config）、`config/provider/zcode-builtin.json`（5 条规则）、UI ProviderModelMetadata/Dialog/DraftState、双语 i18n 与相关测试中移除。
 
@@ -86,6 +108,11 @@ AppSettings.webSearchEnabled / webSearchProviderOrder（~/.ycode/v2/setting.json
 11. 通过真实 `createZCodeApp` 装配主会话，搜索开启且有可用源时，`runtime.getTools()` 和模型请求的工具列表包含 `WebSearch`；实际工具调用到达同一个注入端口并返回结果。开关关闭、无可用源或端口缺席时仍不暴露。不能只用假端口单测门控函数替代此装配回归。
 12. 子代理（包括 Explore）、传统工作流子会话和脚本工作流 actor，在已有工具范围允许 `WebSearch` 时能够用父端口搜索；显式不包含或禁用该工具时不向模型声明。父会话创建后翻转全局策略，再派生的子运行时仍沿用父快照。记忆提取代理调用 `WebSearch` 时仍在工具执行前被既有网络隔离策略拒绝，搜索端口不会被调用。
 13. `pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed` 与新增单测（adapters/core/bootstrap/shared）全部执行并报告真实结果。
+
+14. 设置页把末项拖到首位（或连点「上移」）后，松手即看到新顺序且「激活」徽标位于新首项；在 `setting.json` 写入与回读完成前不出现回跳或延迟跳位。写入悬而未决时继续排序，列表按最新 pending 更新，落盘按操作顺序串行；最终回读顺序等于最后一次操作。
+15. 当前最新 pending 写入失败时列表回到权威顺序并记录错误（renderer logger）；更早的迟到失败只失效它自己，不得清除最新 pending。拖拽取消（Esc / 指针取消）不写盘、不改顺序；候选增删导致成员变化时旧 pending 失效并回到权威顺序。
+16. 将首项向上拖过卡片顶部时该行保持可见、不被卡片裁切；关闭总开关后拖拽手柄与上下箭头禁用；键盘（空格抓起 / 方向键移动 / 空格放下）与窄屏触屏拖拽仍可用。
+17. 交互场景若没有不依赖运行中 YCode 的独立浏览器测试环境，则在测试计划中列出并明确未执行；不得用 CDP/DevTools/UI 自动化操作正在运行的 YCode。
 
 ## 负面边界
 
