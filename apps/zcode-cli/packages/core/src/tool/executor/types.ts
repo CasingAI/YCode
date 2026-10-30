@@ -93,6 +93,8 @@ export interface ToolExecutorOptions {
   sessionContextPort?: SessionContextControlPort;
   executionPort?: ExecutionPort;
   browserControlPort?: BrowserControlPort;
+  /** 本次 child execution 的浏览器授权 ID；透传到 MCP request context。 */
+  subagentBrowserGrantId?: string;
   webSearchPort?: WebSearchPort;
   browserDocumentationRoot?: string;
   fileSystemPort?: FileSystemPort;
@@ -205,6 +207,8 @@ export interface ToolExecutorDeps {
   sessionContextPort?: SessionContextControlPort;
   executionPort?: ExecutionPort;
   browserControlPort?: BrowserControlPort;
+  /** 本次 child execution 的浏览器授权 ID；透传到 MCP request context。 */
+  subagentBrowserGrantId?: string;
   webSearchPort?: WebSearchPort;
   browserDocumentationRoot?: string;
   fileSystemPort?: FileSystemPort;

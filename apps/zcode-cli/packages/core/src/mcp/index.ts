@@ -225,6 +225,11 @@ function createMcpToolEntry(
             turnId: context.turnId,
           },
           runtimeScope: context.runtimeScope ?? "main",
+          // 仅宿主 node_repl js 的 child 执行携带授权；第三方 MCP server 不接收
+          // grantId。adapter 侧再做同口径过滤，这里先收窄传输面。
+          ...(context.subagentBrowserGrantId && isHostNodeReplExecution
+            ? { subagentBrowserGrantId: context.subagentBrowserGrantId }
+            : {}),
           workspacePath: context.workingDirectory,
           ...(context.remoteSessionId ? { remoteSessionId: context.remoteSessionId } : {}),
           ...(context.workspaceIdentity?.trim()

@@ -167,8 +167,12 @@ function authorizeRequest(request: NodeReplBrowserBrokerRequest, input: { token:
   }
   // 共享 MCP 子进程不能再绑定某一个 session，但 top-level MCP metadata 也不能
   // 直接取得 Browser 权限。私有 socket token 先证明请求来自宿主启动的 node_repl；sessionId
-  // 随后由 BrowserControlPort 的 requireSession 做权威校验，subagent 在到达端口前直接拒绝。
-  if (request.runtimeScope === "subagent") {
+  // 随后由 BrowserControlPort 的 requireSession 做权威校验。
+  //
+  // 子代理 own-tabs（docs/specs/subagent-browser-use-delegation.md）：grantId 由 node-repl host
+  // 从宿主注入的 request context 透传，不由模型参数读取。本层只做传输 token 校验，真正的
+  // grant 表 / 父 record / 命令限制在 Protocol browser broker；缺少 grant 时继续稳定拒绝。
+  if (request.runtimeScope === "subagent" && !request.grantId) {
     throw new Error("Browser is not available in subagent");
   }
 }
@@ -179,10 +183,13 @@ async function executeRequest(
   signal: AbortSignal,
 ): Promise<NodeReplBrowserBrokerResponse> {
   const traceContext = request.trace as TraceContext | undefined;
+  // 只有 subagent 请求才把 grantId 交给端口；main 上伪填的 grantId 不能切换到授权路径。
+  const delegationGrantId = request.runtimeScope === "subagent" ? request.grantId : undefined;
   if (request.op === "list") {
     const browsers = await port.list({
       sessionId: request.sessionId,
       turnId: request.turnId,
+      ...(delegationGrantId ? { delegationGrantId } : {}),
       traceContext,
       signal,
     });
@@ -194,6 +201,7 @@ async function executeRequest(
     sessionId: request.sessionId,
     turnId: request.turnId,
     command: request.command,
+    ...(delegationGrantId ? { delegationGrantId } : {}),
     traceContext,
     signal,
   });

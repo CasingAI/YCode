@@ -78,12 +78,12 @@ Available entry points:
 - `browser.tabs.get(tabId)` validates, binds, and activates a tab in its owning window/workspace/session scope. The
   renderer shows it only if that scope is currently foreground; background sessions never steal the user's current UI.
 - `browser.tabs.new()` creates a real IAB tab and returns only after its guest ready acknowledgement.
-- `browser.user.openTabs()` lists user tabs without granting control; call `browser.user.claimTab(tab)` explicitly before using one.
+- `browser.user.openTabs()` lists user tabs without granting control; call `browser.user.claimTab(tab)` explicitly before using one. Main-agent sessions only; delegated subagents do not have these interfaces.
 - Browser tabs persist across turns for the lifetime of the current ZCode process. `tabs.finalize({ keep })` marks
   only listed tabs as `handoff` or `deliverable`; unlisted tabs remain open. Only `tab.close()`, a user close, window
   close, or process exit removes a tab.
-- Creating an IAB tab automatically opens the right pane and activates that tab so the user can see browser use in progress.
-- Use `await (await browser.capabilities.get("visibility")).set(false | true)` only when the task explicitly needs to hide or show the pane again.
+- Creating an IAB tab automatically opens the right pane and activates that tab so the user can see browser use in progress. For a delegated subagent the pane mounts in the background when another session is visible; it never changes the parent's visible tab or focus.
+- Use `await (await browser.capabilities.get("visibility")).set(false | true)` only when the task explicitly needs to hide or show the pane again. Delegated subagents do not have visibility controls.
 - `agent.documentation.get("screenshots")` loads screenshot guidance only when visual evidence is actually required.
 
 Core `Tab` methods:
@@ -117,3 +117,13 @@ keypress? })` scrolls from the supplied viewport anchor. `dom_cua.scroll({ node_
 - Routine locator, URL/load-state wait, and evaluate operations default to and are capped at 3000ms. A timeout is a signal to refresh the snapshot and rebuild the locator, not to retry it unchanged.
 - IAB does not support file uploads: `waitForEvent("filechooser")` / `fileChooser.setFiles(...)` fail with
   `capability_unsupported`; no fake upload success is exposed.
+
+## Delegated subagent sessions (own tabs)
+
+A delegated subagent can receive Browser Use only when the runtime issues an execution-scoped own-tabs grant. In that mode:
+
+- Only tabs owned by the child session are visible. `tabs.new/list/get`, navigation, snapshot, click, type, screenshot, close, and activating your own tab work. Popups inherit the child scope.
+- `browser.user.openTabs()`, `browser.user.claimTab()`, visibility controls, `turnEnded`, and `closeSession` are not part of the session; their interfaces are hidden or return a stable capability-unavailable error. A normal own-tabs script never needs `visibility.set`.
+- `tabs.new()`/`tabs.get()` keep the parent's visible tab and focus unchanged; the child pane only appears when the child session is being viewed.
+- Browser storage (cookies, localStorage, sessionStorage, IndexedDB, downloads, permissions) is shared with the parent. This is **not** a security sandbox; do not treat the login identity as child-only.
+- `Explore`, `Ask`, and `Plan` subagents never receive Browser Use. Without a grant the browser reports itself unavailable; stop and report that instead of falling back to `bash`/curl, `webfetch`, CDP/DevTools, UI automation, or another browser surface.

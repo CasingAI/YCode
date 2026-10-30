@@ -242,6 +242,11 @@ export interface McpCallToolRequest {
   clientMode?: string;
   deliveryKind?: string;
   turnId?: string;
+  /**
+   * 本次子代理执行级浏览器授权（docs/specs/subagent-browser-use-delegation.md）。
+   * 只由父 runtime 从可信 deps 注入，不能来自模型参数或顶层 `_meta`。
+   */
+  subagentBrowserGrantId?: string;
 }
 
 export interface McpCallToolOptions {

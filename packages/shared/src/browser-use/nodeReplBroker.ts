@@ -12,6 +12,12 @@ const requestBase = z.object({
   token: z.string().min(32),
   sessionId: z.string().trim().min(1),
   turnId: z.string().trim().min(1).optional(),
+  /**
+   * 子代理执行级浏览器授权 ID（docs/specs/subagent-browser-use-delegation.md）。
+   * 由 node-repl host 从宿主注入的 request context 透传，不来自模型参数；
+   * 真正的 grant 校验在 Protocol browser broker，本 schema 只负责传输。
+   */
+  grantId: z.string().trim().min(1).optional(),
   trace: z
     .object({
       traceId: z.string().trim().min(1),

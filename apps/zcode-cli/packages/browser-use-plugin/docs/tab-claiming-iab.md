@@ -13,3 +13,4 @@
   `{ controlledTabs, userTabs }` as that cell's final result so the model makes one decision from both lists, then
   claim the matching user tab in the next cell.
 - Prefer claiming the matching visible page over opening another tab with the same URL.
+- Delegated own-tabs subagents cannot list or claim user tabs; `browser.user.openTabs()` and `browser.user.claimTab()` are unavailable in that session. They can only bind tabs already owned by their child session.

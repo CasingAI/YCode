@@ -397,6 +397,12 @@ export interface AgentRuntimeDeps {
   /** browser-use 控制端口；透传到 ToolExecutionContext.browserControlPort 供 node_repl 使用。 */
   browserControlPort?: BrowserControlPort;
   /**
+   * 本次 child execution 的浏览器授权 ID（docs/specs/subagent-browser-use-delegation.md）。
+   * 只由父 runtime 在授权成功后注入；沿 executor → MCP request → adapter request context
+   * 传递，模型参数不可覆盖。缺省表示本轮无浏览器授权。
+   */
+  subagentBrowserGrantId?: string;
+  /**
    * 网络搜索执行端口（docs/specs/web-search-provider-capability.md）。
    * 缺席时 WebSearch 工具不暴露；策略（开关+排序）在端口实现内实时解析。
    */

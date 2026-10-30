@@ -1,4 +1,5 @@
 import type { TraceContext } from "../tracing/tracer.js";
+import type { SubagentExecutionFence } from "./session-store.port.js";
 
 /**
  * BrowserControlPort —— agent 侧浏览器控制端口。
@@ -525,6 +526,11 @@ export interface BrowserControlExecuteInput {
   command: BrowserCommand;
   traceContext?: TraceContext;
   signal?: AbortSignal;
+  /**
+   * 子代理执行级授权 ID（docs/specs/subagent-browser-use-delegation.md）。
+   * 只能由宿主注入，模型参数不可信；缺省表示主代理路径。
+   */
+  delegationGrantId?: string;
 }
 
 export interface BrowserControlListInput {
@@ -532,6 +538,67 @@ export interface BrowserControlListInput {
   turnId?: string;
   traceContext?: TraceContext;
   signal?: AbortSignal;
+  /** 同 BrowserControlExecuteInput.delegationGrantId。 */
+  delegationGrantId?: string;
+}
+
+/**
+ * 一次子代理执行范围（execution）的浏览器授权。
+ *
+ * 唯一 owner 是当前 App 的 Protocol browser broker 内存表；不持久化、不跨进程。
+ * `executionFence` 直接取父 runtime 的 SessionStore fence，broker 不复制 claim 生命周期。
+ */
+export interface SubagentBrowserDelegationGrant {
+  grantId: string;
+  parentSessionId: string;
+  childSessionId: string;
+  agentId: string;
+  executionFence: SubagentExecutionFence;
+  parentTurnId?: string;
+  /** `workspaceIdentity?.trim() || workspacePath`，由 broker 读取父 record 填充。 */
+  workspaceKey: string;
+  workspacePath: string;
+  workspaceIdentity?: string;
+  remoteSessionId?: string;
+  clientMode: BrowserClientMode;
+  issuedAt: number;
+}
+
+/**
+ * 父 runtime 与 Protocol broker 之间的授权端口。
+ *
+ * `grant` 同步：只能由可信父 runtime 用自己 active 的 parentSessionId 调用，broker 从
+ * 父 Protocol session record 读取 workspace/remote/delivery，不接受调用方传入的这些快照字段。
+ */
+export interface SubagentBrowserDelegationPort {
+  grant(input: {
+    parentSessionId: string;
+    childSessionId: string;
+    agentId: string;
+    executionFence: SubagentExecutionFence;
+    parentTurnId?: string;
+    /**
+     * 权威执行有效性校验，由可信父 runtime 注入（通常是 SessionStore 的 claim renew）。
+     *
+     * broker 在每次带 grant 的 `list`/`execute` 真正下发前 await 它；返回 false 时按
+     * “子代理浏览器不可用”拒绝并删除 grant。它只复核 claim 是否仍属于该 execution，
+     * 不创建新 lease，也不复制 claim 生命周期；缺省时退化为仅内存 grant 校验。
+     */
+    validateExecutionFence?: (fence: SubagentExecutionFence) => Promise<boolean>;
+  }): SubagentBrowserDelegationGrant;
+
+  /** 幂等；只有 grantId + childSessionId + executionFence 全匹配时才删除。 */
+  revoke(input: {
+    grantId: string;
+    childSessionId: string;
+    executionFence: SubagentExecutionFence;
+  }): void;
+
+  /** 同时匹配 grantId 与 childSessionId；撤销、未知 grant 或父 record 失效时返回 undefined。 */
+  authorize(input: {
+    grantId: string;
+    childSessionId: string;
+  }): SubagentBrowserDelegationGrant | undefined;
 }
 
 export interface BrowserControlPort {
@@ -542,4 +609,6 @@ export interface BrowserControlPort {
   turnEnded?(input: BrowserControlListInput): Promise<void>;
   /** session 关闭时释放 browser guest、pending request 与 lease。 */
   closeSession?(input: BrowserControlListInput): Promise<void>;
+  /** 宿主提供子代理授权端口时才允许父 runtime 签发执行级 grant。 */
+  readonly subagentDelegation?: SubagentBrowserDelegationPort;
 }

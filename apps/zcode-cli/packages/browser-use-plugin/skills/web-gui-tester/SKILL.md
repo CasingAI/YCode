@@ -11,6 +11,7 @@ description: Use the browser automation tooling available in the session to test
 3. **Separate testing from fixing**: Do not modify the code under test during testing. If a bug blocks the current path, record the issue, skip that path, and continue testing other unaffected points. Only begin fixing bugs after testing is explicitly declared complete and the user has explicitly or implicitly requested code changes.
 4. **Cross-validate code and visuals**: Observations must include both read-only code verification (DOM state checks) and visual verification using screenshots. The two must corroborate each other and cannot replace one another. A test point without at least one visually inspected screenshot as evidence—an image returned directly by the tool, or a screenshot file read using the Read tool—must be considered incomplete. Do not conclude that a test point passed or failed without such evidence.
 5. **Follow the browser tooling’s own usage rules**: Run the test with whatever browser automation tooling the session actually provides (a browser automation MCP tool, a built-in browser runtime, etc.). If that tooling ships its own usage skill or API documentation, complete its required initialization and read that documentation first, and obey its rules for actions, element location, waiting, and observation throughout the test. This skill defines the testing methodology only; when it conflicts with the tooling’s own rules, the tooling’s rules win.
+6. **Delegated subagent scope**: If this session is a delegated own-tabs subagent, only tabs owned by your child session exist. User-tab listing/claiming (`browser.user.openTabs`, `browser.user.claimTab`), visibility controls, and browser lifecycle are unavailable. Do not retry them and do not bypass with `bash`/curl, CDP/DevTools, UI automation, or another browser surface. Browser cookies and storage are shared with the parent session, which is not a security sandbox. `Explore`, `Ask`, and `Plan` subagents never receive browser access; when the browser is unavailable, stop and report it.
 
 ---
 
@@ -54,7 +55,7 @@ Before formal testing begins, any necessary method may be used to prepare the te
 - Start or restart development servers and dependent services.
 - Modify configuration files and prepare test files.
 - Initialize or populate test database data and create test accounts.
-- Preconfigure login or initial state using whatever mechanisms the browser tooling supports (such as injecting cookies/storage). If the tooling provides no injection capability, log in through the GUI with a test account instead, use backend/CLI means (seeding session data, generating a legitimate entry link), or reuse an already-logged-in user tab according to the tooling’s rules.
+- Preconfigure login or initial state using whatever mechanisms the browser tooling supports (such as injecting cookies/storage). If the tooling provides no injection capability, log in through the GUI with a test account instead, use backend/CLI means (seeding session data, generating a legitimate entry link), or, in a main-agent session, reuse an already-logged-in user tab according to the tooling’s rules. Delegated subagents cannot claim user tabs; use a test account or an existing tab they own.
 - Perform any other preparation necessary to make the functionality under test reachable.
 
 ### Constraints
@@ -116,14 +117,14 @@ Perform both types of verification:
 
 #### Observation dimensions
 
-| Dimension | Points of attention |
-|---|---|
-| Element presence | Whether key UI elements exist and are visible |
-| Content correctness | Whether text, numbers, and other content meet expectations |
-| State changes | Whether the URL, element appearance/disappearance, and text updates match expectations after an action |
+| Dimension            | Points of attention                                                                                                                              |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Element presence     | Whether key UI elements exist and are visible                                                                                                    |
+| Content correctness  | Whether text, numbers, and other content meet expectations                                                                                       |
+| State changes        | Whether the URL, element appearance/disappearance, and text updates match expectations after an action                                           |
 | Layout and occlusion | Unexpected overlap, obstruction, truncation, or misalignment. Distinguish legitimate overlays or sticky navigation from actual rendering defects |
-| Rendering and design | Long-text overflow, abnormal wrapping, design consistency, and similar issues |
-| Visual quality | Contrast, colors, typography, spacing, and alignment |
+| Rendering and design | Long-text overflow, abnormal wrapping, design consistency, and similar issues                                                                    |
+| Visual quality       | Contrast, colors, typography, spacing, and alignment                                                                                             |
 
 ### Screenshot requirements for transient states
 
@@ -154,5 +155,6 @@ After testing is complete, summarize the results based on every recorded observa
 Every test point—whether passed or failed—must reference its corresponding viewed screenshot. When the tooling exposes an artifact path, reference the actual absolute path (or its `file://` URI); otherwise use the returned image evidence and state that no persistent path was exposed.
 
 ### Output format
+
 - If the user's prompt specifies requirements for the report format, such as outputting to a designated file, a particular format, or a specific language, follow those requirements strictly when producing the output or generating the file.
 - If the user does not explicitly specify another format, output an interleaved Markdown report with text and images directly by default, referencing images with standard Markdown image syntax, such as ![screenshot description](https://example.com/screenshot.png), where the image address should be an accessible absolute URL. When a local artifact exists, use its actual absolute path or `file:///` URI, such as ![login screenshot](file:///C:/Users/test/screenshots/login.png). Do not invent paths, output plain file paths only, or gather all screenshots at the end of the report.

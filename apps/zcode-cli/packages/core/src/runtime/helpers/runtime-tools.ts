@@ -190,6 +190,8 @@ function createRuntimeToolExecutor(
     },
     executionPort: deps.executionPort,
     browserControlPort: browserUseEnabled ? deps.browserControlPort : undefined,
+    // 只沿本次 child execution 的可信注入链传递；父会话不签发时保持缺席。
+    ...(deps.subagentBrowserGrantId ? { subagentBrowserGrantId: deps.subagentBrowserGrantId } : {}),
     webSearchPort: deps.webSearchPort,
     browserDocumentationRoot: browserUseEnabled
       ? runtime.config.runtimeFeatures?.browserDocumentationRoot

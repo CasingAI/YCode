@@ -33,10 +33,10 @@ import type {
   OfficialMcpAuthFailureReason,
   OfficialMcpAuthHeadersPort,
   OfficialMcpTrustedOriginRegistry,
-  TraceContext,
 } from "@zcode/contracts";
 import { ZCODE_MCP_SERVER_REQUEST_ID_META_KEY } from "@zcode/contracts";
 import { normalizeMcpToolDescriptor } from "./descriptor.js";
+import { buildMcpRequestMeta } from "./request-meta.js";
 import {
   createOfficialMcpAuthFetch,
   OfficialMcpAuthError,
@@ -695,8 +695,12 @@ class NodeMcpAdapter implements McpPort {
         {
           name: request.toolName,
           arguments: request.arguments ?? {},
-          ...(request.trace || request.runtimeScope || request.workspaceKey || request.workspacePath
-            ? { _meta: mcpRequestMeta(request) }
+          ...(request.trace ||
+          request.runtimeScope ||
+          request.workspaceKey ||
+          request.workspacePath ||
+          request.subagentBrowserGrantId
+            ? { _meta: buildMcpRequestMeta(request) }
             : {}),
         },
         {
@@ -1774,31 +1778,6 @@ class NodeMcpAdapter implements McpPort {
       serverRequestId: extra.serverRequestId,
     };
   }
-}
-
-function mcpRequestMeta(request: McpCallToolRequest): Record<string, unknown> {
-  // nodeRepl.requestMeta 暴露。ZCode 所有 MCP server 都可忽略这些扩展键；node_repl browser
-  // bridge 则以它们作为回到当前 BrowserControlPort session 的唯一关联依据。runtime_scope
-  // 不能从 child session id 猜测，必须由实际执行工具的 runtime 显式透传。
-  const requestContext = {
-    ...(request.trace ? { trace_id: request.trace.traceId } : {}),
-    ...(request.trace?.spanId ? { span_id: request.trace.spanId } : {}),
-    ...(request.trace?.parentSpanId ? { parent_span_id: request.trace.parentSpanId } : {}),
-    ...(request.trace?.sessionId ? { session_id: request.trace.sessionId } : {}),
-    ...(request.trace?.turnId ? { turn_id: request.trace.turnId } : {}),
-    ...(request.runtimeScope ? { runtime_scope: request.runtimeScope } : {}),
-    ...(request.workspacePath ? { workspace_path: request.workspacePath } : {}),
-    ...(request.workspaceIdentity ? { workspace_identity: request.workspaceIdentity } : {}),
-    ...(request.workspaceKey ? { workspace_key: request.workspaceKey } : {}),
-    ...(request.remoteSessionId ? { remote_session_id: request.remoteSessionId } : {}),
-    ...(request.clientMode ? { client_mode: request.clientMode } : {}),
-    ...(request.deliveryKind ? { delivery_kind: request.deliveryKind } : {}),
-    ...(request.turnId && !request.trace?.turnId ? { turn_id: request.turnId } : {}),
-  };
-  return {
-    ...requestContext,
-    "com.zcode/request-context": requestContext,
-  };
 }
 
 function resolveVersionNegotiationMode(config: McpServerConfig): VersionNegotiationMode {

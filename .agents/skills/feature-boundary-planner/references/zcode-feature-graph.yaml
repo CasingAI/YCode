@@ -184,6 +184,21 @@ nodes:
         symbol: SubagentsSection
       - file: apps/zcode-cli/packages/core/src/tool/handlers/agent.ts
         symbol: agentHandler
+  - id: capability.subagent-browser-delegation
+    kind: capability
+    label: Subagent Browser Use delegation (execution-bound own-tabs)
+    aliases:
+      - subagent browser use
+      - child browser use
+      - 子代理 Browser Use
+      - 子代理浏览器
+      - own-tabs delegation
+    codeSeeds:
+      - file: apps/zcode-cli/packages/core/src/runtime/methods/subagent.ts
+        symbol: createDefaultSubagentPort
+      - file: apps/zcode-cli/packages/bootstrap/src/zcode-protocol/browser-control-broker.ts
+        symbol: createProtocolBrowserControlBroker
+      - file: docs/specs/subagent-browser-use-delegation.md
   - id: state.subagent-identity
     kind: state-owner
     label: Durable subagent identity binding (agentId to childSessionId)
@@ -1090,6 +1105,16 @@ edges:
     to: surface.builtin-subagent-model
     type: renders-in
     rank: must-inspect
+  - from: capability.subagents
+    to: capability.subagent-browser-delegation
+    type: delegates-execution-bound-browser-scope
+    rank: must-inspect
+  - from: capability.subagent-browser-delegation
+    to: state.subagent-identity
+    type: scoped-by
+    rank: must-inspect
+    condition: Pages are owned by childSessionId; the browser grant is per foreground execution
+      and is revoked on every terminal outcome without closing owned tabs.
   - from: surface.user-subagent-form
     to: state.subagent-form-draft
     type: owns-draft

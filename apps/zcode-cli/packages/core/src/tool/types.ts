@@ -176,6 +176,11 @@ export interface ToolExecutionContext {
   executionPort?: ExecutionPort;
   /** browser-use 控制端口；node_repl 的 agent.browsers.* 经此执行。缺省则 browser 不可用。 */
   browserControlPort?: BrowserControlPort;
+  /**
+   * 本次 child execution 的浏览器授权 ID；由父 runtime 注入，MCP bridge 写入可信
+   * request context。模型参数与工具输入都不能覆盖它。
+   */
+  subagentBrowserGrantId?: string;
   /** 网络搜索执行端口；缺席或解析不出激活搜索源时 WebSearch 不暴露、调用报能力缺席。 */
   webSearchPort?: WebSearchPort;
   /** 官方 browser-use plugin docs 资产目录；只在 browser-use 启用时用于 agent.browsers.documentation()。 */

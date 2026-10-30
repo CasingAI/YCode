@@ -61,6 +61,8 @@ const requestContextSchema = z
     parent_span_id: z.string().optional(),
     runtime_scope: z.enum(["main", "subagent"]).default("main"),
     session_id: z.string().trim().min(1).optional(),
+    // 仅由宿主 adapter 写入的执行级 grant；模型参数和顶层 MCP _meta 不会进入这里。
+    subagent_browser_grant: z.string().trim().min(1).optional(),
     span_id: z.string().optional(),
     trace_id: z.string().optional(),
     turn_id: z.string().optional(),

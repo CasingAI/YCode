@@ -4,3 +4,4 @@
 - Keep the pane visible during normal browser work unless the task explicitly calls for hiding it.
 - Use visibility controls to hide the pane or show it again; callers do not need to call `set(true)` after `tabs.new()`.
 - Show or hide it with `await (await browser.capabilities.get("visibility")).set(true | false)`; read the current state with `get()`.
+- Delegated subagents do not have visibility controls and never need `set(true)`: their tabs mount in the background and do not change the parent's visible tab or focus.

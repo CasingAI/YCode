@@ -4,3 +4,6 @@ If the user asks to close every visible in-app browser tab in the current conver
 `browser.tabs.list()` and then claim and close released or user-owned tabs from `browser.user.openTabs()`.
 Neither list alone represents all tabs owned by the current conversation. Tabs from other conversations are isolated and
 must not be enumerated or closed.
+
+Delegated own-tabs subagents cannot enumerate or claim user tabs. They may close only pages owned by their own child
+session, and must not attempt to reach the parent's pages through another route.
