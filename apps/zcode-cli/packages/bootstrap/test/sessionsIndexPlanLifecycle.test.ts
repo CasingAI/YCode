@@ -295,6 +295,21 @@ function turnWithPlanCard(projection: ProductProjection, turnNumber: number): vo
   );
   projection.applyEvent(
     event(
+      SessionEventType.ToolCallResult,
+      {
+        toolCallId: `${TOOL_CALL_ID}-${turnNumber}`,
+        result: {
+          success: true,
+          content:
+            'Plan created. Waiting for user approval on the plan card. Do not start implementing until the user clicks "Execute plan".\n\nPlan file: /repo/.zcode/plans/plan.md',
+        },
+        duration: 400,
+      },
+      turnNumber * 10_000 + 1_500,
+    ),
+  );
+  projection.applyEvent(
+    event(
       SessionEventType.TurnComplete,
       { response: "计划已就绪", toolCallCount: 1, historyRoundCount: 1, duration: 1_200 },
       turnNumber * 10_000 + 2_000,

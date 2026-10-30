@@ -94,6 +94,52 @@ test("extractPlanToolCallContent：legacy 节点从 raw 读路径；无正文或
   );
 });
 
+test("extractPlanToolCallContent：v4 output 是执行结果，不当作计划正文", () => {
+  // v4 桥接节点带 raw.v4Status。adapter 会把 output.text 同时放进 output 与 rawOutput；
+  // 这两个字符串是执行结果（"ok"、报错、旧计划落盘后的任意文本），不能回收到 markdown。
+  const outputOnly = extractPlanToolCallContent(
+    {
+      toolName: "CreatePlan",
+      output: "# 旧计划",
+      raw: { v4Status: "success", rawOutput: "# 旧计划" },
+    },
+    "/w",
+  );
+  assert.deepEqual(outputOnly, {});
+
+  const blankInput = extractPlanToolCallContent(
+    {
+      toolName: "CreatePlan",
+      input: {},
+      inputText: "   ",
+      output: "# 不该成为卡",
+      raw: { v4Status: "success", inputText: "   ", rawOutput: "# 不该成为卡" },
+    },
+    "/w",
+  );
+  assert.deepEqual(blankInput, {});
+
+  // title-only 旧行仍从入参出卡；output 不参与。
+  const titleOnly = extractPlanToolCallContent(
+    {
+      toolName: "ExitPlanMode",
+      input: { title: "旧计划标题" },
+      output: "ok",
+      raw: { v4Status: "success", inputText: "", rawOutput: "ok" },
+    },
+    "/w",
+  );
+  assert.deepEqual(titleOnly, { title: "旧计划标题" });
+});
+
+test("extractPlanToolCallContent：无 v4Status 的真正 legacy 节点保留 rawOutput 字符串兼容", () => {
+  assert.equal(extractPlanToolCallContent({ output: "# 旧计划" }, "/w").markdown, "# 旧计划");
+  assert.equal(
+    extractPlanToolCallContent({ raw: { rawOutput: "# 旧计划" } }, "/w").markdown,
+    "# 旧计划",
+  );
+});
+
 test("extractPlanToolCallContent：只有 title/overview、正文还没流出时也照常解析", () => {
   // 计划工具按 title → overview → plan 顺序流出，流式早期正文还没到。
   // 这时必须已经能拿到标题与概述，否则卡片在整段输出期都无内容可渲染。
@@ -129,6 +175,16 @@ test("shouldRenderCollapsedPlanCard：流式缺 overview 也折叠，只有定�
       hasTitleOrOverview: true,
       overview: undefined,
       streaming: true,
+    }),
+    true,
+  );
+  // 定稿的 title-only 旧调用（与旧拒绝行）也必须成折叠卡：没有正文可退回全文预览。
+  assert.equal(
+    shouldRenderCollapsedPlanCard({
+      hasMarkdown: false,
+      hasTitleOrOverview: true,
+      overview: undefined,
+      streaming: false,
     }),
     true,
   );

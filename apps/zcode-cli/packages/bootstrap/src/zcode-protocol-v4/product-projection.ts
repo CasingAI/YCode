@@ -1266,6 +1266,16 @@ export class ProductProjection {
     return this.findRow(rowId)?.turnId ?? null;
   }
 
+  /**
+   * toolCallId → 当前权威工具行（O(1) 索引回查）。
+   *
+   * 网关的流式计划工具登记缓存可能错过 `tool_input_start`（publisher 恢复/中途建立）；
+   * 增量事件到达时用它回到 projection 行确认工具身份，避免把缓存当第二份事实。
+   */
+  getToolCallRow(toolCallId: string): ToolCallRow | undefined {
+    return this.findToolRow(toolCallId);
+  }
+
   /** 应用一个权威事件，返回该事件产生的 delta 序列（可能为空）。 */
   applyEvent(event: SessionEvent, lastActivityAt?: number): ConversationDelta[] {
     return this.applyEventInternal(event, true, lastActivityAt);
@@ -3389,10 +3399,13 @@ export class ProductProjection {
       ...this.rowBase(event, this.turnIdOf(event), fact.entityId),
       createdAt: fact.stream.phaseStartedAt ?? fact.stream.observedAt ?? this.ms(event),
       kind: "reasoning",
-      ...(fact.stream.responseId
-        ? { assistantResponseId: fact.stream.responseId }
-        : fact.stream.assistantResponseId
-          ? { assistantResponseId: fact.stream.assistantResponseId }
+      // 响应身份与正文/工具行保持一致：assistantMessageId 是 transcript 的 assistant
+      // response 身份，provider responseId 只是物理响应 id，不能混用。只有旧事件缺
+      // assistantMessageId 时才退回 responseId，保证历史快照仍能归组。
+      ...(fact.stream.assistantResponseId
+        ? { assistantResponseId: fact.stream.assistantResponseId }
+        : fact.stream.responseId
+          ? { assistantResponseId: fact.stream.responseId }
           : {}),
       text: "",
       state: "streaming",

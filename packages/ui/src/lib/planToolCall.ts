@@ -1,6 +1,12 @@
+import { extractPlanCardContent, hasPlanCardContent } from "@zcode/shared/zcode-protocol-v4";
 import { isAbsoluteFilePath, joinFilePath } from "@/lib/path.js";
 
+// 「这行内容能不能撑起折叠卡」的判据放在 shared：UI 脱流、间距判定与 CLI sessions-index
+// 描边必须同一份。这里只再导出，保持既有 UI 导入路径。
+export { hasPlanCardContent };
+
 interface PlanToolCallSource {
+  toolName?: unknown;
   input?: unknown;
   inputText?: string;
   output?: unknown;
@@ -82,20 +88,6 @@ function extractPlanMarkdown(source: unknown, workspacePath: string): PlanToolCa
   };
 }
 
-/**
- * 这条计划行是否带得动一张折叠卡：正文、标题、概述任一在场即可。
- *
- * 必须是**一份**判据：渲染器决定走不走折叠卡、会话布局决定这行算不算带边框的独立盒子，
- * 两处对同一行必须给同一个答案。历史上两处各写各的，间距那处只认 `markdown`——卡片改成
- * 能用 title/overview 提前成形之后，间距判定就落后一版，卡片在流式期按平铺行排版、
- * 定稿瞬间又跳成卡片间距。
- */
-export function hasPlanCardContent(content: PlanToolCallContent): boolean {
-  return (
-    content.markdown !== undefined || content.title !== undefined || content.overview !== undefined
-  );
-}
-
 export function extractPlanToolCallContent(
   toolCall: PlanToolCallSource,
   workspacePath: string,
@@ -133,10 +125,46 @@ function readRowPlanFilePath(toolCall: PlanToolCallSource): string | undefined {
   return isRecord(toolCall.raw) ? readStringField(toolCall.raw, ["planFilePath"]) : undefined;
 }
 
+/**
+ * v4 桥接节点：adapter 总会写 `raw.v4Status`；真正的 legacy 节点没有这个字段。
+ *
+ * v4 的 `output.text` 是工具执行结果（确认文案、报错、或旧计划落盘后的任意字符串），
+ * 不是计划正文。不能沿用 legacy 的「任意 output 字符串都能当 markdown」兜底，否则
+ * `output:{text:"ok"}` 会渲染出一张假计划卡，而 shared 判据又判它不是卡。
+ */
+function isV4BridgedToolCall(toolCall: PlanToolCallSource): boolean {
+  return isRecord(toolCall.raw) && typeof toolCall.raw.v4Status === "string";
+}
+
+/** v4 入口与 sessions-index 共用 shared 的入参提取；output 不参与计划正文。 */
+function extractV4PlanContent(toolCall: PlanToolCallSource): PlanToolCallContent {
+  const raw = isRecord(toolCall.raw) ? toolCall.raw : undefined;
+  const content = extractPlanCardContent({
+    toolName: typeof toolCall.toolName === "string" ? toolCall.toolName : "",
+    input: toolCall.input,
+    inputText:
+      typeof raw?.inputText === "string"
+        ? raw.inputText
+        : typeof toolCall.inputText === "string"
+          ? toolCall.inputText
+          : undefined,
+    // v4 output 只有执行结果文本；shared 的结构化 output 兜底在这里不适用。
+    output: undefined,
+  });
+  return {
+    ...(content.markdown ? { markdown: content.markdown } : {}),
+    ...(content.title ? { title: content.title } : {}),
+    ...(content.overview ? { overview: content.overview } : {}),
+  };
+}
+
 function extractPlanContentFromToolCall(
   toolCall: PlanToolCallSource,
   workspacePath: string,
 ): PlanToolCallContent {
+  // v4 行必须走 shared 同源提取；legacy 节点保留完整历史兜底（output/raw.rawOutput）。
+  if (isV4BridgedToolCall(toolCall)) return extractV4PlanContent(toolCall);
+
   const inputContent = extractPlanMarkdown(toolCall.input, workspacePath);
   if (hasPlanCardContent(inputContent)) return inputContent;
 
@@ -189,7 +217,8 @@ export function isPlanToolCallInputStreaming(toolCall: PlanToolCallSource): bool
  * `overview` 之前的版本。按字段有无判断会把这两者混为一谈，于是定稿瞬间翻牌。
  *
  * 「有内容」不只看正文：模型按 title → overview → plan 流出，流式早期正文还没到，
- * 但标题与概述已经能让卡片成形——那一段空白正是旧实现最难看的地方。
+ * 但标题与概述已经能让卡片成形。定稿后 `markdown` 缺席但 `title` / `overview` 在场，
+ * 同样只能是旧版计划或旧拒绝行；它们也必须走折叠卡，不能退化成普通工具输出/空壳。
  */
 export function shouldRenderCollapsedPlanCard(input: {
   hasMarkdown: boolean;
@@ -199,6 +228,8 @@ export function shouldRenderCollapsedPlanCard(input: {
 }): boolean {
   if (!input.hasMarkdown && !input.hasTitleOrOverview) return false;
   if (input.streaming) return true;
+  // 无正文时没有「全文预览」可退：title/overview 就是这张卡的全部事实。
+  if (!input.hasMarkdown) return true;
   return input.overview !== undefined;
 }
 

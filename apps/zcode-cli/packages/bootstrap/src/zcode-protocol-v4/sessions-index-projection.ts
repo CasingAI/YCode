@@ -4,8 +4,7 @@
 // 事件订阅与 flush 调度归 gateway（v4-gateway）。
 import {
   deriveSessionWorkflowActivity,
-  isPlanApprovalToolName,
-  type ConversationRow,
+  hasPlanCardInLastAssistantResponse,
   type ConversationSnapshot,
   type SessionSummary,
   type SessionsIndexDelta,
@@ -21,34 +20,6 @@ export interface SessionSummaryDeriveExtra {
 }
 
 const MAX_PREVIEW_CHARS = 120;
-
-/**
- * 最后一个 turn 里有没有 plan 计划卡片（列表行据此给圆点加描边）。
- *
- * 判定只认工具名（`CreatePlan` 与历史 `ExitPlanMode`），走 shared 的 `isPlanApprovalToolName`——
- * 与 UI 的 plan 卡判据共用同一份，不另写字面量。工具名够用：这两个工具恒成功，
- * 出现即意味着计划文件已落盘、卡片已成形（`plan-card-execute.md`「调用即成功」）。
- *
- * 只看**最后一个** turnHeader 之后的区间：用户点进会话直接落在时间线尾部，
- * 再往前的轮里有没有 plan 卡与「点进去能不能直接看到卡」无关。
- */
-function hasPlanCardInLastTurn(rows: ConversationRow[]): boolean {
-  let lastTurnStart = -1;
-  for (let i = rows.length - 1; i >= 0; i -= 1) {
-    if (rows[i]?.kind === "turnHeader") {
-      lastTurnStart = i;
-      break;
-    }
-  }
-  // 没有轮头的行窗口（冷恢复前的裁剪快照）一律判否：无法确认归属，
-  // 宁可少画一圈描边，也不要在未知行上编造一个 plan 卡。
-  if (lastTurnStart < 0) return false;
-  for (let i = lastTurnStart + 1; i < rows.length; i += 1) {
-    const row = rows[i];
-    if (row?.kind === "toolCall" && isPlanApprovalToolName(row.toolName)) return true;
-  }
-  return false;
-}
 
 /** 从 ConversationSnapshot + 会话元信息派生 SessionSummary（纯函数，golden 可测）。 */
 function deriveSessionSummary(
@@ -71,7 +42,10 @@ function deriveSessionSummary(
     if (lastAssistantPreview) break;
   }
   const hasBackgroundWork = snapshot.backgroundWorks.some((work) => work.status === "running");
-  const lastTurnHasPlanCard = hasPlanCardInLastTurn(rows);
+  // 字段名沿用 lastTurnHasPlanCard 以兼容既有帧，但语义已收窄为「最后一个 product turn
+  // 的最后一次 assistant response 里有一张默认展示的有效计划卡」：与正文脱流共用
+  // shared 纯判据，早期响应的计划卡、失败/空内容工具都不再触发描边。
+  const lastTurnHasPlanCard = hasPlanCardInLastAssistantResponse(rows);
   // 侧栏工作流运行行的数据：
   // 同一 snapshot 的 workflowRuns + backgroundWorks 派生，侧栏不必订阅 run 进度。
   const workflowActivity = deriveSessionWorkflowActivity({

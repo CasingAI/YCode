@@ -1,14 +1,13 @@
-import type {
-  AssistantTextRow,
-  ConversationRow,
-  ToolCallRow,
-  TurnHeaderRow,
-  UserInputRow,
+import {
+  isPlanCardToolCallRow as isSharedPlanCardToolCallRow,
+  resolveLastAssistantResponseId,
+  type AssistantTextRow,
+  type ConversationRow,
+  type ToolCallRow,
+  type TurnHeaderRow,
+  type UserInputRow,
 } from "@zcode/shared/zcode-protocol-v4";
-import { extractPlanToolCallContent, hasPlanCardContent } from "@/lib/planToolCall.js";
-import { resolveToolCallIdentity } from "@/lib/toolIdentity.js";
 import type { ConversationCuaGroupRenderItem } from "@/v4/conversationCuaGroups.js";
-import { toolCallRowToLegacyNode } from "@/v4/toolCallRowAdapter.js";
 
 export type AssistantWorkRow = Exclude<ConversationRow, TurnHeaderRow | UserInputRow>;
 
@@ -29,25 +28,15 @@ export type ConversationTurnFlowItem =
 /**
  * 这一行渲染出来是不是一张完整的计划卡（带边框外壳）。
  *
- * 先认工具身份再判内容：`extractPlanToolCallContent` 对任何工具都可能从 input / output 的
- * `text`、`content` 字段读出「markdown」，不先判定身份会把它当成计划卡（SendMessage 之类的
- * input 恰好带 text）。内容判据与渲染器的 `shouldRenderCollapsedPlanCard` 同源（title /
- * overview / markdown 任一在场即成卡），所以流式期只有 title/overview 的半截计划也算卡。
- *
- * workspacePath 只用于把相对 planFilePath 拼成绝对路径，这里只读内容有无，传空串即可。
+ * 判据本身在 shared（`isPlanCardToolCallRow`）：CLI 的 sessions-index 摘要用它决定
+ * 侧栏圆点描边，正文用它决定要不要脱流，两侧必须同一份。shared 判据同时认工具身份、
+ * 失败语义和能成卡的内容（title / overview / plan 任一在场，流式半成卡也算）。
  *
  * 这份判据必须与 `conversationWorkItemGap` 的卡片间距判定保持一致：那里按它决定 16px
  * 卡片间距，这里按它决定要不要脱流，两处漂移就会出现「卡片按壳排版、却仍被收进过程桶」。
  */
 export function isPlanCardToolCallRow(row: AssistantWorkRow | undefined): row is ToolCallRow {
-  if (row?.kind !== "toolCall") {
-    return false;
-  }
-  const toolCall = toolCallRowToLegacyNode(row).toolCall;
-  return (
-    resolveToolCallIdentity(toolCall).family === "switch-mode" &&
-    hasPlanCardContent(extractPlanToolCallContent(toolCall, ""))
-  );
+  return row?.kind === "toolCall" && isSharedPlanCardToolCallRow(row);
 }
 
 function isUserInputRow(row: ConversationRow): row is UserInputRow {
@@ -93,30 +82,17 @@ function resolveLastSegmentFlowRowId(
   return lastRowId;
 }
 
-/**
- * 本气泡最后一次模型响应的身份：段内最后一条非 tail 助手工作行携带的 assistantResponseId。
- *
- * 一次模型请求产出一条助手响应，这次响应产出的正文 / 思考 / 工具行共享同一个
- * assistantResponseId（见 rows.ts 的行级注释）。段内最后一条助手工作行必然属于最后一次
- * 响应，拿它当「最后一个 turn」的锚点，脱流判据就完全落在本气泡内部——不看这条会话里
- * 它是不是最后一轮，也不受后到消息影响。
- */
-function resolveTurnLastResponseId(
-  orderedRows: readonly ConversationRow[],
-  tailRowIds: ReadonlySet<number>,
-): string | undefined {
-  let lastResponseId: string | undefined;
-  for (const row of orderedRows) {
-    if (!isAssistantWorkRow(row) || tailRowIds.has(row.rowId)) continue;
-    // 最后一条行缺 id（旧 snapshot、timelineOnly）就取不到锚点：改取更早行的 id 会把
-    // 「上一次响应」冒充成「最后一次」，宁可留 undefined 让脱流失败向安全侧倒。
-    lastResponseId = "assistantResponseId" in row ? row.assistantResponseId : undefined;
-  }
-  return lastResponseId;
-}
-
 export function buildConversationFlowItems(options: {
+  /**
+   * 本段参与渲染的行（已按可见性过滤）。
+   *
+   * 锚点判定不能只看这里：空 text/reasoning 占位也是新 response 的证据，被过滤掉会让
+   * 旧计划卡被误认成「最后一次响应」。`anchorRows` 保留这些行，只用于身份判定，
+   * 不参与 flow 渲染。
+   */
   orderedRows: readonly ConversationRow[];
+  /** 同段未做可见性过滤的行；缺省时退回 `orderedRows`（直接调用 helper 的旧路径）。 */
+  anchorRows?: readonly ConversationRow[];
   assistantHistoryRows: readonly AssistantWorkRow[];
   assistantFollowingRows: readonly AssistantWorkRow[];
   assistantTailRows: readonly AssistantWorkRow[];
@@ -137,7 +113,14 @@ export function buildConversationFlowItems(options: {
   // turn」只在气泡内部计算，点「执行计划」发新消息开的是新气泡，旧气泡的判据不变，
   // 前面的显示不因此变化；缺 id 的行证不出归属，一律不脱流。
   const lastSegmentFlowRowId = resolveLastSegmentFlowRowId(options.orderedRows, tailRowIds);
-  const turnLastResponseId = resolveTurnLastResponseId(options.orderedRows, tailRowIds);
+  // 锚点与 sessions-index 摘要共用 shared 的 `resolveLastAssistantResponseId`：缺 id 时
+  // 返回 undefined，脱流失败向安全侧倒，侧栏描边也不会凭空出现。
+  const turnLastResponseId = resolveLastAssistantResponseId(
+    options.anchorRows ?? options.orderedRows,
+    {
+      ignoredRowIds: tailRowIds,
+    },
+  );
   const detachedPlanCards: ToolCallRow[] = [];
 
   for (const row of options.orderedRows) {

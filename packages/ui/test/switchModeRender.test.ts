@@ -226,6 +226,108 @@ test("定稿但无 overview 的历史行仍走全文预览，不套通用工具�
   assert.doesNotMatch(markup, /执行失败/);
 });
 
+test("定稿 title-only 的旧 ExitPlanMode 渲染折叠卡，不退回普通工具输出", () => {
+  const row = {
+    rowId: 1,
+    kind: "toolCall",
+    createdAt: 1_700_000_000_000,
+    turnId: "turn-1",
+    toolCallId: "exit-plan-mode-title-only",
+    toolName: "ExitPlanMode",
+    status: "success",
+    inputText: "",
+    input: { title: "只有标题的旧计划" },
+    output: { text: "Plan created." },
+  } as ToolCallRow;
+  const node = toolCallRowToLegacyNode(row);
+  const markup = renderContext(
+    makeContext({
+      toolCall: node.toolCall,
+      onExecutePlan: () => undefined,
+      onOpenPlanDetail: () => undefined,
+    }),
+  );
+
+  assert.match(markup, /只有标题的旧计划/);
+  assert.match(markup, /执行计划/);
+  assert.doesNotMatch(markup, /执行失败/);
+  // 没有正文就没有「查看」入口，详情面板打开也是空的。
+  assert.doesNotMatch(markup, />查看</);
+});
+
+test("定稿 title-only 的旧拒绝行同样渲染折叠卡，不显示拒绝错误", () => {
+  const row = {
+    rowId: 1,
+    kind: "toolCall",
+    createdAt: 1_700_000_000_000,
+    turnId: "turn-1",
+    toolCallId: "exit-plan-mode-title-only-denied",
+    toolName: "ExitPlanMode",
+    status: "error",
+    inputText: "",
+    input: { title: "被搁置的旧计划" },
+    error: { code: "fault.runtime.toolFailed", message: "Permission denied for ExitPlanMode" },
+    output: { text: "Permission denied for ExitPlanMode" },
+  } as ToolCallRow;
+  const node = toolCallRowToLegacyNode(row);
+  const markup = renderContext(
+    makeContext({
+      toolCall: node.toolCall,
+      onExecutePlan: () => undefined,
+      onOpenPlanDetail: () => undefined,
+    }),
+  );
+
+  assert.match(markup, /被搁置的旧计划/);
+  assert.match(markup, /执行计划/);
+  assert.doesNotMatch(markup, /执行失败/);
+  assert.doesNotMatch(markup, /Permission denied/);
+});
+
+test("v4 output-only / 空入参 / path-only 不渲染计划卡动作", () => {
+  const rows = [
+    {
+      toolCallId: "output-only",
+      input: undefined,
+      inputText: "",
+      output: { text: "# 旧计划" },
+    },
+    {
+      toolCallId: "blank-input",
+      input: {},
+      inputText: "   ",
+      output: { text: "ok" },
+    },
+    {
+      toolCallId: "path-only",
+      input: {},
+      inputText: "",
+      planFilePath: "/workspace/.zcode/plans/a.md",
+    },
+  ];
+  for (const overrides of rows) {
+    const node = toolCallRowToLegacyNode({
+      rowId: 1,
+      kind: "toolCall",
+      createdAt: 1_700_000_000_000,
+      turnId: "turn-1",
+      toolName: "CreatePlan",
+      status: "success",
+      ...overrides,
+    } as ToolCallRow);
+    const markup = renderContext(
+      makeContext({
+        toolCall: node.toolCall,
+        onExecutePlan: () => undefined,
+        onOpenPlanDetail: () => undefined,
+      }),
+    );
+    assert.doesNotMatch(markup, /执行计划/, overrides.toolCallId);
+    assert.doesNotMatch(markup, />查看</, overrides.toolCallId);
+    assert.doesNotMatch(markup, /执行失败/, overrides.toolCallId);
+  }
+});
+
 test("端到端：plan_text 现场形状经桥接触发失败行，不渲染计划卡", () => {
   // 把桥接层产出与渲染层消费接上：v4 row 经 toolCallRowToLegacyNode 再渲染。
   // 现场形状 input 非空（title/overview 齐备、plan 缺失），桥接层必须保留失败标记，

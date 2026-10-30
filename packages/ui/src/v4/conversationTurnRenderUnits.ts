@@ -372,10 +372,16 @@ function materializeDraftUnit(
     // bodyRows 抽取截图，它仍会被塞回正文流并在轮尾再次渲染，造成重复和顺序错乱。
     (row) => !leadingBoundaryRowIds.has(row.rowId) && !browserTurnEndRowIds.has(row.rowId),
   );
+  // 空 text/reasoning 占位不参与渲染，但仍是「新 response 已开始」的证据；
+  // 锚点必须看未过滤行，否则旧计划卡会被误判成本段最后一次响应。
+  const anchorBodyRows = renderedRows.filter(
+    (row) => !leadingBoundaryRowIds.has(row.rowId) && !browserTurnEndRowIds.has(row.rowId),
+  );
   const workSegments = buildConversationTurnWorkSegments({
     key: draft.key,
     header: draft.header,
     orderedRows: orderedBodyRows,
+    anchorRows: anchorBodyRows,
     assistantTailRows,
     latestAssistantTextRow,
     isRunning,

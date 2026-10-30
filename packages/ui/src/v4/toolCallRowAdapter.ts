@@ -2,7 +2,10 @@
 // 纯函数：ToolCallBlock 及其 renderers（execute/read/edit/...）吃的是旧 ZCode Agent 的
 // TaskChatToolCall 形态；v4 row 自包含，字段一一映射即可，不需要看别的行。
 import { buildZCodeStreamingToolInputPreview } from "@zcode/shared";
-import { isPlanApprovalToolName } from "@zcode/shared/zcode-protocol-v4";
+import {
+  isLegacyPlanApprovalDenialRow,
+  isPlanApprovalToolName,
+} from "@zcode/shared/zcode-protocol-v4";
 import type { ToolCallRow } from "@zcode/shared/zcode-protocol-v4";
 import type { TaskChatToolCallTreeNode } from "@/lib/toolCallTree.js";
 import { normalizeWrappedErrorText } from "@/lib/toolError.js";
@@ -56,68 +59,6 @@ function resolveToolInputPreview(row: ToolCallRow): ResolvedToolInputPreview {
   };
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function readPlanField(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-}
-
-/**
- * 系统侧入参/出参校验失败的判据：这类行从未走到权限门，不是被用户拒绝的计划。
- *
- * 框架生成的固定签名（不是用户反馈文案）：
- * - live 行：`row.error.code === "tool_execution_failed"`（`CoreErrorType.ToolExecutionFailed`，
- *   见 `core/src/tool/executor/validation.ts` 的 `createInputValidationError`），经
- *   `product-projection.ts` 的 `onToolCallError` 原样落到行上；
- * - 冷恢复行：code 被改写成 `"fault.runtime.toolFailed"`（`transcript-hydration.ts`），只能靠
- *   message/output 里的固定字面量识别（`Tool input failed inputSchema validation` /
- *   `InputValidationError` 等，见 `input-validation-model-content.ts`）。
- * 真旧拒绝行的 code 同样是 `fault.runtime.toolFailed`，所以 code 不能单独作为判据，必须看签名。
- */
-function isSystemToolValidationFailure(row: ToolCallRow): boolean {
-  if (row.error?.code === "tool_execution_failed") return true;
-  const texts = [row.error?.message, row.output?.text];
-  for (const text of texts) {
-    if (typeof text !== "string" || text.trim().length === 0) continue;
-    const lower = text.toLowerCase();
-    if (lower.includes("inputschema validation")) return true;
-    if (lower.includes("outputschema validation")) return true;
-    if (text.includes("InputValidationError")) return true;
-  }
-  return false;
-}
-
-/**
- * 旧拒绝行的兼容判据：落盘缺口（`completedToolPartMetadata` 未写出
- * `permissionDenial`，已补）导致重启前被拒绝的行恢复后退化成普通 `error`
- * 失败——`permissionDenial` 缺席、`error/output` 里是拒绝文案，但 `input`
- * 里的计划完好。判据只认“计划批准工具 + error 态 + input 里有计划内容”，
- * 不认 reason 文案（旧 reason 可能是默认文案也可能是用户反馈，文案易碎）；
- * input 为空的仍是真失败（入参校验失败形），不受兼容影响。
- *
- * 系统侧校验失败不在此列：它的 `input` 同样非空（模型原样入参，如缺 `plan` 却有
- * `title/overview`），但它从未走到权限门。靠 `isSystemToolValidationFailure`
- * 按框架错误码与固定签名排除，不碰用户反馈文案。
- */
-function isLegacyPlanApprovalDenialRow(row: ToolCallRow): boolean {
-  if (row.permissionDenial !== undefined) return false;
-  if (!isPlanApprovalToolName(row.toolName)) return false;
-  if (row.status !== "error") return false;
-  // 校验失败行与旧拒绝行在前三条上完全同形，先排除系统失败。
-  if (isSystemToolValidationFailure(row)) return false;
-  const input = isRecord(row.input) ? row.input : undefined;
-  if (!input) return false;
-  return (
-    readPlanField(input["plan"]) !== undefined ||
-    readPlanField(input["title"]) !== undefined ||
-    readPlanField(input["overview"]) !== undefined
-  );
-}
-
 function readNonEmptyString(value: unknown): string | undefined {
   if (typeof value !== "string") {
     return undefined;
@@ -138,11 +79,13 @@ function resolveV4ToolErrorText(row: ToolCallRow): string | undefined {
   // 但 input 里计划完好——同样不以 error 身份进入失败语义。判据见
   // isLegacyPlanApprovalDenialRow（工具名 + error 态 + 有计划内容，不认文案）。
   if (isLegacyPlanApprovalDenialRow(row)) return undefined;
+  const directMessage = readNonEmptyString(row.error?.message);
   if (row.status !== "error") {
-    return undefined;
+    // 计划工具与 shared 判据对齐：非 error 但残留 error.message 仍算失败（历史/异常
+    // 快照可能带这种组合）。当前投影产出的 cancelled 行会删除 error，这里只兜有界历史。
+    return isPlanApprovalToolName(row.toolName) ? directMessage : undefined;
   }
 
-  const directMessage = readNonEmptyString(row.error?.message);
   if (directMessage) {
     return directMessage;
   }
@@ -169,7 +112,15 @@ export function toolCallRowToLegacyNode(row: ToolCallRow): TaskChatToolCallTreeN
   // reason 留在 raw 里可查（新行在 raw.permissionDenial，旧行在 raw.error/rawOutput）。
   const legacyDenied = isPermissionDeniedToolCallRow(row);
   const legacyCompat = !legacyDenied && isLegacyPlanApprovalDenialRow(row);
-  const legacyStatus = legacyDenied ? "denied" : legacyCompat ? "stopped" : STATUS_MAP[row.status];
+  // 计划批准拒绝只看 permissionDenial 身份，不看 wire status。当前投影恒为 cancelled，
+  // 但历史/异常快照可能出现 error + permissionDenial；shared 判据把它当有效计划卡，
+  // 这里必须同样落 stopped，不能一派判 card、一派判 failed。
+  const planDenied = row.permissionDenial !== undefined && isPlanApprovalToolName(row.toolName);
+  const legacyStatus = legacyDenied
+    ? "denied"
+    : legacyCompat || planDenied
+      ? "stopped"
+      : STATUS_MAP[row.status];
   const errorText = resolveV4ToolErrorText(row);
   const inputPreview = resolveToolInputPreview(row);
   // CUA 等结构化展示事实位于 output.display；顶层 display 仅是旧 Node REPL 图片通道。
@@ -222,6 +173,8 @@ export function toolCallRowToLegacyNode(row: ToolCallRow): TaskChatToolCallTreeN
         ...(backgroundKind ? { backgroundKind } : {}),
         inputPreviewComplete: inputPreview.inputPreviewComplete,
         streamingRawInputLength: inputPreview.streamingRawInputLength,
+        // 计划行把原始流式入参交给 shared 提取；非计划行不复制可能很长的 inputText。
+        ...(isPlanApprovalToolName(row.toolName) ? { inputText: row.inputText } : {}),
       },
       startedAt: typeof row.startedAt === "number" ? row.startedAt : undefined,
       // 终态定格耗时（毫秒）。从未执行的行没有这个字段，界面据此不显示耗时。

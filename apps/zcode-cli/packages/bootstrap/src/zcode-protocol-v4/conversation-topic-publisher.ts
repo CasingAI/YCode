@@ -23,6 +23,7 @@ import type {
   DeliveryProfileName,
   QueueItem,
   SubscribeAck,
+  ToolCallRow,
   TopicFrameDeliveryKind,
   V4ConversationQueryDirectoryResult,
   V4ConversationRowsRangeResult,
@@ -589,6 +590,11 @@ export class ConversationTopicPublisher {
   /** rowId → product turnId（editUserQuery 无 assistant anchor 时回查 user messageId）。 */
   getTurnIdForRow(rowId: number): string | null {
     return this.projection.getTurnIdForRow(rowId);
+  }
+
+  /** toolCallId → 当前权威工具行；仅供网关流式门控回查，不缓存行内容。 */
+  getToolCallRow(toolCallId: string): ToolCallRow | undefined {
+    return this.projection.getToolCallRow(toolCallId);
   }
 
   /** assistant 守恒：被拒收的正文流事件数（>0 = 投影可能缺段）。 */

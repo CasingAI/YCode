@@ -132,10 +132,26 @@ core `appendEvent` 的四步（append → persistDurable → recordUsage → not
 - 权威 `phase` 离开运行态且 `pendingInteraction` 为空后，两者必须同时消失。
 - 失同步与真实运行失败都落在 `phase: "error"`，但语义不同：真实失败用 `bg-destructive` 圆点，`fault.projection.desynced` 用中性色圆点 + 「投影失同步」提示。分不出来就说明 `lastErrorCode` 没走到列表行。
 - UI 不得根据时间、ID 消失、本地 Set 或组件卸载推断 interaction 已结算。
-- **最后一个 turn 里有 plan 卡时，行首圆点加一圈 1px `foreground` 描边。** 语义是「点进这条会话直接落在计划卡上」，与当前状态正交：idle / error / unread 三种圆点都加，运行中的 spinner 不加（它不是圆点）。描边走 `ring-1 ring-foreground`，用 box-shadow 实现、不占布局宽度，圆点相对文字不偏移。
-- 该描边的事实源是 `SessionSummary.lastTurnHasPlanCard`，由 CLI 的 `deriveSessionSummary` 从 `snapshot.rows.window` 判定（倒扫最后一个 `turnHeader` 之后的区间，命中计划工具行为 true）。**列表行只有轻量投影、拿不到会话消息内容，UI 不得自行解析消息或凭时间/顺序推断这张卡是否存在。**
-- 该字段的翻转必须走 conflation 判等（`summariesEqual`）：同一 `phase` 下只有它变化时，sessions-index 同样要产帧，否则描边永远停在旧值。
-- 计划卡按 `plan_created` 停轮，必然落在最后一个 turn 内；用户再发一轮把 plan 卡挤出最后一个 turn 后，描边必须消失。这是预期行为，不是残留。
+- **行首计划卡描边只在「最后一个 product turn 的最后一次 assistant response 默认展示一张有效计划卡」时出现。** 语义是「点进这条会话直接落在计划卡上」，与当前状态正交：idle / error / unread 三种圆点都加，运行中的 spinner 不加（它不是圆点）。描边走 `ring-1 ring-foreground`，用 box-shadow 实现、不占布局宽度，圆点相对文字不偏移。
+- 该描边的事实源仍是 `SessionSummary.lastTurnHasPlanCard`，由 CLI 的 `deriveSessionSummary` 从 `snapshot.rows.window` 判定；字段名保留是为了兼容既有帧。判定必须是**共享纯判据**：`packages/shared/src/zcode-protocol-v4/plan-card.ts` 的 `hasPlanCardInLastAssistantResponse`，正文脱流使用同一份 `isPlanCardToolCallRow` 与 `resolveLastAssistantResponseId`。UI 与 CLI 都不得各写一套「什么算计划卡」。**列表行只有轻量投影、拿不到会话消息内容，UI 不得自行解析消息或凭时间/顺序推断这张卡是否存在。**
+- **锚点是最后一次 assistant response，而不是「整轮出现过计划工具」。** 先倒扫最后一个 `turnHeader`；没有轮头（裁剪窗口 / 冷恢复缺轮边界）判否。再取该轮最后一条 assistant 工作行（`assistantText` / `reasoning` / `toolCall`，正文脱流时还会排除已拆出的轮尾行）的 `assistantResponseId`；缺 id 或该轮没有助手行判否。只有 `assistantResponseId` 与该锚点相同、且能成卡的计划工具行才算命中。
+- **「有效计划卡」与正文折叠卡同源**：工具身份是 `CreatePlan` 或历史 `ExitPlanMode`，`title` / `overview` / `plan` 任一在场（流式合法的半成卡也算，见 `plan-card-execute.md`），且不是真失败（`status=error` 或残留非空 error message；计划批准拒绝的 `permissionDenial` 与旧 `ExitPlanMode` 拒绝豁免除外）。失败的工具、没有内容的工具、只有 `planFilePath` 的行都不算；历史拒绝兼容只适用于旧 `ExitPlanMode`，现役 `CreatePlan` 的 error 一律算失败。
+- **历史计划、Plan 模式本身、磁盘上的计划文件都不作为描边依据。** 早期响应里的计划卡、后续又被 reasoning / tool / text 响应接续的计划卡都不算：后一次 assistant response 一出现，锚点移到新 id，旧描边随后就要重新派生并清除，不必等最终总结。用户批准计划本身不改变行、不单独清除描边；同一 turn 继续运行按最新快照重算。
+- **流式响应边界必须立即重算，不得等 `TurnComplete`。** 网关对 `ModelStreaming` 做「值变化才发布」门控：`text_start` / `reasoning_start` / `reasoning_phase_start` / 任意工具的 `tool_input_start` / `tool_call` 都重新评估锚点；计划工具的 `tool_input_delta` / `tool_input_end` 评估流式半成卡；`text_delta` / `reasoning_delta` 等不改变身份或计划内容的增量跳过。门控只缓存「最近一次成功发布到 index 的值」，不是与 `ProductProjection` 并列的业务事实 owner，字段真值仍由行窗口 + shared 判据派生。
+- **锚点看响应身份，不看 UI 渲染可见性。** `assistantResponseId` 的来源是 transcript `assistantMessageId`；`reasoning_phase_start` 行同样必须以它为准，provider `responseId` 只在旧事件缺 `assistantMessageId` 时兜底。空的 `text_start` / reasoning 占位、`EnterPlanMode`（即使不渲染成计划卡）只要携带 id，就是新响应已开始的证据；UI 的可见行过滤不得先于锚点判定，否则正文与侧栏会名义共用函数、实际输入语义不同，重新产生假描边。
+- **失败边界的保守语义两端一致。** 当前投影产出 `permissionDenial` 时恒为 `cancelled` 且删除 `error`，产出 `error` 时没有 `permissionDenial`；因此 `status=error + permissionDenial + 有效内容`（按计划批准拒绝、有效）与 `status=cancelled + error.message + 有效内容`（按失败）只覆盖历史/异常快照。shared 判据与 UI adapter 必须对这两种组合给同一结论，不得一端出卡、另一端判失败。
+- 用户新开 product turn 且该轮没有有效计划卡时，字段缺席、描边消失。旧 `ExitPlanMode` 行（含历史拒绝行）只要内容在场且属于最后一次响应，照常产生描边；系统入参校验失败行不算。
+- 该字段的翻转必须走 conflation 判等（`summariesEqual`）：同一 `phase` 下只有它变化时，sessions-index 同样要产帧，否则描边永远停在旧值。冷恢复 / 裁剪窗口缺 `assistantResponseId` 时一律判否，不得按历史计划文件或持久任务状态回填成 true。
+- desktop `desktop-continuous` 与 mobile `web-remote-replayable` 不各自派生：两者都消费 CLI `SessionsIndexProjection` 从权威 `ConversationSnapshot` 算出的同一字段；恢复与重放只替换帧来源，不改变判据，也不新增独立存储状态。
+
+派生是快照的纯函数，事件顺序不引入第二份状态：
+
+```text
+Core event → ProductProjection（ConversationSnapshot 行窗口，唯一 owner）
+           → SessionsIndexProjection.deriveSessionSummary（shared 纯判据）
+           → summariesEqual / conflation → SessionsIndexPublisher frame
+           → 列表行 ring（desktop continuous 与 mobile replayable 同一字段）
+```
 
 ## turn 终态与输入账本收口
 
@@ -202,3 +218,15 @@ core `appendEvent` 的四步（append → persistDurable → recordUsage → not
 20. `pnpm typecheck`、`pnpm lint`、`pnpm fmt:check`、`pnpm architecture:check --changed` 与相关定向测试通过；任何基线失败单独报告。
 21. 同一会话里计划批准前面还挂着另一个未结算交互（AskUserQuestion 或 permission）：摘要的 `pendingInteraction` 仍是计划批准（`toolName === "ExitPlanMode"`），`pendingInteractionSummary` 仍统计两条。
 22. 摘要里只有普通权限请求（`kind === "permission"`）而没有计划批准时，`pendingInteraction` 仍取首个，不被计划批准的优先级顶掉。
+23. 最后一个 product turn 的最后一次响应里有有效 `CreatePlan` / `ExitPlanMode` 计划卡：摘要带 `lastTurnHasPlanCard=true`，列表行圆点加描边。
+24. 同一 product turn 里计划卡属于较早响应，随后又出现新的 reasoning / tool / text 响应：不必等最终总结，摘要立即变为无描边；用户批准计划本身不产生也不清除描边。
+25. 用户新开一个没有有效计划卡的 product turn：描边消失；同一 turn 继续运行时按最新快照重算。
+26. 失败的计划工具（`status=error`、非历史拒绝兼容）或没有 `title` / `overview` / `plan` 内容的计划工具不产生描边；流式 `inputStreaming` 且已有标题/概述的半成卡产生描边。
+27. 旧 `ExitPlanMode`（`status=success`、input 有内容）与历史拒绝行（`status=error`、无 `permissionDenial`、input 有内容）产生描边；系统入参校验失败行、只有 `planFilePath` 的行不产生。
+28. 裁剪窗口没有 `turnHeader`，或最后一次 assistant response 缺 `assistantResponseId`：一律无描边（保守），补上轮头与 id 后按同一判据重算；冷恢复不产生陈旧描边。
+29. 同一 `phase` 下 `lastTurnHasPlanCard` 从 true 翻到 false 必须产生 delta/帧；完全相同的快照不产帧。
+30. 正文 `isPlanCardToolCallRow` 与摘要 `hasPlanCardInLastAssistantResponse` 对同一行矩阵（有效 / 失败 / 空内容 / 历史拒绝 / 流式半成卡）给出同一「有效计划卡」结论。
+31. 已有一张有效计划卡后，同一 turn 内收到新 `assistantMessageId` 的 `text_start` 或 `reasoning_start`：不等 `TurnComplete`、不等工具结果，`desktop-continuous` 与 `web-remote-replayable` 两档都收到清除帧；之后的 `text_delta` 不重复触发摘要发布。计划工具的 `tool_input_delta` 首次带出 `title`/`overview` 时，两档都立即出现描边。
+32. `reasoning_phase_start` 同时带 `assistantMessageId` 与 provider `responseId`：行上的 `assistantResponseId` 是前者；同一 response 的后续 phase 不误清描边，换成新 `assistantMessageId` 的 phase 立即清除。缺 `assistantMessageId` 的旧事件才退回 provider `responseId`。
+33. 空 `text_start` 占位、`EnterPlanMode` 工具行作为新响应的最后一条助手行时，锚点仍移动到新 id，旧计划卡不命中；UI 的可见行过滤不改变该结论。
+34. 异常/历史快照矩阵：`status=error + permissionDenial + 有效内容` 两端都按计划批准拒绝出卡；`status=cancelled + error.message + 有效内容` 两端都按失败不出卡。当前 wire 投影不产生这两种组合，测试仅锁保守边界，不改批准业务。

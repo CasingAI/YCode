@@ -52,10 +52,12 @@ export const sessionSummarySchema = z.object({
   // 侧栏不需要失败细节，也不该把内部诊断文案下发到列表。
   // optional 兼容旧 sessions-index frame / 旧 CLI。
   lastErrorCode: z.string().optional(),
-  // 列表据此给行首圆点加一圈描边：该会话最后一个 turn 里有 plan 计划卡片，
-  // 点进去直接落在卡上。与 phase 正交——空闲、失败、未读三种圆点都要加。
-  // 事实源是 snapshot 的行窗口（倒扫最后一个 turnHeader 之后的工具行），
-  // 侧栏拿不到消息内容，UI 不得自行解析消息推断。
+  // 列表据此给行首圆点加一圈描边：该会话最后一个 product turn 的**最后一次
+  // assistant response** 默认展示一张有效计划卡，点进去直接落在卡上。不是「整轮
+  // 出现过计划工具」——后续 text/reasoning/tool 响应一开始就要清除。与 phase 正交：
+  // 空闲、失败、未读三种圆点都要加。事实源是 snapshot 的行窗口，由 shared
+  // `hasPlanCardInLastAssistantResponse` 从最后一次响应的 assistantResponseId 派生；
+  // 侧栏拿不到消息内容，UI 不得自行解析消息或按历史计划文件/Plan 模式推断。
   // optional 兼容旧 sessions-index frame / 旧 CLI。
   lastTurnHasPlanCard: z.boolean().optional(),
   // 完成已读版本：与正文 snapshot 同源，由 Host tasks-index 保存 lastSeenActivityAt

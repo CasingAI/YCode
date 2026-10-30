@@ -35,10 +35,19 @@ import type {
   FileSystemErrorCode,
 } from "@zcode/contracts";
 import type { ConversationSnapshot } from "@zcode/shared/zcode-protocol-v4";
-import { SessionEventType, isFileSystemPortError } from "@zcode/contracts";
+import {
+  SessionEventType,
+  isFileSystemPortError,
+  type ModelStreamingKind,
+} from "@zcode/contracts";
 import type { ZCodeWorkspaceRef } from "@zcode/shared";
 import { extractMarkdownArtifactImageRefs, isToolArtifactUri } from "@zcode/shared";
-import { isPreviewableAttachmentMime } from "@zcode/shared/zcode-protocol-v4";
+import {
+  hasPlanCardInLastAssistantResponse,
+  isPlanApprovalToolName,
+  isPreviewableAttachmentMime,
+  resolveLastAssistantResponseId,
+} from "@zcode/shared/zcode-protocol-v4";
 import { findAuthorizedQueueAttachment } from "./attachment-read-authorization.js";
 import type {
   CommandAck,
@@ -635,6 +644,23 @@ const MISSING_ATTACHMENT_FS_CODES = new Set<FileSystemErrorCode>([
 ]);
 
 /**
+ * 会改变「最后一个 assistant response 是否有计划卡」的流式事件。
+ *
+ * 响应边界（text_start / reasoning_start / reasoning_phase_start / 任意工具的
+ * tool_input_start）必须立即重算：后续响应一开始，旧计划卡的锚点就失效了。
+ * 计划工具的 tool_input_delta / tool_input_end 要更新流式半成卡；其他工具的增量
+ * 不改计划行内容，不能按 token 触发全量摘要。text_delta / reasoning_delta 只改正文，
+ * 不改变身份与计划内容，等下一个边界或非流式事件即可。
+ */
+const PLAN_RING_STREAMING_KINDS: ReadonlySet<ModelStreamingKind> = new Set([
+  "text_start",
+  "reasoning_start",
+  "reasoning_phase_start",
+  "tool_input_start",
+  "tool_call",
+]);
+
+/**
  * 把 host / FileSystemPort 抛出的错误归一成带稳定码的附件 fault。
  * host 已经给出结构化 fault 码时原样透传，其余按 FileSystemPortError.code 判定；
  * 都不匹配则保持原错误，让上层按「未知」处理，而不是猜成确定分类。
@@ -651,6 +677,29 @@ function toShareStatFault(error: unknown): unknown {
 
 export class ConversationV4Gateway {
   private readonly publishers = new Map<string, ConversationTopicPublisher>();
+  /**
+   * 流式事件 fan-out 的变化门控：publisher → 最近一次成功发布到 sessions-index 的
+   * `lastTurnHasPlanCard`。只缓存传输侧已发布值，不是第二份业务事实；字段真值仍由
+   * `ProductProjection` 行窗口 + shared 纯判据派生。
+   */
+  private readonly lastPublishedPlanRing = new WeakMap<ConversationTopicPublisher, boolean>();
+  /**
+   * 已开始流式输入的计划工具 id。`tool_input_delta` 不带 toolName，且普通工具增量频繁；
+   * 只对这里登记过的计划工具增量重算，避免每个工具 token 都跑一遍摘要。
+   */
+  private readonly streamingPlanToolIds = new WeakMap<ConversationTopicPublisher, Set<string>>();
+  /**
+   * 最近一次已发布摘要对应的 assistant response 身份。
+   *
+   * `text_delta` / `reasoning_delta` 在缺 start 时也能由投影自开新行；只看事件 kind 会
+   * 跳过这次身份变化，让旧计划描边一直留到下一个边界事件。门控优先比较事件自带的
+   * `assistantMessageId`（O(1)，与投影行身份同源）；旧事件缺 id 时才退回 projection
+   * 行窗口 + shared `resolveLastAssistantResponseId`，避免每个 token 扫全窗口。
+   */
+  private readonly lastPlanRingResponseId = new WeakMap<
+    ConversationTopicPublisher,
+    { responseId: string | undefined }
+  >();
   /** sessions-index：workspaceId → 列表 publisher（与 conversation 并列，独立 seq/logEpoch）。 */
   private readonly indexPublishers = new SessionsIndexPublisherRegistry();
   /** workspace-config：workspaceId → 配置目录 publisher（conflated 整体替换态）。 */
@@ -1187,13 +1236,106 @@ export class ConversationV4Gateway {
 
   /**
    * 把某会话的最新摘要推进到其 workspace 的 sessions-index publisher，并 flush 给列表订阅者。
-   * projection 必须在无列表订阅者时也继续推进，保证下一次 snapshot 读取权威当前态；
-   * 高频流式增量（ModelStreaming）不触发列表重算，避免抖动（预览在 turn 收口/其他事件时更新）。
+   * projection 必须在无列表订阅者时也继续推进，保证下一次 snapshot 读取权威当前态。
+   *
+   * ModelStreaming 只在计划描边可能变化时重算：正文/思考的首个事件会让锚点移到新响应，
+   * 计划工具的流式输入会让半成卡成立。其余高频增量（text_delta 等）跳过，避免按 token
+   * 重算并抖动列表。变化门控读的是刚投影完的行窗口，不另存业务事实。
    * 旧宿主无 getSessionWorkspaceId → 整体 no-op。
    */
   private fanOutToIndex(sessionId: string, event: SessionEvent): void {
-    if (event.type === SessionEventType.ModelStreaming) return;
+    if (
+      event.type === SessionEventType.ModelStreaming &&
+      !this.shouldFanOutStreamingPlanRing(sessionId, event)
+    ) {
+      return;
+    }
     this.publishCurrentSummaryToIndex(sessionId);
+  }
+
+  /**
+   * 流式事件是否会改变 sessions-index 里的计划描边。
+   *
+   * 响应边界事件无条件评估；计划工具增量只在 `tool_input_start` 登记过 toolCallId 后评估。
+   * 结果与已发布值相同就跳过整次摘要重算。返回 true 且发布成功时，
+   * `publishCurrentSummaryToIndex` 会刷新缓存。
+   */
+  private shouldFanOutStreamingPlanRing(sessionId: string, event: SessionEvent): boolean {
+    const payload = event.payload as {
+      kind?: ModelStreamingKind;
+      toolCallId?: string;
+      toolName?: string;
+      assistantMessageId?: string;
+      responseId?: string;
+    };
+    const kind = payload.kind;
+    if (!kind) return false;
+    const publisher = this.publishers.get(sessionId);
+    if (!publisher) return false;
+    const planToolIds = this.streamingPlanToolIds.get(publisher);
+    const rows = publisher.getSnapshot().rows.window;
+    let shouldEvaluate = PLAN_RING_STREAMING_KINDS.has(kind);
+
+    if (kind === "tool_input_start") {
+      if (payload.toolCallId) {
+        // 投影刚建好行；以行上的 toolName 为准，事件字段缺失时仍能识别计划工具。
+        const row = publisher.getToolCallRow(payload.toolCallId);
+        const toolName = row?.toolName ?? payload.toolName;
+        if (isPlanApprovalToolName(toolName)) {
+          const ids = planToolIds ?? new Set<string>();
+          ids.add(payload.toolCallId);
+          this.streamingPlanToolIds.set(publisher, ids);
+        }
+      }
+    } else if (kind === "tool_input_delta" || kind === "tool_input_end") {
+      const toolCallId = payload.toolCallId;
+      let known = toolCallId !== undefined && planToolIds?.has(toolCallId) === true;
+      if (!known && toolCallId) {
+        // publisher 恢复/中途建立可能错过 `tool_input_start`；登记缓存缺席时回到
+        // projection 权威行按 toolCallId O(1) 回查，只补登记，不复制行内容。
+        const row = publisher.getToolCallRow(toolCallId);
+        if (row?.status === "inputStreaming" && isPlanApprovalToolName(row.toolName)) {
+          const ids = planToolIds ?? new Set<string>();
+          ids.add(toolCallId);
+          this.streamingPlanToolIds.set(publisher, ids);
+          known = true;
+        }
+      }
+      shouldEvaluate = known;
+      if (kind === "tool_input_end" && toolCallId) planToolIds?.delete(toolCallId);
+    } else if (kind === "tool_call" && payload.toolCallId) {
+      planToolIds?.delete(payload.toolCallId);
+    }
+
+    // `text_delta` / `reasoning_delta` 可在缺 start 时由投影自开新 response 行；
+    // 最近 response 身份变化必须立即重算，不能按事件 kind 直接跳过。
+    //
+    // 门控走事件自带的 assistantMessageId（投影也用它当行的 assistantResponseId），
+    // 每个 token 只做 O(1) 比较；只有旧事件连 id 都没有时才退回 shared 行窗口派生，
+    // 避免普通正文/思考 token 每次都扫全窗口。
+    const eventResponseId =
+      payload.assistantMessageId !== undefined && payload.assistantMessageId !== ""
+        ? payload.assistantMessageId
+        : payload.responseId !== undefined && payload.responseId !== ""
+          ? payload.responseId
+          : undefined;
+    if (!shouldEvaluate) {
+      const cached = this.lastPlanRingResponseId.get(publisher);
+      const nextResponseId = eventResponseId ?? resolveLastAssistantResponseId(rows);
+      if (cached === undefined || cached.responseId !== nextResponseId) shouldEvaluate = true;
+    }
+
+    if (!shouldEvaluate) return false;
+    const current = hasPlanCardInLastAssistantResponse(rows);
+    const published = this.lastPublishedPlanRing.get(publisher);
+    // 缓存缺席说明本 publisher 还没成功发布过摘要；先发一次建立基线。
+    if (published === undefined || published !== current) return true;
+    // 值已发布但 response 身份换了（例如两档都为「无卡」）：刷新身份缓存，
+    // 后续同 response 的 token 才能继续跳过全量摘要。
+    this.lastPlanRingResponseId.set(publisher, {
+      responseId: eventResponseId ?? resolveLastAssistantResponseId(rows),
+    });
+    return false;
   }
 
   /**
@@ -1216,10 +1358,16 @@ export class ConversationV4Gateway {
       const conversationPublisher = this.publishers.get(sessionId);
       if (!conversationPublisher) return;
       const conversationSnapshot = conversationPublisher.getSnapshot();
+      const planRing = hasPlanCardInLastAssistantResponse(conversationSnapshot.rows.window);
       const changed = indexPublisher.ingestConversation(
         conversationSnapshot,
         this.resolveIndexMeta(sessionId),
       );
+      // 流式门控的基线只在摘要真正进入 index 后更新；发布异常时下一事件会重试。
+      this.lastPublishedPlanRing.set(conversationPublisher, planRing);
+      this.lastPlanRingResponseId.set(conversationPublisher, {
+        responseId: resolveLastAssistantResponseId(conversationSnapshot.rows.window),
+      });
       if (changed) this.flushIndex(workspaceId);
     } catch (error) {
       this.host.onError?.("v4.sessionsIndex.ingest", error);
@@ -3054,6 +3202,8 @@ export class ConversationV4Gateway {
       if (state.timer) clearTimeout(state.timer);
       this.flushStates.delete(routeKey);
     }
+    const disposedPublisher = this.publishers.get(sessionId);
+    if (disposedPublisher) this.streamingPlanToolIds.delete(disposedPublisher);
     this.publishers.delete(sessionId);
     this.hydratedSessions.delete(sessionId);
     const hydrationBuffer = this.hydrationBuffers.get(sessionId);
