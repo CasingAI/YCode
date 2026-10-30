@@ -702,7 +702,7 @@ export class ZCodeProtocolAgentServer {
           (sessionId) => resolveSessionTitle(this.context.deps.sessionStore, sessionId),
         );
       case zcodeProtocolMethods.runtimeCapabilities:
-        return { independentPlanState: true };
+        return { independentPlanState: true, skillReferenceCatalogTitle: true };
       case zcodeProtocolMethods.pluginsMarketplaceAdd:
         return await this.withPluginOperationSignal(request, (signal) =>
           addPluginMarketplace(this.context, request.params, signal),

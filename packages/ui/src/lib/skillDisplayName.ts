@@ -30,9 +30,11 @@ export function resolveSkillListLabel(skill: SkillDisplayNameCandidate, locale?:
 /**
  * 由会话技能目录构建「引用 → 展示名」查找表（skill-title.md）。
  * 键同时收录精确形态与折叠小写形态：Skill 工具输入是精确的 `plugin:skill`/`name`，
- * 但目录里的 name 是用户可写的展示名，可能含大写（与 useSkillNameWhitelist 的口径一致）。
+ * 但目录里的 name 是用户可写的展示名，可能含大写（与 useSessionSkillCatalogViews 的口径一致）。
  *
- * 目录未就绪时调用方应传 undefined（表不存在=回退原始输入），不要传空表以外的语义。
+ * 目录未就绪时调用方应传 undefined 表示「不可用」；卡片主标题必须再经
+ * `resolveSkillCardPrimaryLabel` 区分未就绪与 authoritative 未命中，不能把 undefined
+ * 当成空表。
  */
 export function buildSkillDisplayNameCatalog(
   skills: readonly SkillDisplayNameCandidate[],
@@ -66,4 +68,20 @@ export function resolveSkillDisplayName(
   }
   const ref = rawSkillRef.trim();
   return catalog.get(ref) ?? catalog.get(ref.toLowerCase()) ?? rawSkillRef;
+}
+
+/**
+ * Skill 卡片主标题（skill-title.md）：目录未就绪、请求失败或只读不可用时返回
+ * undefined，让卡片显示中性占位；只有已完成的 authoritative 目录（包括空表）未命中
+ * 才回退原始 ref。不能直接复用 `resolveSkillDisplayName` 的 undefined 分支，否则冷首帧
+ * 会先露出机器标识再替换成友好名。
+ */
+export function resolveSkillCardPrimaryLabel(
+  rawSkillRef: string,
+  catalog: ReadonlyMap<string, string> | undefined,
+): string | undefined {
+  if (!catalog) {
+    return undefined;
+  }
+  return resolveSkillDisplayName(rawSkillRef, catalog);
 }

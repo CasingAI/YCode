@@ -8,6 +8,12 @@ interface ConversationSkillCatalogState {
   authority: "session" | "workspace" | null;
   loading: boolean;
   error: string | null;
+  /**
+   * 当前 scope 是否已收到 authoritative 目录。pending、失败、只读、scope 切换和
+   * runtime restart 的过渡帧都为 false；只有成功回填后才为 true（空结果同样是
+   * authoritative）。展示层据此区分“未就绪”和“确认未命中”（skill-title.md）。
+   */
+  ready: boolean;
 }
 
 interface ScopedConversationSkillCatalogState {
@@ -20,6 +26,7 @@ const EMPTY_STATE: ConversationSkillCatalogState = {
   authority: null,
   loading: false,
   error: null,
+  ready: false,
 };
 
 const EMPTY_SCOPED_STATE: ScopedConversationSkillCatalogState = {
@@ -82,7 +89,7 @@ export function useSkills(options: UseSkillsOptions): ConversationSkillCatalogSt
     let cancelled = false;
     setScopedState({
       scope: requestScope,
-      value: { skills: [], authority: null, loading: true, error: null },
+      value: { skills: [], authority: null, loading: true, error: null, ready: false },
     });
     const params = {
       workspacePath: options.workspacePath,
@@ -101,6 +108,7 @@ export function useSkills(options: UseSkillsOptions): ConversationSkillCatalogSt
             authority: result.authority,
             loading: false,
             error: null,
+            ready: true,
           },
         });
       })
@@ -113,7 +121,7 @@ export function useSkills(options: UseSkillsOptions): ConversationSkillCatalogSt
         });
         setScopedState({
           scope: requestScope,
-          value: { skills: [], authority: null, loading: false, error: message },
+          value: { skills: [], authority: null, loading: false, error: message, ready: false },
         });
       });
     return () => {

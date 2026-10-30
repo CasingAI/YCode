@@ -241,8 +241,9 @@ export interface ToolCallBlockRenderContext {
   authoritativeAgentType?: string;
   /**
    * 会话级「技能引用 → 展示名」查找表（store 耦合剥离，skill-title.md）：
-   * 由会话宿主从技能目录构建并保持引用稳定；Skill renderer 只读查表，
-   * 未命中或表缺省时回退原始输入，不得自行发起请求。
+   * 由会话宿主从技能目录构建并保持引用稳定；Skill renderer 只读查表：
+   * undefined 表示目录未就绪/失败/只读，显示中性占位；空表/未命中才回退原始输入。
+   * 不得自行发起请求。
    */
   skillDisplayNameByRef?: ReadonlyMap<string, string>;
   /** 当前会话按 SubagentRow.entityId 联接的 Agent 友好标题；renderer 只读。 */

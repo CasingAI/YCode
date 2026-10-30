@@ -12,7 +12,7 @@
 - 用户任务始终属于用户消息或 prompt。`/skill <name> <task>` 中的 `task` 继续进入 prompt，由模型按已加载的 Skill 指令处理，不转换为 Skill 工具参数。
 - Skill 工具只负责定位并加载对应 `SKILL.md`。加载器只接收名称、工作目录、大小限制和 trace 等加载上下文，不接收任务参数。
 - Skill 正文不由工具参数改写。当前只允许展开 `${CLAUDE_SKILL_DIR}` 与 `${ZCODE_SKILL_DIR}`；不定义 `$ARGUMENTS`、`{{args}}` 或其他参数占位符。
-- Skill 聊天卡片只投影 Skill 显示名（按 `skill-title.md` 解析，回退原始名称）、运行状态、输出和失败信息。工具调用中的 `args`、`arg`、`path`、`prompt` 或 `input` 不得显示为 Skill 参数。
+- Skill 聊天卡片只投影 Skill 显示名（按 `skill-title.md` 的目录就绪语义：就绪前/不可用显示中性占位，authoritative 目录未命中才回退原始名称）、运行状态、输出和失败信息。工具调用中的 `args`、`arg`、`path`、`prompt` 或 `input` 不得显示为 Skill 参数。
 
 ## 所有权
 

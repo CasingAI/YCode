@@ -93,7 +93,8 @@ export interface ConversationRowRenderContext {
   /**
    * 会话级「技能引用 → 展示名」查找表（skill-title.md），与 knownSkillNames 同源：
    * 键为 `name`/`plugin:name`，值为本地化标题或 frontmatter title。
-   * Skill 卡片据此显示友好名；undefined 表示目录未就绪，卡片回退原始输入。
+   * Skill 卡片据此显示友好名；undefined 表示目录未就绪/失败/只读视图，卡片显示
+   * 中性占位而不是原始 ref；只有空表/未命中才回退原始 ref。
    * 同样需保持引用稳定（memo 行 props 依赖）。
    */
   skillDisplayNameByRef?: ReadonlyMap<string, string>;

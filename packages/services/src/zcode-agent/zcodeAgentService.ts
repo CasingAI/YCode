@@ -10,6 +10,7 @@ import {
 /* oxlint-disable eslint(max-lines) -- ZCode Protocol transport、通知 wiring 和 app-facing session 方法必须共享同一个 client/emitter 上下文。 */
 import { randomUUID } from "node:crypto";
 import { ensureIndependentPlanSupport } from "./independentPlanSupport.js";
+import { requestSkillReferenceCatalog } from "./skillReferenceCatalogRequest.js";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { Emitter } from "@zcode/rpc";
@@ -45,7 +46,6 @@ import {
   zcodeProcessChildProcessesResultSchema,
   type ZCodeProcessChildProcess,
   type ZCodeProcessToolProcess,
-  zcodeSkillsReferenceCatalogResultSchema,
   zcodeWorkflowsDeleteResultSchema,
   zcodeWorkflowsGetResultSchema,
   zcodeWorkflowsListResultSchema,
@@ -4013,14 +4013,8 @@ export function createZCodeAgentService(
       // 与 Plugin 引用一样，Session 快照只存在于 workspace agent 进程；独立管理进程
       // 没有 resident Session，不能作为对话 authority。
       const client = await getReadOnlyClient(params);
-      return client.request(
-        zcodeProtocolMethods.skillsReferenceCatalog,
-        {
-          workspace: buildWorkspaceRef(params),
-          ...(params.sessionId ? { sessionId: params.sessionId } : {}),
-        },
-        zcodeSkillsReferenceCatalogResultSchema,
-      );
+      // title 只在 runtimeCapabilities 声明支持后才 opt-in，旧 Agent 收不到 includeTitle。
+      return requestSkillReferenceCatalog(client, buildWorkspaceRef(params), params.sessionId);
     },
 
     // 已保存工作流的 GUI 中枢：与 Skill catalog 同一条

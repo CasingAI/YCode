@@ -87,6 +87,8 @@ export const ZCODE_PROTOCOL_VERSION = 1 as const;
 export const ZCODE_PROTOCOL_V4_WIRE_VERSION = 3 as const;
 export const zcodeRuntimeCapabilitiesSchema = z.object({
   independentPlanState: z.boolean().optional(),
+  // 旧 Agent 不返回该字段；客户端只在 true 时给 skills/referenceCatalog 带 includeTitle。
+  skillReferenceCatalogTitle: z.boolean().optional(),
 });
 export const zcodeProtocolErrorCodes = {
   sessionUnavailable: -32004,
@@ -2740,6 +2742,9 @@ export const zcodeSkillReferenceCatalogEntrySchema = z
   .object({
     id: nonEmptyString,
     name: nonEmptyString,
+    // 可选展示名，只做透传；约束与 adapters/services 的 title 解析一致
+    // （docs/specs/skill-title.md：去空白后非空且不超过 80 字符）。旧 peer 缺省时 UI 回退 name。
+    title: nonEmptyString.max(80).optional(),
     description: z.string(),
     path: nonEmptyString,
     scope: z.enum(["workspace", "user", "plugin"]),
@@ -2755,6 +2760,9 @@ export const zcodeSkillsReferenceCatalogParamsSchema = z
     // 带 sessionId 时必须命中该进程内的 resident Session；未知 Session fail closed，
     // 禁止回退到 workspace 当前目录而把新 Skill 泄漏进旧对话。
     sessionId: nonEmptyString.optional(),
+    // title 是 capability 协商后的可选投影；缺省保持旧 wire（不含 title），
+    // 旧客户端不会发送未知字段（docs/specs/skill-reference-catalog-title.md）。
+    includeTitle: z.boolean().optional(),
   })
   .strict();
 export type ZCodeSkillsReferenceCatalogParams = z.infer<

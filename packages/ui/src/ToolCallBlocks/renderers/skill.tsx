@@ -1,7 +1,7 @@
 import { WandSparkles } from "lucide-react";
 import { useCallback, useMemo } from "react";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
-import { resolveSkillDisplayName } from "@/lib/skillDisplayName.js";
+import { resolveSkillCardPrimaryLabel } from "@/lib/skillDisplayName.js";
 import { ToolSnapshotFieldNotice } from "@/ToolCallBlocks/ToolSnapshotFieldNotice.js";
 import { ToolLayout } from "../ToolLayout.js";
 import type { ToolCallBlockRenderContext } from "../shared.js";
@@ -99,10 +99,14 @@ export function SkillToolCallBlock(context: ToolCallBlockRenderContext) {
   const { intl } = useZCodeIntl();
   const { toolCall } = context.toolCallNode;
   const skillName = getSkillName(toolCall);
-  // 展示名按 skill-title.md 从会话宿主下发的查找表解析；表缺省（目录未就绪/只读视图）
-  // 或未命中（历史已卸载技能）都回退原始输入，渲染器不发起请求。
+  // 展示名按 skill-title.md 从会话宿主下发的查找表解析；表为 undefined（目录未就绪/
+  // 请求失败/只读视图）时主标题留空，不能先露出原始 ref；只有已完成的 authoritative
+  // 目录未命中才回退原始输入。渲染器不发起请求。
   const displayName = useMemo(
-    () => (skillName ? resolveSkillDisplayName(skillName, context.skillDisplayNameByRef) : undefined),
+    () =>
+      skillName
+        ? resolveSkillCardPrimaryLabel(skillName, context.skillDisplayNameByRef)
+        : undefined,
     [context.skillDisplayNameByRef, skillName],
   );
   const outputText = extractSkillText(toolCall.output);
@@ -116,14 +120,21 @@ export function SkillToolCallBlock(context: ToolCallBlockRenderContext) {
   const skillFallbackLabel = intl.formatMessage({ id: "chat.toolCall.skill.label" });
   const skillUnknownLabel = intl.formatMessage({ id: "chat.toolCall.skill.unknown" });
   const skillNoOutputLabel = intl.formatMessage({ id: "chat.toolCall.skill.noOutput" });
-  const primaryText = useMemo(
-    () => (
-      <span className="truncate font-mono text-foreground-subtlest">
-        {displayName ?? skillName ?? toolCall.title ?? skillFallbackLabel}
-      </span>
-    ),
-    [displayName, skillFallbackLabel, skillName, toolCall.title],
-  );
+  const primaryText = useMemo(() => {
+    if (!skillName) {
+      return (
+        <span className="truncate font-mono text-foreground-subtlest">
+          {toolCall.title ?? skillFallbackLabel}
+        </span>
+      );
+    }
+    // 目录未就绪/不可用时 displayName 为 undefined：折叠态省略名称，只保留本地化的
+    // 类别标签与状态；展开详情仍显示原始 ID。不得在此回退原始 ref。
+    if (!displayName) {
+      return null;
+    }
+    return <span className="truncate font-mono text-foreground-subtlest">{displayName}</span>;
+  }, [displayName, skillFallbackLabel, skillName, toolCall.title]);
   const renderContent = useCallback(
     () => (
       <div className="space-y-3 mb-2 rounded-xl border border-border bg-panel px-4 py-3">
@@ -186,7 +197,8 @@ export function SkillToolCallBlock(context: ToolCallBlockRenderContext) {
         statusTooltip={toolCall.status === "failed" ? detailText : undefined}
         showFailureStatus={toolCall.status === "failed"}
         isRunning={context.isRunning}
-        title={toolCall.title}
+        // 悬停提示与主标题同源：目录未就绪时一并留空，避免通过 title 属性提前泄露原始 ref。
+        title={skillName ? displayName : toolCall.title}
         renderContent={renderContent}
       />
       <ToolSnapshotFieldNotice

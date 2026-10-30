@@ -3,6 +3,7 @@ import test from "node:test";
 import type { SkillSummary } from "@zcode/shared";
 import {
   buildSkillDisplayNameCatalog,
+  resolveSkillCardPrimaryLabel,
   resolveSkillDisplayName,
   resolveSkillListLabel,
 } from "../src/lib/skillDisplayName.js";
@@ -80,10 +81,23 @@ test("无 title 的技能回退原始标识与 name", () => {
   assert.equal(resolveSkillDisplayName("misc:plain", catalog), "misc:plain");
 });
 
-test("目录未就绪或未命中时回退原始输入", () => {
-  assert.equal(resolveSkillDisplayName("team:team", undefined), "team:team");
-  const catalog = buildSkillDisplayNameCatalog([], "zh-CN");
-  assert.equal(resolveSkillDisplayName("team:team", catalog), "team:team");
+test("目录未完成或不可用时卡片主标题返回 undefined，不暴露原始 ref", () => {
+  // 冷首帧/请求失败/只读视图都走 undefined 分支：卡片使用中性占位，不能先显示机器标识。
+  assert.equal(resolveSkillCardPrimaryLabel("team:team", undefined), undefined);
+});
+
+test("只有 authoritative 目录已完成且未命中时才回退原始 ref", () => {
+  const emptyCatalog = buildSkillDisplayNameCatalog([], "zh-CN");
+  assert.equal(resolveSkillCardPrimaryLabel("team:team", emptyCatalog), "team:team");
+  assert.equal(resolveSkillDisplayName("team:team", emptyCatalog), "team:team");
+});
+
+test("authoritative 目录命中时卡片主标题是最终友好名", () => {
+  const catalog = buildSkillDisplayNameCatalog(
+    [makeSkill({ name: "team", pluginName: "team" })],
+    "zh-CN",
+  );
+  assert.equal(resolveSkillCardPrimaryLabel("team:team", catalog), "Team 派工手册");
 });
 
 test("市场官方插件技能（源不在本仓库）经由内置 i18n 表补齐标题", () => {

@@ -359,6 +359,7 @@ function buildPermissionBlockContext(
   kindLabelOverride: ReactNode,
   theme: ToolCallBlockRenderContext["theme"],
   codePreviewSettings: ToolCallBlockRenderContext["codePreviewSettings"],
+  skillDisplayNameByRef: ToolCallBlockRenderContext["skillDisplayNameByRef"],
 ): ToolCallBlockRenderContext {
   const { canToggle, forceOpen } = getPermissionBlockInteraction(blockKind);
 
@@ -383,6 +384,9 @@ function buildPermissionBlockContext(
     },
     viewerSource: null,
     rawFileSummaries,
+    // Skill 权限确认复用会话级查找表；宿主未提供时应为 undefined，卡片显示中性占位，
+    // 不得先露出原始 plugin:skill（skill-title.md）。
+    skillDisplayNameByRef,
     // 权限弹窗等待用户确认时工具还没有执行，不能复用 running 状态。
     // 之前 Bash 权限会显示“执行中”并带 loading，遮住真正的申请原因。
     isRunning: false,
@@ -431,6 +435,7 @@ export function PermissionDialog({
   onRespond,
   workspacePath,
   provider,
+  skillDisplayNameByRef,
   responding = false,
   responseError,
 }: {
@@ -440,6 +445,8 @@ export function PermissionDialog({
   onRespond: (requestId: string, option: ZCodePermissionOption, feedback?: string) => void;
   workspacePath: string;
   provider?: ZCodeProvider;
+  /** 会话级技能查找表；缺省时 Skill 权限卡按“目录未就绪”显示中性占位。 */
+  skillDisplayNameByRef?: ReadonlyMap<string, string>;
 }) {
   const { intl } = useZCodeIntl();
   // store 耦合剥离：主题/代码预览设置在宿主处取 store，向下走 props/render context。
@@ -487,8 +494,18 @@ export function PermissionDialog({
         intl.formatMessage({ id: "chat.permission.awaitingApproval" }),
         theme,
         codePreviewSettings,
+        skillDisplayNameByRef,
       ),
-    [blockKind, codePreviewSettings, intl, rawFileSummaries, theme, toolCall, workspacePath],
+    [
+      blockKind,
+      codePreviewSettings,
+      intl,
+      rawFileSummaries,
+      skillDisplayNameByRef,
+      theme,
+      toolCall,
+      workspacePath,
+    ],
   );
   const displayReason = useMemo(() => getPermissionDisplayReason(request), [request]);
   const [selectedIndex, setSelectedIndex] = useState(0);

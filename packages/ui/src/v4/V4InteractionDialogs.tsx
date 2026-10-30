@@ -42,6 +42,8 @@ interface V4InteractionDialogsProps {
   remoteSessionId?: string;
   provider?: ZCodeProvider;
   snapshot: ConversationSnapshot | null;
+  /** 会话级技能查找表（skill-title.md）；权限弹窗里的 Skill 卡与聊天区同源。 */
+  skillDisplayNameByRef?: ReadonlyMap<string, string>;
   onCommandSettled?: (commandId: string) => void;
 }
 
@@ -93,6 +95,7 @@ export function V4InteractionDialogs({
   remoteSessionId,
   provider,
   snapshot,
+  skillDisplayNameByRef,
   onCommandSettled,
 }: V4InteractionDialogsProps) {
   const { sendCommand } = useV4Conversation();
@@ -332,6 +335,7 @@ export function V4InteractionDialogs({
         request={request}
         workspacePath={workspacePath}
         provider={provider}
+        skillDisplayNameByRef={skillDisplayNameByRef}
         responding={
           permissionResponse?.interactionId === pending.interactionId && permissionResponse.pending
         }

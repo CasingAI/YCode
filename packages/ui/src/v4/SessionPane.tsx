@@ -253,10 +253,8 @@ import {
   type V4VisibleSlashCommand,
 } from "@/v4/slashCommands.js";
 import { useSlashCommands } from "@/hooks/useSlashCommands.js";
-import {
-  useSkillDisplayNameCatalog,
-  useSkillNameWhitelist,
-} from "@/hooks/useSkillNameWhitelist.js";
+import { useSessionSkillCatalogViews } from "@/hooks/useSessionSkillCatalogViews.js";
+import { isSessionSkillCatalogEnabled } from "@/lib/skillCatalogViews.js";
 import { shouldEnableWorkspaceRpc } from "@/lib/workspaceRpcAvailability.js";
 import { useSubagentNameWhitelist } from "@/hooks/useSubagentNameWhitelist.js";
 import { useWorkspaceSessionsIndexItems } from "@/v4/useWorkspaceSessionsIndexItems.js";
@@ -2475,24 +2473,25 @@ export function SessionPane({
     executePlanHandlerRef.current?.();
   }, []);
 
-  // 用户气泡裸 token 白名单：整个 pane 只取一次，再经 rowContext 下发给每条气泡。
+  // 用户气泡裸 token 白名单 + Skill 卡片展示名查找表：整个 pane 只取一次目录，
+  // 两个视图由同一个 useSkills 实例派生，再经 rowContext 下发给气泡与卡片。
   // 必须收口在 pane 级——`getSkillReferenceCatalog` 无缓存层，放进 memo 行组件会按
   // 消息数放大 RPC；子智能体与会话索引有 store 缓存但同样只取一次。
-  // 只读视图不连服务，直接不启用，对应集合为 undefined（fail-open，维持既有显示）。
+  // 只读视图不连服务，直接不启用，两个视图都为 undefined（气泡 fail-open，卡片中性占位）。
   const sessionScopeReady = !readOnly && Boolean(workspacePath);
-  const knownSkillNames = useSkillNameWhitelist({
+  // getSkillReferenceCatalog 直接 requireSession、不负责冷恢复：必须等当前 lease 的
+  // conversation subscribe ACK 为 live，且 lease 仍对应当前 session（切会话过渡帧旧 lease
+  // 可能仍 live），才能启用目录；失败不重试、不回退 workspace 扫描。
+  const { knownSkillNames, skillDisplayNameByRef } = useSessionSkillCatalogViews({
     workspacePath,
     workspaceIdentity,
     sessionId: sessionId ?? null,
-    enabled: sessionScopeReady && Boolean(sessionId),
-  });
-  // Skill 卡片展示名查找表：与上面的白名单同一次目录请求（useSkills 内部有共享缓存），
-  // pane 级只取一次，经 rowContext 下发给卡片渲染器（skill-title.md）。
-  const skillDisplayNameByRef = useSkillDisplayNameCatalog({
-    workspacePath,
-    workspaceIdentity,
-    sessionId: sessionId ?? null,
-    enabled: sessionScopeReady && Boolean(sessionId),
+    enabled: isSessionSkillCatalogEnabled({
+      sessionScopeReady,
+      sessionId: sessionId ?? null,
+      conversationStatus: state.status,
+      leaseSessionId: lease?.sessionId ?? null,
+    }),
   });
   const knownSubagentNames = useSubagentNameWhitelist({
     workspacePath,
@@ -5459,6 +5458,7 @@ export function SessionPane({
           remoteSessionId={remoteSessionId ?? undefined}
           provider={provider}
           snapshot={snapshot}
+          skillDisplayNameByRef={skillDisplayNameByRef}
         />
       ) : null}
       {composerNode}

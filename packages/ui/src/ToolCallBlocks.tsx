@@ -271,6 +271,8 @@ function ToolCallBlockComponent({
               theme={theme}
               codePreviewSettings={codePreviewSettings}
               showIcon={showIcon}
+              // 子代理/嵌套工具卡沿用同一份技能查找表；否则子卡会退回未就绪占位。
+              skillDisplayNameByRef={skillDisplayNameByRef}
               onOpenCodeViewer={toolPreviewCodeViewer}
               onOpenFileLink={onOpenFileLink}
               onOpenBrowserUrl={onOpenBrowserUrl}
@@ -296,6 +298,7 @@ function ToolCallBlockComponent({
       onOpenPlanDetail,
       onOpenFileLink,
       showIcon,
+      skillDisplayNameByRef,
       streamingEntranceActive,
       streamingEntranceKeyPrefix,
       suppressSourceLabel,
