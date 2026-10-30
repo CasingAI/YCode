@@ -25,6 +25,7 @@ import type { IUsageStatsService } from "./usage-stats/usageStats.js";
 import type { IOpenCodeUsageService } from "./model-provider/opencodeUsageService.js";
 import type { IDeepSeekBalanceService } from "./model-provider/deepseekBalanceService.js";
 import type { IMiniMaxQuotaService } from "./model-provider/minimaxQuotaService.js";
+import type { ICommandCodeQuotaService } from "./model-provider/commandCodeQuotaService.js";
 import type { IOpenRouterBalanceService } from "./model-provider/openrouterBalanceService.js";
 import type { ICodingPlanSubscriptionService } from "./coding-plan-subscription/codingPlanSubscription.js";
 import type { IClientConfigService } from "./client-config/clientConfig.js";
@@ -116,6 +117,7 @@ export interface IServiceAccessor {
   readonly opencodeUsageService: IOpenCodeUsageService;
   readonly deepSeekBalanceService: IDeepSeekBalanceService;
   readonly miniMaxQuotaService: IMiniMaxQuotaService;
+  readonly commandCodeQuotaService: ICommandCodeQuotaService;
   readonly openRouterBalanceService: IOpenRouterBalanceService;
   /**
    * 宿主进程资源采样（资源管理器数据源）。

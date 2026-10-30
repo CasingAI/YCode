@@ -18,6 +18,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   isCliProxyProviderTemplateId,
+  isCommandCodeProviderTemplateId,
   isDeepSeekProviderTemplateId,
   isMiniMaxTokenPlanProviderTemplateId,
   isOpenCodeGoProviderTemplateId,
@@ -46,6 +47,7 @@ import { isZhipuTemplateId } from "@/settings/model-provider-section/ZhipuTempla
 import type { ChatDeepSeekBalanceConfig } from "@/chat-input-toolbar/DeepSeekContextUsage.js";
 import type { ChatOpenCodeUsageConfig } from "@/chat-input-toolbar/OpenCodeContextUsage.js";
 import type { ChatMiniMaxQuotaConfig } from "@/chat-input-toolbar/MiniMaxContextUsage.js";
+import type { ChatCommandCodeQuotaConfig } from "@/chat-input-toolbar/CommandCodeContextUsage.js";
 import type { ChatOpenRouterBalanceConfig } from "@/chat-input-toolbar/OpenRouterContextUsage.js";
 import type { ChatOpenCodeZenBalanceConfig } from "@/chat-input-toolbar/OpenCodeZenContextUsage.js";
 
@@ -410,6 +412,24 @@ function V4ComposerModelControlsImpl({
     };
   }, [effectiveConfig?.provider, handleOpenModelProviderSettings, modelSelectionView]);
 
+  // Command Code（commandcode 模板）composer 额度入口：查套餐双窗口额度与余额。
+  const commandCodeQuotaConfig = useMemo<ChatCommandCodeQuotaConfig | undefined>(() => {
+    const selectedProviderId = effectiveConfig?.provider?.trim();
+    if (!selectedProviderId) {
+      return undefined;
+    }
+    const selected = modelSelectionView?.providers.find(
+      (candidate) => candidate.providerId === selectedProviderId,
+    );
+    if (!isCommandCodeProviderTemplateId(selected?.templateId)) {
+      return undefined;
+    }
+    return {
+      providerId: selectedProviderId,
+      onManage: handleOpenModelProviderSettings,
+    };
+  }, [effectiveConfig?.provider, handleOpenModelProviderSettings, modelSelectionView]);
+
   // OpenCode Zen（opencode-zen-* 模板）composer 额度入口：查 billing 余额。
   const openCodeZenBalanceConfig = useMemo<ChatOpenCodeZenBalanceConfig | undefined>(() => {
     const selectedProviderId = effectiveConfig?.provider?.trim();
@@ -760,6 +780,7 @@ function V4ComposerModelControlsImpl({
         cliProxyQuota={cliProxyQuotaConfig}
         deepSeekBalance={deepSeekBalanceConfig}
         minimaxQuota={minimaxQuotaConfig}
+        commandCodeQuota={commandCodeQuotaConfig}
         openRouterBalance={openRouterBalanceConfig}
         openCodeZenBalance={openCodeZenBalanceConfig}
         selectedProvider={displayProvider}

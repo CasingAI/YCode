@@ -553,6 +553,41 @@
           }
         },
         {
+          "templateId": "commandcode",
+          "templateNameMap": {
+            "zh-CN": "Command Code",
+            "en-US": "Command Code"
+          },
+          "config": {
+            "access": {
+              "type": "api-key",
+              "apiKeyManagementUrl": "https://commandcode.ai/settings/keys"
+            },
+            "api": {
+              "type": "openai-chat-completions",
+              "baseUrl": "https://api.commandcode.ai/provider/v1"
+            },
+            "builtinModelIds": [
+              "deepseek/deepseek-v4-flash",
+              "claude-sonnet-5-5",
+              "z-ai/glm-5.3-flash",
+              "zai-org/GLM-5.2",
+              "deepseek/deepseek-v4.1-flash",
+              "moonshotai/Kimi-K2.7-Code",
+              "MiniMaxAI/MiniMax-M3",
+              "google/gemini-3.8-flash",
+              "Qwen/Qwen3.8-Max",
+              "gpt-5.5",
+              "xai/grok-4.7",
+              "taste-1"
+            ],
+            "logo": {
+              "type": "builtin",
+              "key": "commandcode"
+            }
+          }
+        },
+        {
           "templateId": "opencode-go-chat",
           "templateNameMap": {
             "zh-CN": "OpenCode Go (Chat)",

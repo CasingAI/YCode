@@ -18,6 +18,7 @@ import opencodeZenDark from "@/assets/provider-icons/model-provider-opencode-zen
 import opencodeGoLogo from "@/assets/provider-icons/model-provider-opencode-go.png";
 import geminiLogo from "@/assets/provider-icons/model-provider-gemini.svg";
 import antigravityLogo from "@/assets/provider-icons/model-provider-antigravity.png";
+import commandCodeLogo from "@/assets/provider-icons/model-provider-commandcode.png";
 
 export type ProviderLogoRef = NonNullable<ProviderConfigObject["logo"]>;
 
@@ -49,6 +50,8 @@ const BUILTIN_PROVIDER_LOGO_ASSETS: Readonly<Record<string, BuiltinProviderLogoA
   // Antigravity 用官网 276px 品牌 PNG（中间调，深浅底均可读）。
   gemini: { light: geminiLogo },
   antigravity: { light: antigravityLogo },
+  // Command Code（beta）：官网 apple-touch-icon，深底白 ⌘、灰阶带透明，深浅底均可读。
+  commandcode: { light: commandCodeLogo },
 };
 
 export function resolveBuiltinProviderLogoAsset(

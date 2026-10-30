@@ -171,6 +171,18 @@ const zhCN: Record<string, string> = {
   "settings.modelProvider.minimaxQuota.error.credentialStale":
     "MiniMax 拒绝了该订阅 Key，请检查密钥是否正确或已失效。",
   "settings.modelProvider.minimaxQuota.error.unavailable": "暂时无法获取额度，请稍后重试。",
+  "settings.modelProvider.commandCodeQuota.title": "Command Code 套餐额度",
+  "settings.modelProvider.commandCodeQuota.loading": "正在查询套餐额度…",
+  "settings.modelProvider.commandCodeQuota.notConfigured":
+    "填写上方的 API Key 后即可查看 Command Code 套餐额度（在 commandcode.ai/settings/keys 签发）。",
+  "settings.modelProvider.commandCodeQuota.exceeded": "已用尽，等待重置",
+  "settings.modelProvider.commandCodeQuota.window.fiveHour": "5 小时窗口",
+  "settings.modelProvider.commandCodeQuota.window.weekly": "7 天窗口",
+  "settings.modelProvider.commandCodeQuota.creditsRemaining": "套餐余额：{amount}",
+  "settings.modelProvider.commandCodeQuota.error.credentialStale":
+    "Command Code 拒绝了该 API Key，请检查密钥是否正确或已失效。",
+  "settings.modelProvider.commandCodeQuota.error.unavailable": "暂时无法获取额度，请稍后重试。",
+  "chat.commandCodeQuota.manage": "管理",
   "settings.modelProvider.cliproxyQuota.window.fiveHour": "5 小时窗口",
   "settings.modelProvider.cliproxyQuota.window.weekly": "7 天窗口",
   "settings.modelProvider.cliproxyQuota.window.other": "其他窗口",

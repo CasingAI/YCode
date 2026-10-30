@@ -221,6 +221,7 @@ export { createUsageStatsService } from "./usage-stats/usageStatsService.js";
 export { createOpenCodeUsageService } from "./model-provider/opencodeUsageService.js";
 export { createDeepSeekBalanceService } from "./model-provider/deepseekBalanceService.js";
 export { createMiniMaxQuotaService } from "./model-provider/minimaxQuotaService.js";
+export { createCommandCodeQuotaService } from "./model-provider/commandCodeQuotaService.js";
 export { createOpenRouterBalanceService } from "./model-provider/openrouterBalanceService.js";
 // Storage：service 与 adapters 工厂；desktop host 负责组装（Worker runner 在 desktop 包内）
 export { createStorageService } from "./storage/app/storageService.js";
@@ -394,6 +395,7 @@ import { IUsageStatsService } from "./usage-stats/usageStats.js";
 import { IOpenCodeUsageService } from "./model-provider/opencodeUsageService.js";
 import { IDeepSeekBalanceService } from "./model-provider/deepseekBalanceService.js";
 import { IMiniMaxQuotaService } from "./model-provider/minimaxQuotaService.js";
+import { ICommandCodeQuotaService } from "./model-provider/commandCodeQuotaService.js";
 import { IOpenRouterBalanceService } from "./model-provider/openrouterBalanceService.js";
 import { ICodingPlanSubscriptionService } from "./coding-plan-subscription/codingPlanSubscription.js";
 import { IClientScenesService } from "./client-scenes/clientScenes.js";
@@ -479,6 +481,7 @@ import { createUsageStatsService } from "./usage-stats/usageStatsService.js";
 import { createOpenCodeUsageService } from "./model-provider/opencodeUsageService.js";
 import { createDeepSeekBalanceService } from "./model-provider/deepseekBalanceService.js";
 import { createMiniMaxQuotaService } from "./model-provider/minimaxQuotaService.js";
+import { createCommandCodeQuotaService } from "./model-provider/commandCodeQuotaService.js";
 import { createOpenRouterBalanceService } from "./model-provider/openrouterBalanceService.js";
 import { createCodingPlanSubscriptionService } from "./coding-plan-subscription/codingPlanSubscriptionService.js";
 import { createClientConfigService } from "./client-config/clientConfigService.js";
@@ -2638,6 +2641,18 @@ export function createLocalServices(options: {
     .register(
       IMiniMaxQuotaService,
       createMiniMaxQuotaService({
+        resolveApiKey: async (providerId: string) => {
+          const snapshot = await providerConfigRuntime.configService.read();
+          const access = snapshot.personalProviders.get(providerId)?.access;
+          return isApiKeyAccess(access) ? (access.apiKey ?? null) : null;
+        },
+      }),
+    )
+    // Command Code 套餐额度：同样复用 provider 自身的 API Key，
+    // owner 仍是 provider 配置域，这里只在查询时刻读一次，不复制、不落盘密钥。
+    .register(
+      ICommandCodeQuotaService,
+      createCommandCodeQuotaService({
         resolveApiKey: async (providerId: string) => {
           const snapshot = await providerConfigRuntime.configService.read();
           const access = snapshot.personalProviders.get(providerId)?.access;

@@ -1,6 +1,7 @@
 import {
   CLI_PROXY_BETA_CHANNELS,
   cliProxyChannelFromTemplateId,
+  isCommandCodeProviderTemplateId,
   isDeepSeekProviderTemplateId,
   isMiniMaxTokenPlanProviderTemplateId,
   isOpenCodeProviderTemplateId,
@@ -36,6 +37,7 @@ export function supportsTemplateQuotaDisplay(templateId: string): boolean {
     isOpenCodeProviderTemplateId(templateId) ||
     isDeepSeekProviderTemplateId(templateId) ||
     isMiniMaxTokenPlanProviderTemplateId(templateId) ||
+    isCommandCodeProviderTemplateId(templateId) ||
     isOpenRouterProviderTemplateId(templateId) ||
     isZhipuTemplateId(templateId)
   );
@@ -46,8 +48,8 @@ export function supportsTemplateQuotaDisplay(templateId: string): boolean {
  * 当前只剩 CLI Proxy 未实测渠道（`claude`/`gemini`/`antigravity`，见
  * docs/specs/plugin-cli-proxy-binary.md）。去 Beta 条件：完成端到端验证后从
  * 白名单移除即可。
- * `minimax-token-plan` 与 `openrouter` 已于 2026-10-28 去 Beta：额度链路的
- * 失败语义（last-good + 错误降级）已兜底未验证风险，卡片不再挂 Beta。
+ * `minimax-token-plan`、`openrouter` 与 `commandcode` 已于 2026-10-28 去 Beta：
+ * 额度链路的失败语义（last-good + 错误降级）已兜底未验证风险，卡片不再挂 Beta。
  * 注意 `isOpenCodeProviderTemplateId` 的宽泛前缀仍保留：新增 `opencode-*` 模板自动继承
  * quota Tag（Go/Zen 窄判定只影响数据组件挂载，不影响 Tag 并集）。
  */

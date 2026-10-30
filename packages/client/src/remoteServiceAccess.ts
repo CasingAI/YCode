@@ -25,6 +25,7 @@ import {
   IOpenCodeUsageService,
   IDeepSeekBalanceService,
   IMiniMaxQuotaService,
+  ICommandCodeQuotaService,
   IOpenRouterBalanceService,
   ICodingPlanSubscriptionService,
   IClientConfigService,
@@ -111,6 +112,7 @@ export class RemoteServiceAccess implements IServiceAccessor {
   readonly opencodeUsageService: IOpenCodeUsageService;
   readonly deepSeekBalanceService: IDeepSeekBalanceService;
   readonly miniMaxQuotaService: IMiniMaxQuotaService;
+  readonly commandCodeQuotaService: ICommandCodeQuotaService;
   readonly openRouterBalanceService: IOpenRouterBalanceService;
   readonly codingPlanSubscriptionService: ICodingPlanSubscriptionService;
   readonly clientConfigService: IClientConfigService;
@@ -235,6 +237,9 @@ export class RemoteServiceAccess implements IServiceAccessor {
     );
     this.miniMaxQuotaService = ProxyChannel.toService<IMiniMaxQuotaService>(
       channelClient.getChannel(IMiniMaxQuotaService.channelName),
+    );
+    this.commandCodeQuotaService = ProxyChannel.toService<ICommandCodeQuotaService>(
+      channelClient.getChannel(ICommandCodeQuotaService.channelName),
     );
     this.openRouterBalanceService = ProxyChannel.toService<IOpenRouterBalanceService>(
       channelClient.getChannel(IOpenRouterBalanceService.channelName),

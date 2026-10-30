@@ -28,9 +28,10 @@ YCode 里能不能看到自己这家账号的额度/余额**。这个能力在�
 - 判定：独立白名单 `supportsTemplateBetaTag(templateId)`，当前只剩 CLI Proxy 未实测
   渠道（`claude`/`gemini`/`antigravity`，见 `docs/specs/plugin-cli-proxy-binary.md`）。
   Beta 只出现在添加供应商选择器，不进入设置页卡片与 Composer 浮层。
-- 2026-10-28 已去 Beta：`minimax-token-plan`（`docs/specs/minimax-quota.md`）与
-  `openrouter`（`docs/specs/openrouter-balance.md`）按「last-good + 错误降级」兜底
-  未验证风险，卡片保留「已适配额度显示」但不再挂 Beta 胶囊。
+- 2026-10-28 已去 Beta：`minimax-token-plan`（`docs/specs/minimax-quota.md`）、
+  `openrouter`（`docs/specs/openrouter-balance.md`）与 `commandcode`
+  （`docs/specs/commandcode-quota.md`）按「last-good + 错误降级」兜底未验证风险，
+  卡片保留「已适配额度显示」但不再挂 Beta 胶囊。
 - 去 Beta 条件：维护者拿到真实账号完成端到端验证后，从白名单移除对应模板 id 即可，
   无需改组件结构。
 
@@ -58,11 +59,12 @@ Beta 胶囊本身不解释风险，用户未必知道「Beta」意味着什么�
 | OpenCode Zen 账户余额              | `isOpenCodeZenProviderTemplateId`（`packages/shared/src/opencode-usage.ts`，前缀 `opencode-zen-`）          | 同上（余额版式，复用 Cookie 凭据）         | 否   |
 | MiniMax Token Plan 套餐额度        | `isMiniMaxTokenPlanProviderTemplateId`（`packages/shared/src/minimax-quota.ts`，全等 `minimax-token-plan`） | 同上                                       | 否   |
 | OpenRouter 账户余额                | `isOpenRouterProviderTemplateId`（`packages/shared/src/openrouter-balance.ts`，全等 `openrouter`）          | 同上                                       | 否   |
+| Command Code 套餐额度              | `isCommandCodeProviderTemplateId`（`packages/shared/src/commandcode-quota.ts`，全等 `commandcode`）         | 同上                                       | 否   |
 | 智谱模板剩余额度               | `isZhipuTemplateId`（本层 `ZhipuTemplateQuotaSection`，`zai-api`/`bigmodel-api`/`zai-standard-api`/`bigmodel-standard-api`） | 同上 | 否 |
 | 官方 Coding Plan / Start Plan 额度 | 已随智谱账号体系剥离下线（见 `docs/specs/zhipu-special-removal.md`） | — | — |
 
 即 `packages/ui/src/settings/model-provider-section/providerTemplateQuotaTag.ts` 的
-`supportsTemplateQuotaDisplay` 只是把上面前六个判定取并集——**不复用、不重写、不放宽**，
+`supportsTemplateQuotaDisplay` 只是把上面七个判定取并集——**不复用、不重写、不放宽**，
 保证「卡片上标了」和「实际能看到」永远是同一个条件。Beta 判定由独立的
 `supportsTemplateBetaTag` 白名单承载，与 quota 判定正交。
 
@@ -92,11 +94,11 @@ Beta 胶囊本身不解释风险，用户未必知道「Beta」意味着什么�
 ## 验收场景
 
 1. 「添加供应商」页中，DeepSeek、3 张 OpenCode Go、3 张 Zen、MiniMax Token Plan、
-   OpenRouter、4 张智谱模板卡片的标题文字后紧跟「已适配额度显示」胶囊（英文界面
-   "Quota display supported"）。
+   OpenRouter、Command Code、4 张智谱模板卡片的标题文字后紧跟「已适配额度显示」胶囊
+   （英文界面 "Quota display supported"）。
 2. 只有 CLI Proxy 的 claude / gemini / antigravity 卡片在 quota Tag 之后再跟一颗
-   「Beta」胶囊；Go / DeepSeek / Zen / 智谱 / MiniMax Token Plan / OpenRouter
-   卡片没有 Beta（后两者仍保留「已适配额度显示」）。
+   「Beta」胶囊；Go / DeepSeek / Zen / 智谱 / MiniMax Token Plan / OpenRouter /
+   Command Code 卡片没有 Beta（后三者仍保留「已适配额度显示」）。
 3. 选择器标题行下方固定显示一行 Beta 提示（中英文按 locale），位于所有分组之上，
    不随分组滚动或条件消失。
 4. 其余所有卡片（含 Kimi、现有 MiniMax 平台模板、阿里云百炼 2 张、

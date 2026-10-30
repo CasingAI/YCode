@@ -6,6 +6,7 @@ import { type ModelProviderNavItem } from "./constants.js";
 import { InlineEditableProviderCard } from "./InlineEditableProviderCard.js";
 import {
   isCliProxyProviderTemplateId,
+  isCommandCodeProviderTemplateId,
   isDeepSeekProviderTemplateId,
   isMiniMaxTokenPlanProviderTemplateId,
   isOpenCodeGoProviderTemplateId,
@@ -14,6 +15,7 @@ import {
 } from "@zcode/shared";
 import { CliProxyQuotaSection } from "./CliProxyQuotaSection.js";
 import { CliProxyModelSyncButton } from "./CliProxyModelSyncButton.js";
+import { CommandCodeQuotaSection } from "./CommandCodeQuotaSection.js";
 import { DeepSeekBalanceSection } from "./DeepSeekBalanceSection.js";
 import { MiniMaxQuotaSection } from "./MiniMaxQuotaSection.js";
 import { OpenCodeUsageSection } from "./OpenCodeUsageSection.js";
@@ -195,6 +197,11 @@ export function ModelProviderSectionDetail({
           />
         ) : isMiniMaxTokenPlanProviderTemplateId(customProvider.templateId) ? (
           <MiniMaxQuotaSection
+            providerId={customProvider.providerId}
+            configRevision={settingsRevision}
+          />
+        ) : isCommandCodeProviderTemplateId(customProvider.templateId) ? (
+          <CommandCodeQuotaSection
             providerId={customProvider.providerId}
             configRevision={settingsRevision}
           />

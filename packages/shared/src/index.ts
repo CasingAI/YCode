@@ -321,6 +321,7 @@ export * from "./opencode-usage.js";
 export * from "./cliproxy-account.js";
 export * from "./deepseek-balance.js";
 export * from "./minimax-quota.js";
+export * from "./commandcode-quota.js";
 export * from "./openrouter-balance.js";
 export * from "./coding-plan-subscription.js";
 export * from "./forceUpdate.js";

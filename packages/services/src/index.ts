@@ -293,6 +293,15 @@ export {
   type MiniMaxQuotaServiceDependencies,
 } from "./model-provider/minimaxQuotaService.js";
 
+// Command Code 套餐额度查询服务（复用 provider 自身的 API Key，无独立凭据，Beta）
+export {
+  ICommandCodeQuotaService,
+  createCommandCodeQuotaService,
+  parseCommandCodeQuota,
+  COMMAND_CODE_CREDITS_URL,
+  type CommandCodeQuotaServiceDependencies,
+} from "./model-provider/commandCodeQuotaService.js";
+
 // OpenRouter 账户余额查询服务（复用 provider 自身的 API Key，无独立凭据，Beta）
 export {
   IOpenRouterBalanceService,

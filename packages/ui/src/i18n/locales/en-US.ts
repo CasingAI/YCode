@@ -192,6 +192,19 @@ const enUS: Record<string, string> = {
     "MiniMax rejected this subscription key. Check that the key is correct and still valid.",
   "settings.modelProvider.minimaxQuota.error.unavailable":
     "Quota is temporarily unavailable. Try again later.",
+  "settings.modelProvider.commandCodeQuota.title": "Command Code plan quota",
+  "settings.modelProvider.commandCodeQuota.loading": "Querying plan quota…",
+  "settings.modelProvider.commandCodeQuota.notConfigured":
+    "Fill in the API key above to view your Command Code plan quota (issued at commandcode.ai/settings/keys).",
+  "settings.modelProvider.commandCodeQuota.exceeded": "Used up — waiting for reset",
+  "settings.modelProvider.commandCodeQuota.window.fiveHour": "5-hour window",
+  "settings.modelProvider.commandCodeQuota.window.weekly": "7-day window",
+  "settings.modelProvider.commandCodeQuota.creditsRemaining": "Plan balance: {amount}",
+  "settings.modelProvider.commandCodeQuota.error.credentialStale":
+    "Command Code rejected this API key. Check that the key is correct and still valid.",
+  "settings.modelProvider.commandCodeQuota.error.unavailable":
+    "Quota is temporarily unavailable. Try again later.",
+  "chat.commandCodeQuota.manage": "Manage",
   "settings.modelProvider.cliproxyQuota.window.fiveHour": "5-hour window",
   "settings.modelProvider.cliproxyQuota.window.weekly": "7-day window",
   "settings.modelProvider.cliproxyQuota.window.other": "Other window",

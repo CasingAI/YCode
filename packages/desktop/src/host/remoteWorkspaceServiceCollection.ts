@@ -22,6 +22,7 @@ import {
   IOpenCodeUsageService,
   IDeepSeekBalanceService,
   IMiniMaxQuotaService,
+  ICommandCodeQuotaService,
   IOpenRouterBalanceService,
   ICodingPlanSubscriptionService,
   IClientConfigService,
@@ -62,6 +63,7 @@ import {
   createOpenCodeUsageService,
   createDeepSeekBalanceService,
   createMiniMaxQuotaService,
+  createCommandCodeQuotaService,
   createOpenRouterBalanceService,
   createMediaPreviewService,
   createCodingPlanSubscriptionService,
@@ -384,6 +386,18 @@ export function createRemoteWorkspaceServiceCollection(params: {
     .register(
       IMiniMaxQuotaService,
       createMiniMaxQuotaService({
+        resolveApiKey: async (providerId: string) => {
+          const view = await params.connectionServices.providerSettingsService.getView();
+          const access = view.providers.find((provider) => provider.providerId === providerId)
+            ?.effectiveConfig.access;
+          return isApiKeyAccess(access) ? (access.apiKey ?? null) : null;
+        },
+      }),
+    )
+    // Command Code 套餐额度同样必须用远端 key：只读不存。
+    .register(
+      ICommandCodeQuotaService,
+      createCommandCodeQuotaService({
         resolveApiKey: async (providerId: string) => {
           const view = await params.connectionServices.providerSettingsService.getView();
           const access = view.providers.find((provider) => provider.providerId === providerId)

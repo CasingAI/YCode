@@ -67,6 +67,11 @@ import {
   type ChatMiniMaxQuotaConfig,
 } from "@/chat-input-toolbar/MiniMaxContextUsage.js";
 import {
+  ChatCommandCodeQuotaPanel,
+  hasChatCommandCodeQuota,
+  type ChatCommandCodeQuotaConfig,
+} from "@/chat-input-toolbar/CommandCodeContextUsage.js";
+import {
   ChatOpenRouterBalancePanel,
   hasChatOpenRouterBalance,
   type ChatOpenRouterBalanceConfig,
@@ -138,6 +143,7 @@ export function ChatContextUsage({
   cliProxyQuota,
   deepSeekBalance,
   minimaxQuota,
+  commandCodeQuota,
   openRouterBalance,
   openCodeZenBalance,
   zhipuQuota,
@@ -156,6 +162,8 @@ export function ChatContextUsage({
   deepSeekBalance?: ChatDeepSeekBalanceConfig;
   /** 选中 provider 属 minimax-token-plan 模板时由 Composer 提供；查 Token Plan 双窗口剩余额度。 */
   minimaxQuota?: ChatMiniMaxQuotaConfig;
+  /** 选中 provider 属 commandcode 模板时由 Composer 提供；查套餐双窗口额度与余额。 */
+  commandCodeQuota?: ChatCommandCodeQuotaConfig;
   /** 选中 provider 属 openrouter 模板时由 Composer 提供；查账户积分余额。 */
   openRouterBalance?: ChatOpenRouterBalanceConfig;
   /** 选中 provider 属 opencode-zen-* 模板时由 Composer 提供；查 billing 余额。 */
@@ -261,6 +269,7 @@ export function ChatContextUsage({
   const hasCliProxyQuota = hasChatCliProxyQuota(cliProxyQuota);
   const hasDeepSeekBalance = hasChatDeepSeekBalance(deepSeekBalance);
   const hasMinimaxQuota = hasChatMiniMaxQuota(minimaxQuota);
+  const hasCommandCodeQuota = hasChatCommandCodeQuota(commandCodeQuota);
   const hasOpenRouterBalance = hasChatOpenRouterBalance(openRouterBalance);
   const hasOpenCodeZenBalance = hasChatOpenCodeZenBalance(openCodeZenBalance);
   const hasZhipuQuota = hasChatZhipuQuota(zhipuQuota);
@@ -715,6 +724,7 @@ export function ChatContextUsage({
     !hasCliProxyQuota &&
     !hasDeepSeekBalance &&
     !hasMinimaxQuota &&
+    !hasCommandCodeQuota &&
     !hasOpenRouterBalance &&
     !hasOpenCodeZenBalance &&
     !hasZhipuQuota
@@ -745,7 +755,9 @@ export function ChatContextUsage({
           ? intl.formatMessage({ id: "settings.modelProvider.deepseekBalance.title" })
           : hasMinimaxQuota
             ? intl.formatMessage({ id: "settings.modelProvider.minimaxQuota.title" })
-            : hasOpenRouterBalance
+            : hasCommandCodeQuota
+              ? intl.formatMessage({ id: "settings.modelProvider.commandCodeQuota.title" })
+              : hasOpenRouterBalance
               ? intl.formatMessage({ id: "settings.modelProvider.openrouterBalance.title" })
               : hasOpenCodeZenBalance
                 ? intl.formatMessage({ id: "settings.modelProvider.opencodeZenBalance.title" })
@@ -895,6 +907,20 @@ export function ChatContextUsage({
                 hasCodingPlanUsageRemaining ||
                 hasOpenCodeUsage ||
                 hasDeepSeekBalance,
+              )}
+            />
+          ) : null}
+          {commandCodeQuota && hasCommandCodeQuota ? (
+            <ChatCommandCodeQuotaPanel
+              config={commandCodeQuota}
+              intl={intl}
+              locale={locale}
+              separated={Boolean(
+                (renderableTaskUsage && compactTokenUsageLabel) ||
+                hasCodingPlanUsageRemaining ||
+                hasOpenCodeUsage ||
+                hasDeepSeekBalance ||
+                hasMinimaxQuota,
               )}
             />
           ) : null}
