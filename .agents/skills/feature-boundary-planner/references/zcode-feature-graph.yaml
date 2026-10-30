@@ -555,8 +555,11 @@ nodes:
         symbol: projectServiceConnection
       - file: packages/shared/src/web-connection-info.ts
         symbol: WebConnectionInfo
+      - file: packages/rpc/src/channelClient.ts
+        symbol: ChannelClient
     invariants:
       - Connection owners publish transport facts together with the selected RPC services.
+      - Latency is sampled only from completed request/response pairs by the same connection owner, replaced by the latest valid sample, cleared on generation or transport changes, and never measured proactively or shown as an average.
       - The dialog does not infer transport from URLs or initiate connections; it never displays a service address.
   - id: capability.composer-trigger-routing
     kind: capability

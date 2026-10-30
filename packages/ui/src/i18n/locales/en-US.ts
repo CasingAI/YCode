@@ -7299,6 +7299,9 @@ const enUS: Record<string, string> = {
   "webConnectionInfo.direct.connecting": "Trying direct connection",
   "webConnectionInfo.direct.connected": "Connected directly",
   "webConnectionInfo.direct.fallback": "Direct connection unavailable",
+  "webConnectionInfo.networkRoundTrip": "Network round trip (estimated)",
+  "webConnectionInfo.serverProcessing": "Server processing",
+  "webConnectionInfo.latencyUnavailable": "—",
   "webConnectionInfo.sentBytes": "Total sent",
   "webConnectionInfo.receivedBytes": "Total received",
 };

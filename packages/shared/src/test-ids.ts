@@ -836,6 +836,10 @@ export const TID_WEB_CONNECTION_INFO_STATUS = "web-connection-info-status";
 export const TID_WEB_CONNECTION_INFO_TRANSPORT = "web-connection-info-transport";
 /** Web 连接信息：WebRTC 直连状态行 */
 export const TID_WEB_CONNECTION_INFO_DIRECT = "web-connection-info-direct";
+/** Web 连接信息：最近一次网络往返估算行 */
+export const TID_WEB_CONNECTION_INFO_NETWORK_RTT = "web-connection-info-network-rtt";
+/** Web 连接信息：最近一次服务端处理行 */
+export const TID_WEB_CONNECTION_INFO_SERVER_PROCESSING = "web-connection-info-server-processing";
 /** Web 连接信息：累计发送字节行 */
 export const TID_WEB_CONNECTION_INFO_SENT_BYTES = "web-connection-info-sent-bytes";
 /** Web 连接信息：累计接收字节行 */

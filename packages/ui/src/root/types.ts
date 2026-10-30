@@ -1,4 +1,4 @@
-import type { IPlatformService, WebConnectionInfo } from "@zcode/shared";
+import type { IPlatformService, WebConnectionInfo, WebConnectionLatency } from "@zcode/shared";
 import type { IServiceAccessor } from "@zcode/services";
 import type { ReactNode } from "react";
 
@@ -10,6 +10,8 @@ export interface ServiceConnectionState {
   rpcReady: boolean;
   /** Web 连接 owner 发布的只读信息；桌面连接不提供。 */
   connectionInfo?: WebConnectionInfo;
+  /** 最近一次完整 RPC 样本；缺失表示无样本或已过期，不能显示为 0。 */
+  latency?: WebConnectionLatency;
   /** 页面生命周期内累计的 RPC 业务载荷字节数。 */
   traffic?: { sentBytes: number; receivedBytes: number };
 }
@@ -51,4 +53,3 @@ export interface RootProps {
   /** Assistant code-comment 卡片灰度；默认关闭，关闭时保留原始 directive。 */
   assistantCodeCommentCardsEnabled?: boolean;
 }
-

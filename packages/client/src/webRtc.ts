@@ -11,10 +11,12 @@ import {
   WEB_RTC_SIGNAL_VERSION,
   webRtcSignalSchema,
   type WebConnectionInfo,
+  type WebConnectionLatency,
   type WebRtcSignal,
 } from "@zcode/shared";
 import {
   connectViaWebSocketManaged,
+  DEFAULT_LATENCY_STALE_MS,
   type WebSocketConnection,
   type WebSocketConnectionOptions,
   type WebSocketConnectionSnapshot,
@@ -222,6 +224,12 @@ class OpportunityWebRtcConnection implements WebSocketConnection {
   private readonly rtcTraffic = { sentBytes: 0, receivedBytes: 0 };
   private trafficPublishTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly trafficPublishIntervalMs: number;
+  /** 当前活动通道最近一次合法样本；WSS 与 RTC 不混用、不求平均。 */
+  private activeLatency: WebConnectionLatency | undefined;
+  /** 切换时记录旧 fallback 样本，只有对象更换（新样本）才允许采用。 */
+  private fallbackLatencyBaseline: WebConnectionLatency | undefined;
+  private latencyExpiryTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly latencyStaleMs: number;
   private rtc: RtcSession | null = null;
   private nextSessionId = 0;
   private disposed = false;
@@ -246,6 +254,7 @@ class OpportunityWebRtcConnection implements WebSocketConnection {
     this.initializeTimeoutMs = options.initializeTimeoutMs ?? DEFAULT_INITIALIZE_TIMEOUT_MS;
     this.signalingHeartbeatMs = options.signalingHeartbeatMs ?? DEFAULT_SIGNALING_HEARTBEAT_MS;
     this.trafficPublishIntervalMs = options.trafficPublishIntervalMs ?? 250;
+    this.latencyStaleMs = options.latencyStaleMs ?? DEFAULT_LATENCY_STALE_MS;
 
     const fallbackSnapshot = fallback.getSnapshot();
     this.fallbackGeneration = fallbackSnapshot.generation;
@@ -254,6 +263,8 @@ class OpportunityWebRtcConnection implements WebSocketConnection {
       generation: 0,
       connectionInfo: this.connectionInfoFor(fallbackSnapshot, null),
       traffic: fallbackSnapshot.traffic,
+      // fallback 在 selector 启动前即便已有样本，也不属于切换后的活动通道。
+      latency: undefined,
     };
     this.unsubscribeFallback = fallback.subscribe(this.handleFallbackChange);
   }
@@ -286,6 +297,7 @@ class OpportunityWebRtcConnection implements WebSocketConnection {
     if (this.disposed) return;
     this.disposed = true;
     this.clearTrafficPublishTimer();
+    this.clearLatency();
     this.unsubscribeFallback();
     this.teardownCurrentRtc();
     this.fallback.dispose();
@@ -298,6 +310,7 @@ class OpportunityWebRtcConnection implements WebSocketConnection {
       services: null,
       connectionInfo: this.connectionInfoFor(this.fallback.getSnapshot(), null),
       traffic: this.trafficSnapshot(this.fallback.getSnapshot()),
+      latency: undefined,
     };
     for (const listener of this.listeners) listener();
     this.listeners.clear();
@@ -339,6 +352,7 @@ class OpportunityWebRtcConnection implements WebSocketConnection {
     this.snapshot = {
       ...this.snapshot,
       traffic: this.trafficSnapshot(this.fallback.getSnapshot()),
+      latency: this.activeLatency,
     };
     for (const listener of this.listeners) listener();
   }
@@ -382,6 +396,15 @@ class OpportunityWebRtcConnection implements WebSocketConnection {
     if (targetKey !== this.targetKey) {
       this.targetKey = targetKey;
       this.generation += 1;
+      // 每次实际通道/代次切换都立即清空；旧 fallback 的样本只作为基线，
+      // 必须等它在切换后产生新对象（新样本）才允许显示。
+      this.clearLatency();
+      this.fallbackLatencyBaseline = fallback.latency;
+    } else if (fallback.latency !== this.fallbackLatencyBaseline) {
+      this.fallbackLatencyBaseline = fallback.latency;
+      if (transport === "websocket") {
+        this.setActiveLatency(fallback.latency);
+      }
     }
 
     // 本次发布已经带上最新累计值，不必再等合并通知。
@@ -396,8 +419,39 @@ class OpportunityWebRtcConnection implements WebSocketConnection {
       lastClose: fallback.lastClose,
       connectionInfo: this.connectionInfoFor(fallback, transport),
       traffic: this.trafficSnapshot(fallback),
+      latency: transport === null ? undefined : this.activeLatency,
     };
     for (const listener of this.listeners) listener();
+  }
+
+  private setActiveLatency(latency: WebConnectionLatency | undefined): void {
+    this.activeLatency = latency;
+    // 快照同步更新但不通知：读取方在切换点需要立即看到最新样本，通知仍走合并发布。
+    this.snapshot = { ...this.snapshot, latency };
+    this.clearLatencyExpiryTimer();
+    if (latency === undefined) return;
+    const sample = latency;
+    this.latencyExpiryTimer = this.schedule(() => {
+      // 计时器可能已被新样本替换；即使调度器丢弃了 clearTimeout，迟到回调也不能清除新样本。
+      if (this.disposed || this.activeLatency !== sample) return;
+      this.latencyExpiryTimer = null;
+      this.activeLatency = undefined;
+      // 过期立即发布，不走 250ms 合并。
+      this.publishTrafficOnly();
+    }, this.latencyStaleMs);
+  }
+
+  private clearLatencyExpiryTimer(): void {
+    if (this.latencyExpiryTimer === null) return;
+    this.cancel(this.latencyExpiryTimer);
+    this.latencyExpiryTimer = null;
+  }
+
+  private clearLatency(): void {
+    this.activeLatency = undefined;
+    this.clearLatencyExpiryTimer();
+    // 与接收样本一致，切换点读取快照时也必须立即看到清空结果。
+    this.snapshot = { ...this.snapshot, latency: undefined };
   }
 
   /**
@@ -685,7 +739,19 @@ class OpportunityWebRtcConnection implements WebSocketConnection {
         this.scheduleTrafficPublish();
       },
     });
-    const client = new ChannelClient(protocol);
+    const client = new ChannelClient(protocol, {
+      onRequestLatencySample: (sample) => {
+        if (this.disposed) return;
+        // 只有当前 session 在 Initialize 完成、真正成为活动通道后完成的样本才有效；
+        // 协商期样本和旧 session 迟到回调都丢弃。
+        if (this.rtc !== session || !session.ready || session.tearingDown) return;
+        this.setActiveLatency({
+          networkRoundTripMs: sample.networkRoundTripMs,
+          serverProcessingMs: sample.serverProcessingMs,
+        });
+        this.scheduleTrafficPublish();
+      },
+    });
     const initializeListener = client.onDidInitialize(() => {
       session.rpcInitialized = true;
       initializeListener.dispose();

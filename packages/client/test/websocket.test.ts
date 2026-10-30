@@ -123,7 +123,19 @@ function installFakeBrowser(): FakeBrowser {
   };
 }
 
-function attachServer(socket: FakeWebSocket): ChannelServer<string> {
+interface AttachServerOptions {
+  /** 设置后 handler 完成前推进服务端单调时钟，使响应携带合法 metadata。 */
+  serverProcessingMs?: number;
+  /** 让真实总耗时大于服务端处理耗时，避免 fake 传输下被判定为非法样本。 */
+  handlerDelayMs?: number;
+  /** 只对前 N 次调用生成 metadata；之后的响应模拟服务端未提供计时。 */
+  metadataCallLimit?: number;
+}
+
+function attachServer(
+  socket: FakeWebSocket,
+  options: AttachServerOptions = {},
+): ChannelServer<string> {
   const incoming = new Emitter<VSBuffer>();
   const serverSocket: ISocket = {
     onData: incoming.event,
@@ -143,9 +155,28 @@ function attachServer(socket: FakeWebSocket): ChannelServer<string> {
     },
   };
   const protocol = new SocketProtocol(serverSocket);
-  const server = new ChannelServer(protocol, "test");
+  let serverNow = 0;
+  let callCount = 0;
+  const server = new ChannelServer(protocol, "test", undefined, undefined, {
+    now: () => serverNow,
+  });
   server.registerChannel(ISettingService.channelName, {
-    call: () => new Promise(() => {}),
+    call: async () => {
+      if (options.serverProcessingMs === undefined) {
+        return new Promise(() => {});
+      }
+      if (options.handlerDelayMs) {
+        await new Promise((resolve) => setTimeout(resolve, options.handlerDelayMs));
+      }
+      callCount += 1;
+      if (options.metadataCallLimit !== undefined && callCount > options.metadataCallLimit) {
+        // 时钟回退让服务端 elapsed 为负，从而省略 metadata（0 仍是合法样本）。
+        serverNow = -1;
+        return undefined;
+      }
+      serverNow += options.serverProcessingMs * callCount;
+      return undefined;
+    },
   });
   socket.addEventListener("send", (event) => {
     const data = (event as { data: ArrayBuffer }).data;
@@ -154,25 +185,86 @@ function attachServer(socket: FakeWebSocket): ChannelServer<string> {
   return server;
 }
 
-async function openConnection(): Promise<{
+async function openConnection(
+  options: {
+    serverProcessingMs?: number;
+    handlerDelayMs?: number;
+    latencyStaleMs?: number;
+    trafficPublishIntervalMs?: number;
+    metadataCallLimit?: number;
+    timers?: Pick<ReturnType<typeof createManualTimers>, "now" | "setTimeout" | "clearTimeout">;
+  } = {},
+): Promise<{
   connection: WebSocketConnection;
   socket: FakeWebSocket;
 }> {
   const pending = connectViaWebSocketManaged("ws://test", {
     initializeTimeoutMs: 1_000,
     retryDelaysMs: [0, 0, 0],
-    trafficPublishIntervalMs: 0,
+    trafficPublishIntervalMs: options.trafficPublishIntervalMs ?? 0,
+    latencyStaleMs: options.latencyStaleMs,
+    now: options.timers?.now,
+    setTimeout: options.timers?.setTimeout,
+    clearTimeout: options.timers?.clearTimeout,
     webSocketFactory: (url) => new FakeWebSocket(url) as unknown as WebSocket,
   });
   const socket = FakeWebSocket.instances[0];
   assert.ok(socket);
   socket.open();
-  attachServer(socket);
+  attachServer(socket, {
+    serverProcessingMs: options.serverProcessingMs,
+    handlerDelayMs: options.handlerDelayMs,
+    metadataCallLimit: options.metadataCallLimit,
+  });
   return { connection: await pending, socket };
 }
 
 function waitFor(milliseconds = 10): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+/** 可手动推进的计时器，避免真实等待导致过期边界抖动。 */
+function createManualTimers(options: { leakCleared?: boolean } = {}): {
+  now: () => number;
+  setTimeout: (handler: () => void, timeoutMs: number) => ReturnType<typeof setTimeout>;
+  clearTimeout: (handle: ReturnType<typeof setTimeout>) => void;
+  /** 记录所有调度过的时长，用于断言没有额外新增过期计时。 */
+  scheduled: number[];
+  advance: (milliseconds: number) => void;
+} {
+  let current = 0;
+  let nextId = 1;
+  const timers = new Map<number, { at: number; handler: () => void }>();
+  const scheduled: number[] = [];
+  return {
+    now: () => current,
+    scheduled,
+    setTimeout: (handler, timeoutMs) => {
+      scheduled.push(timeoutMs);
+      const id = nextId++;
+      timers.set(id, { at: current + timeoutMs, handler });
+      return id as unknown as ReturnType<typeof setTimeout>;
+    },
+    clearTimeout: (handle) => {
+      // 模拟底层调度器丢弃 clearTimeout：已清理的计时器仍会被执行。
+      if (options.leakCleared) return;
+      timers.delete(Number(handle));
+    },
+    advance: (milliseconds) => {
+      current += milliseconds;
+      let fired = true;
+      while (fired) {
+        fired = false;
+        for (const [id, timer] of [...timers.entries()].sort((a, b) => a[1].at - b[1].at)) {
+          if (timer.at > current) continue;
+          timers.delete(id);
+          timer.handler();
+          fired = true;
+          break;
+        }
+      }
+    },
+  };
 }
 
 test("managed WebSocket 在 Initialize ready 后提供 services，断线会 fail-closed 并重连", async () => {
@@ -645,6 +737,248 @@ test("managed WebSocket 始终发布 disabled 直连状态", async () => {
       directState: "disabled",
     });
   } finally {
+    restore();
+  }
+});
+
+test("业务 RPC 完成样本发布最近一次延迟，不改变 services/generation 且不新增帧", async () => {
+  const restore = installFakeWebSocket();
+  let connection: WebSocketConnection | undefined;
+  try {
+    const opened = await openConnection({
+      serverProcessingMs: 2,
+      handlerDelayMs: 10,
+    });
+    connection = opened.connection;
+    const { socket } = opened;
+    const before = connection.getSnapshot();
+    const services = before.services;
+    assert.ok(services);
+    let sentFrames = 0;
+    socket.addEventListener("send", () => {
+      sentFrames += 1;
+    });
+
+    await services.settingService.get();
+    await waitFor(20);
+
+    const after = connection.getSnapshot();
+    assert.ok(after.latency, "合法响应应发布延迟样本");
+    assert.equal(after.latency?.serverProcessingMs, 2);
+    assert.ok(Number.isFinite(after.latency?.networkRoundTripMs));
+    assert.ok((after.latency?.networkRoundTripMs ?? -1) >= 0);
+    assert.equal(sentFrames, 1, "采样不能增加请求帧");
+    assert.equal(after.services, before.services);
+    assert.equal(after.generation, before.generation);
+  } finally {
+    connection?.dispose();
+    restore();
+  }
+});
+
+test("延迟样本复用流量合并发布，只保留最后一条", async () => {
+  const restore = installFakeWebSocket();
+  let connection: WebSocketConnection | undefined;
+  try {
+    connection = (
+      await openConnection({
+        serverProcessingMs: 2,
+        handlerDelayMs: 20,
+        trafficPublishIntervalMs: 250,
+      })
+    ).connection;
+    const services = connection.getSnapshot().services;
+    assert.ok(services);
+    let notifications = 0;
+    connection.subscribe(() => {
+      notifications += 1;
+    });
+
+    await services.settingService.get();
+    await services.settingService.get();
+    await services.settingService.get();
+    await waitFor(40);
+    assert.equal(notifications, 0, "合并窗口内不能逐个样本发布");
+    // 快照同步可读，但订阅通知仍只在合并窗口结束时触发一次。
+    assert.equal(connection.getSnapshot().latency?.serverProcessingMs, 6);
+
+    await waitFor(300);
+    assert.equal(notifications, 1, "多个样本只触发一次合并发布");
+    assert.equal(connection.getSnapshot().latency?.serverProcessingMs, 6);
+  } finally {
+    connection?.dispose();
+    restore();
+  }
+});
+
+test("延迟样本过期立即清空并发布，不新增帧也不修改流量；新样本重置过期计时", async () => {
+  const restore = installFakeWebSocket();
+  const clock = createManualTimers();
+  let connection: WebSocketConnection | undefined;
+  try {
+    const pending = connectViaWebSocketManaged("ws://test", {
+      initializeTimeoutMs: 1_000,
+      retryDelaysMs: [0],
+      trafficPublishIntervalMs: 0,
+      latencyStaleMs: 120,
+      now: clock.now,
+      setTimeout: clock.setTimeout,
+      clearTimeout: clock.clearTimeout,
+      webSocketFactory: (url) => new FakeWebSocket(url) as unknown as WebSocket,
+    });
+    const socket = FakeWebSocket.instances[0];
+    assert.ok(socket);
+    socket.open();
+    attachServer(socket, { serverProcessingMs: 2, handlerDelayMs: 10 });
+    connection = await pending;
+    const services = connection.getSnapshot().services;
+    assert.ok(services);
+    let sentFrames = 0;
+    socket.addEventListener("send", () => {
+      sentFrames += 1;
+    });
+
+    await services.settingService.get();
+    clock.advance(0);
+    assert.equal(connection.getSnapshot().latency?.serverProcessingMs, 2);
+
+    clock.advance(60);
+    await services.settingService.get();
+    clock.advance(0);
+    assert.equal(connection.getSnapshot().latency?.serverProcessingMs, 4);
+
+    // 第一条约 120ms 的计时器已被新样本替换；此时只过去了 120ms。
+    clock.advance(60);
+    assert.equal(connection.getSnapshot().latency?.serverProcessingMs, 4);
+    const trafficBeforeExpiry = connection.getSnapshot().traffic;
+    const framesBeforeExpiry = sentFrames;
+
+    clock.advance(60);
+    assert.equal(connection.getSnapshot().latency, undefined, "过期后应清空延迟");
+    assert.deepEqual(connection.getSnapshot().traffic, trafficBeforeExpiry);
+    assert.equal(sentFrames, framesBeforeExpiry, "过期清空不能产生网络帧");
+  } finally {
+    connection?.dispose();
+    restore();
+  }
+});
+
+test("延迟样本在合并通知前同步进入快照，非法 metadata 不覆盖也不刷新过期", async () => {
+  const restore = installFakeWebSocket();
+  const clock = createManualTimers();
+  let connection: WebSocketConnection | undefined;
+  try {
+    const opened = await openConnection({
+      serverProcessingMs: 2,
+      handlerDelayMs: 10,
+      latencyStaleMs: 200,
+      trafficPublishIntervalMs: 100,
+      metadataCallLimit: 1,
+      timers: clock,
+    });
+    connection = opened.connection;
+    const services = connection.getSnapshot().services;
+    assert.ok(services);
+    let notifications = 0;
+    connection.subscribe(() => {
+      notifications += 1;
+    });
+
+    await services.settingService.get();
+    await waitFor(20);
+    const first = connection.getSnapshot().latency;
+    assert.ok(first, "合并通知前 getSnapshot 必须已能读到最新样本");
+    assert.equal(first.serverProcessingMs, 2);
+    assert.equal(notifications, 0, "样本变化仍只在合并窗口结束时通知订阅");
+
+    clock.advance(100);
+    assert.equal(notifications, 1, "普通流量发布不能新增样本通知");
+    assert.equal(connection.getSnapshot().latency, first);
+
+    // 服务端省略 metadata 的响应必须被忽略，既不覆盖样本也不重置过期计时。
+    await services.settingService.get();
+    await waitFor(20);
+    assert.equal(connection.getSnapshot().latency, first);
+
+    clock.advance(100);
+    assert.equal(connection.getSnapshot().latency, undefined, "过期仍按首个样本计时");
+  } finally {
+    connection?.dispose();
+    restore();
+  }
+});
+
+test("过期计时器被替换后，迟到回调不能清除新样本", async () => {
+  const restore = installFakeWebSocket();
+  const clock = createManualTimers({ leakCleared: true });
+  let connection: WebSocketConnection | undefined;
+  try {
+    const opened = await openConnection({
+      serverProcessingMs: 2,
+      handlerDelayMs: 10,
+      latencyStaleMs: 50,
+      timers: clock,
+    });
+    connection = opened.connection;
+    const services = connection.getSnapshot().services;
+    assert.ok(services);
+
+    await services.settingService.get();
+    await waitFor(20);
+    assert.equal(connection.getSnapshot().latency?.serverProcessingMs, 2);
+    clock.advance(20);
+
+    await services.settingService.get();
+    await waitFor(20);
+    assert.equal(connection.getSnapshot().latency?.serverProcessingMs, 4);
+
+    // 第一个计时器已被新样本替换，但调度器仍执行它：不能清除当前样本。
+    clock.advance(30);
+    assert.equal(connection.getSnapshot().latency?.serverProcessingMs, 4, "旧计时器不能清除新样本");
+
+    clock.advance(20);
+    assert.equal(connection.getSnapshot().latency, undefined);
+  } finally {
+    connection?.dispose();
+    restore();
+  }
+});
+
+test("重连进入新代立即清空延迟，旧样本不会回填，dispose 后保持无数据", async () => {
+  const restore = installFakeWebSocket();
+  let connection: WebSocketConnection | undefined;
+  try {
+    const first = await openConnection({ serverProcessingMs: 2, handlerDelayMs: 10 });
+    connection = first.connection;
+    const firstServices = first.connection.getSnapshot().services;
+    assert.ok(firstServices);
+    await firstServices.settingService.get();
+    await waitFor(20);
+    assert.equal(first.connection.getSnapshot().latency?.serverProcessingMs, 2);
+
+    first.socket.close();
+    assert.equal(first.connection.getSnapshot().status, "reconnecting");
+    assert.equal(first.connection.getSnapshot().latency, undefined);
+
+    await waitFor();
+    const secondSocket = FakeWebSocket.instances[1];
+    assert.ok(secondSocket);
+    secondSocket.open();
+    attachServer(secondSocket, { serverProcessingMs: 4, handlerDelayMs: 10 });
+    await waitFor();
+    assert.equal(first.connection.getSnapshot().status, "connected");
+    assert.equal(first.connection.getSnapshot().latency, undefined, "新代不能继承旧样本");
+
+    const secondServices = first.connection.getSnapshot().services;
+    assert.ok(secondServices);
+    await secondServices.settingService.get();
+    await waitFor(20);
+    assert.equal(first.connection.getSnapshot().latency?.serverProcessingMs, 4);
+
+    first.connection.dispose();
+    assert.equal(first.connection.getSnapshot().latency, undefined);
+  } finally {
+    connection?.dispose();
     restore();
   }
 });

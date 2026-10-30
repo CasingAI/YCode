@@ -4,9 +4,12 @@ import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
+  TID_WEB_CONNECTION_INFO_NETWORK_RTT,
   TID_WEB_CONNECTION_INFO_RECEIVED_BYTES,
   TID_WEB_CONNECTION_INFO_SENT_BYTES,
+  TID_WEB_CONNECTION_INFO_SERVER_PROCESSING,
   type WebConnectionInfo,
+  type WebConnectionLatency,
 } from "@zcode/shared";
 import { ZCodeIntlProvider } from "../src/i18n/IntlProvider.js";
 import enUS from "../src/i18n/locales/en-US.js";
@@ -18,6 +21,10 @@ import type { ServiceConnectionStatus } from "../src/root/types.js";
 
 const dialogSource = readFileSync(
   new URL("../src/WebConnectionInfoDialog.tsx", import.meta.url),
+  "utf8",
+);
+const contentSource = readFileSync(
+  new URL("../src/WebConnectionInfoContent.tsx", import.meta.url),
   "utf8",
 );
 
@@ -33,18 +40,20 @@ function render({
   status = "connected",
   connectionInfo = info(),
   locale = "zh-CN" as const,
+  latency,
   traffic = { sentBytes: 2_048, receivedBytes: 3 },
 }: {
   status?: ServiceConnectionStatus;
   connectionInfo?: WebConnectionInfo;
   locale?: "zh-CN" | "en-US";
+  latency?: WebConnectionLatency;
   traffic?: { sentBytes: number; receivedBytes: number };
 } = {}): string {
   return renderToStaticMarkup(
     createElement(
       ZCodeIntlProvider,
       { initialLocale: locale },
-      createElement(WebConnectionInfoContent, { status, connectionInfo, traffic }),
+      createElement(WebConnectionInfoContent, { status, connectionInfo, latency, traffic }),
     ),
   );
 }
@@ -146,6 +155,109 @@ test("英文语言包覆盖相同信息且不残留中文", () => {
   assert.ok(markup.includes("WebRTC direct"));
   assert.ok(markup.includes("Connected directly"));
   assert.doesNotMatch(markup, /正在重新连接|业务数据通过|Business data uses/);
+});
+
+test("无 latency 或已断连时两个延迟字段只显示空值，不补造 0 ms", () => {
+  const tidPattern = new RegExp(
+    `data-testid="(${TID_WEB_CONNECTION_INFO_NETWORK_RTT}|${TID_WEB_CONNECTION_INFO_SERVER_PROCESSING})"[^>]*>—`,
+    "g",
+  );
+
+  const missing = render();
+  assert.match(missing, /网络往返（估算）/);
+  assert.match(missing, /服务端处理/);
+  assert.equal(missing.match(tidPattern)?.length, 2);
+  assert.doesNotMatch(missing, />\s*0 ms</, "缺失值不能伪装成 0 ms");
+
+  const closed = render({
+    status: "closed",
+    latency: { networkRoundTripMs: 12, serverProcessingMs: 4 },
+  });
+  assert.equal(closed.match(tidPattern)?.length, 2, "断连后不得继续显示旧样本");
+  assert.doesNotMatch(closed, />\s*12 ms</);
+});
+
+test("合法样本按整数毫秒展示，真实 0 与同一样本的两个值都保留", () => {
+  const zero = render({ latency: { networkRoundTripMs: 0, serverProcessingMs: 0 } });
+  assert.match(zero, new RegExp(`data-testid="${TID_WEB_CONNECTION_INFO_NETWORK_RTT}"[^>]*>0 ms<`));
+  assert.match(
+    zero,
+    new RegExp(`data-testid="${TID_WEB_CONNECTION_INFO_SERVER_PROCESSING}"[^>]*>0 ms<`),
+  );
+
+  const sample = render({ latency: { networkRoundTripMs: 18, serverProcessingMs: 5 } });
+  assert.match(
+    sample,
+    new RegExp(`data-testid="${TID_WEB_CONNECTION_INFO_NETWORK_RTT}"[^>]*>18 ms<`),
+  );
+  assert.match(
+    sample,
+    new RegExp(`data-testid="${TID_WEB_CONNECTION_INFO_SERVER_PROCESSING}"[^>]*>5 ms<`),
+  );
+});
+
+test("小数样本也按整数毫秒显示，不输出长小数", () => {
+  const markup = render({ latency: { networkRoundTripMs: 18.6, serverProcessingMs: 5.4 } });
+  assert.match(
+    markup,
+    new RegExp(`data-testid="${TID_WEB_CONNECTION_INFO_NETWORK_RTT}"[^>]*>19 ms<`),
+  );
+  assert.match(
+    markup,
+    new RegExp(`data-testid="${TID_WEB_CONNECTION_INFO_SERVER_PROCESSING}"[^>]*>5 ms<`),
+  );
+  assert.doesNotMatch(markup, /18\.6 ms|5\.4 ms/, "展示值必须取整，不能暴露原始小数");
+});
+
+test("内容只保留七项事实字段", () => {
+  const markup = render();
+  assert.equal(markup.match(/<dt\b/g)?.length, 7);
+  assert.equal(markup.match(/<dd\b/g)?.length, 7);
+});
+
+test("英文语言包覆盖两个延迟字段与空值", () => {
+  const sample = render({
+    locale: "en-US",
+    latency: { networkRoundTripMs: 23, serverProcessingMs: 6 },
+  });
+  assert.match(sample, /Network round trip \(estimated\)/);
+  assert.match(sample, /Server processing/);
+  assert.match(sample, />23 ms</);
+  assert.match(sample, />6 ms</);
+
+  const missing = render({ locale: "en-US" });
+  assert.match(missing, /Network round trip \(estimated\)/);
+  assert.match(missing, /Server processing/);
+  assert.match(missing, />—</);
+});
+
+test("重复渲染按最新输入换代展示，不保留上一样本", () => {
+  const first = render({ latency: { networkRoundTripMs: 10, serverProcessingMs: 2 } });
+  assert.match(first, />10 ms</);
+  assert.match(first, />2 ms</);
+
+  const second = render({ latency: { networkRoundTripMs: 30, serverProcessingMs: 4 } });
+  assert.match(second, />30 ms</);
+  assert.match(second, />4 ms</);
+  assert.doesNotMatch(second, />\s*(10|2) ms</, "换代后不能混入旧样本数值");
+});
+
+test("延迟文案使用最近样本措辞，不使用实时或平均说法", () => {
+  const markup = render({ latency: { networkRoundTripMs: 18, serverProcessingMs: 5 } });
+  assert.doesNotMatch(markup, /实时|平均|测速|当前速度/);
+});
+
+test("Dialog 只从既有连接 context 读取 latency，不新增请求或定时器", () => {
+  assert.match(dialogSource, /latency=\{connection\.latency\}/);
+  assert.doesNotMatch(
+    dialogSource,
+    /fetch\(|setInterval|setTimeout|new WebSocket|RTCPeerConnection/,
+  );
+  assert.doesNotMatch(
+    contentSource,
+    /fetch\(|setInterval|setTimeout|new WebSocket|RTCPeerConnection|useState|useEffect/,
+    "内容组件只格式化传入的最近样本，不自行探测或缓存",
+  );
 });
 
 test("标题下不再渲染可见描述，Dialog 关闭 aria-describedby", () => {

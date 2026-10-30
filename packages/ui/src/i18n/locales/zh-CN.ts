@@ -6954,6 +6954,9 @@ const zhCN: Record<string, string> = {
   "webConnectionInfo.direct.connecting": "正在尝试直连",
   "webConnectionInfo.direct.connected": "已直连",
   "webConnectionInfo.direct.fallback": "直连未建立或已中断",
+  "webConnectionInfo.networkRoundTrip": "网络往返（估算）",
+  "webConnectionInfo.serverProcessing": "服务端处理",
+  "webConnectionInfo.latencyUnavailable": "—",
   "webConnectionInfo.sentBytes": "累计发送量",
   "webConnectionInfo.receivedBytes": "累计接收量",
 };

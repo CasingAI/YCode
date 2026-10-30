@@ -4,12 +4,13 @@ import {
   Emitter,
   SocketProtocol,
   VSBuffer,
+  type ChannelRequestLatencySample,
   type IDisposable,
   type IMessagePassingProtocol,
   type ISocket,
 } from "@zcode/rpc";
 import type { IServiceAccessor } from "@zcode/services";
-import type { WebConnectionInfo } from "@zcode/shared";
+import type { WebConnectionInfo, WebConnectionLatency } from "@zcode/shared";
 import { createForegroundWatch, type ForegroundWatch } from "./foreground-watch.js";
 import { RemoteServiceAccess, type RemoteServiceAccessOptions } from "./remoteServiceAccess.js";
 
@@ -43,6 +44,8 @@ export interface WebSocketConnectionSnapshot {
   readonly connectionInfo?: WebConnectionInfo;
   /** RPC Regular payload 的页面生命周期累计字节数。 */
   readonly traffic?: { readonly sentBytes: number; readonly receivedBytes: number };
+  /** 当前活动通道最近一次合法 RPC 样本；切换、断线或过期后缺失。 */
+  readonly latency?: WebConnectionLatency;
 }
 
 export interface WebSocketConnection {
@@ -78,6 +81,12 @@ export interface WebSocketConnectionOptions {
    * 连接状态变化仍立即发布，这里只合并纯流量更新。
    */
   trafficPublishIntervalMs?: number;
+  /**
+   * 最近一次合法延迟样本的本地过期时长，默认 60 秒。
+   *
+   * 过期只清空本地快照，不发包、不测速；WebRTC 选择器继承同一值。
+   */
+  latencyStaleMs?: number;
 }
 
 interface ActiveConnection {
@@ -107,6 +116,7 @@ const STABLE_CONNECTION_RESET_MS = 30_000;
  */
 const HEARTBEAT_INTERVAL_MS = 20_000;
 const DEFAULT_TRAFFIC_PUBLISH_INTERVAL_MS = 250;
+export const DEFAULT_LATENCY_STALE_MS = 60_000;
 
 interface BrowserEventTarget {
   addEventListener(type: string, listener: () => void, options?: { once?: boolean }): void;
@@ -213,6 +223,10 @@ class ManagedWebSocketConnection implements WebSocketConnection {
   private readonly traffic = { sentBytes: 0, receivedBytes: 0 };
   private trafficPublishTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly trafficPublishIntervalMs: number;
+  /** 只保留最近一次合法样本的原始值；不平均、不按耗时筛选。 */
+  private latency: WebConnectionLatency | undefined;
+  private latencyExpiryTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly latencyStaleMs: number;
   private initialSettled = false;
   private initialResolve: (() => void) | null = null;
   private initialReject: ((error: Error) => void) | null = null;
@@ -230,6 +244,7 @@ class ManagedWebSocketConnection implements WebSocketConnection {
     this.cancel = options.clearTimeout ?? ((handle) => clearTimeout(handle));
     this.trafficPublishIntervalMs =
       options.trafficPublishIntervalMs ?? DEFAULT_TRAFFIC_PUBLISH_INTERVAL_MS;
+    this.latencyStaleMs = options.latencyStaleMs ?? DEFAULT_LATENCY_STALE_MS;
     this.factory = options.webSocketFactory ?? ((url) => new WebSocket(url));
     // 初始快照也发布连接信息；WSS 没有 WebRTC 直连能力。
     this.snapshot = {
@@ -294,6 +309,7 @@ class ManagedWebSocketConnection implements WebSocketConnection {
     this.disposed = true;
     this.clearRetryTimer();
     this.clearTrafficPublishTimer();
+    this.clearLatency();
     this.detachBrowserListeners();
     this.foregroundWatch.detach();
     const active = this.active;
@@ -380,6 +396,8 @@ class ManagedWebSocketConnection implements WebSocketConnection {
   private attemptConnection(initial: boolean): void {
     if (this.disposed || this.active) return;
     this.clearRetryTimer();
+    // 新代际从零开始：旧通道的样本不能跨代继承或回填。
+    this.clearLatency();
     const generation = this.snapshot.generation + 1;
     this.publish({
       ...this.snapshot,
@@ -411,7 +429,16 @@ class ManagedWebSocketConnection implements WebSocketConnection {
         this.scheduleTrafficPublish();
       },
     });
-    const client = new ChannelClient(protocol);
+    const client = new ChannelClient(protocol, {
+      onRequestLatencySample: (sample) => {
+        const active = this.active;
+        // 回调随 client 销毁失效；再用当前代际 guard 防止迟到样本写回。
+        if (this.disposed || !active || active.generation !== generation || active.settled) {
+          return;
+        }
+        this.acceptLatencySample(sample);
+      },
+    });
     const services = new RemoteServiceAccess(client, {
       cliProxyQuota: this.options.cliProxyQuota === true,
     });
@@ -524,6 +551,8 @@ class ManagedWebSocketConnection implements WebSocketConnection {
     close: WebSocketConnectionCloseEvent,
   ): void {
     if (this.disposed) return;
+    // 断线即失效：旧通道可能仍有在途响应，但其样本不能进入下一次发布。
+    this.clearLatency();
     if (active) {
       if (active.settled) return;
       active.settled = true;
@@ -630,19 +659,63 @@ class ManagedWebSocketConnection implements WebSocketConnection {
     this.trafficPublishTimer = null;
   }
 
-  /** 合并高频流量通知；连接状态发布包含实时累计值，会顺带取消这次合并。 */
+  /** 合并高频流量与延迟通知；连接状态发布包含实时值，会顺带取消这次合并。 */
   private scheduleTrafficPublish(): void {
     if (this.disposed || this.trafficPublishTimer !== null) return;
     this.trafficPublishTimer = this.schedule(() => {
       this.trafficPublishTimer = null;
       if (this.disposed) return;
-      this.snapshot = { ...this.snapshot, traffic: this.trafficSnapshot() };
+      this.snapshot = {
+        ...this.snapshot,
+        traffic: this.trafficSnapshot(),
+        latency: this.latency,
+      };
       for (const listener of this.listeners) listener();
     }, this.trafficPublishIntervalMs);
   }
 
   private trafficSnapshot(): { sentBytes: number; receivedBytes: number } {
     return { sentBytes: this.traffic.sentBytes, receivedBytes: this.traffic.receivedBytes };
+  }
+
+  private acceptLatencySample(sample: ChannelRequestLatencySample): void {
+    // 只保存原始样本；合法性由 RPC 层保证，不在 UI 侧重复校验或 clamp。
+    this.latency = {
+      networkRoundTripMs: sample.networkRoundTripMs,
+      serverProcessingMs: sample.serverProcessingMs,
+    };
+    // 快照同步更新但不通知：RTC 选择器在切换点会直接读取 fallback 快照建立基线，
+    // 若等 250ms 合并发布，切换前完成的样本会被误当成切换后新样本。
+    this.snapshot = { ...this.snapshot, latency: this.latency };
+    this.scheduleLatencyExpiry();
+    this.scheduleTrafficPublish();
+  }
+
+  private scheduleLatencyExpiry(): void {
+    this.clearLatencyExpiryTimer();
+    const sample = this.latency;
+    this.latencyExpiryTimer = this.schedule(() => {
+      // 计时器可能已被新样本替换；即使调度器丢弃了 clearTimeout，迟到回调也不能清除新样本。
+      if (this.disposed || this.latency !== sample) return;
+      this.latencyExpiryTimer = null;
+      this.latency = undefined;
+      // 过期是用户可见状态变化，立即发布，不等流量合并。
+      this.publish({ ...this.snapshot });
+    }, this.latencyStaleMs);
+  }
+
+  private clearLatencyExpiryTimer(): void {
+    if (this.latencyExpiryTimer === null) return;
+    this.cancel(this.latencyExpiryTimer);
+    this.latencyExpiryTimer = null;
+  }
+
+  /** 新代际、断线、切换或 dispose 统一走这里，取消本地过期计时器。 */
+  private clearLatency(): void {
+    this.latency = undefined;
+    this.clearLatencyExpiryTimer();
+    // 同步清空快照，保证切换点读取 getSnapshot() 时不会看到已失效样本。
+    this.snapshot = { ...this.snapshot, latency: undefined };
   }
 
   private connectionInfoFor(status: WebSocketConnectionStatus): WebConnectionInfo {
@@ -661,6 +734,7 @@ class ManagedWebSocketConnection implements WebSocketConnection {
       ...snapshot,
       connectionInfo: this.connectionInfoFor(snapshot.status),
       traffic,
+      latency: this.latency,
     };
     for (const listener of this.listeners) listener();
   }

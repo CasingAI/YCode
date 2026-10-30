@@ -33,6 +33,7 @@ export function WebConnectionInfoDialog({
         <WebConnectionInfoContent
           status={connection.status}
           connectionInfo={connection.connectionInfo}
+          latency={connection.latency}
           traffic={connection.traffic}
         />
       </DialogContent>

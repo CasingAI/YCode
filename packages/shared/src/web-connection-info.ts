@@ -8,3 +8,14 @@ export interface WebConnectionInfo {
   readonly transport: "websocket" | "webrtc" | null;
   readonly directState: "disabled" | "waiting" | "connecting" | "connected" | "fallback";
 }
+
+/**
+ * 最近一次完整业务 RPC 样本的只读估算值。
+ *
+ * owner 只保留最近一次合法样本；缺失表示没有可用样本或样本已过期，
+ * 不能当作 0 ms。
+ */
+export interface WebConnectionLatency {
+  readonly networkRoundTripMs: number;
+  readonly serverProcessingMs: number;
+}

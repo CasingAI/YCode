@@ -67,7 +67,17 @@ class FakeWebSocket {
 
   send(data: string | ArrayBufferLike | ArrayBufferView): void {
     if (this.failSend) throw new Error("send failed");
-    if (typeof data === "string") this.sent.push(data);
+    if (typeof data === "string") {
+      this.sent.push(data);
+      return;
+    }
+    // 仅信令使用文本帧；fallback 的 RPC 载荷是二进制，需要交给测试侧服务端。
+    this.dispatch("send", {
+      data:
+        data instanceof ArrayBuffer
+          ? new Uint8Array(data)
+          : new Uint8Array(data.buffer, data.byteOffset, data.byteLength),
+    });
   }
 
   close(): void {
@@ -251,9 +261,18 @@ function installFakeWebSocket(): () => void {
   };
 }
 
+interface FallbackServerOptions {
+  /** 设置后 handler 完成前推进服务端单调时钟，使响应携带合法 metadata。 */
+  serverProcessingMs?: number;
+  handlerDelayMs?: number;
+  /** 只对前 N 次调用生成 metadata；之后的响应模拟服务端未提供计时。 */
+  metadataCallLimit?: number;
+}
+
 function attachFallbackServer(
   socket: FakeWebSocket,
   onCall?: (command: string) => void,
+  options: FallbackServerOptions = {},
 ): ChannelServer<string> {
   const incoming = new Emitter<VSBuffer>();
   const serverSocket: ISocket = {
@@ -274,16 +293,33 @@ function attachFallbackServer(
     },
   };
   const protocol = new SocketProtocol(serverSocket);
-  const server = new ChannelServer(protocol, "test");
+  let serverNow = 0;
+  let callCount = 0;
+  const server = new ChannelServer(protocol, "test", undefined, undefined, {
+    now: () => serverNow,
+  });
   server.registerChannel(ISettingService.channelName, {
     call: async (_ctx, command) => {
       onCall?.(command);
-      return new Promise(() => {});
+      if (options.serverProcessingMs === undefined) {
+        return new Promise(() => {});
+      }
+      if (options.handlerDelayMs) {
+        await new Promise((resolve) => setTimeout(resolve, options.handlerDelayMs));
+      }
+      callCount += 1;
+      if (options.metadataCallLimit !== undefined && callCount > options.metadataCallLimit) {
+        // 时钟回退让服务端 elapsed 为负，从而省略 metadata（0 仍是合法样本）。
+        serverNow = -1;
+        return "fallback-ok";
+      }
+      serverNow += options.serverProcessingMs * callCount;
+      return "fallback-ok";
     },
   });
   socket.addEventListener("send", (event) => {
-    const data = (event as { data: string }).data;
-    incoming.fire(VSBuffer.wrap(new TextEncoder().encode(data)));
+    const data = (event as { data: string | Uint8Array }).data;
+    incoming.fire(VSBuffer.wrap(typeof data === "string" ? new TextEncoder().encode(data) : data));
   });
   return server;
 }
@@ -293,6 +329,9 @@ interface RtcServerOptions {
   deferInit?: boolean;
   /** 覆盖默认 call 行为，便于构造在途请求。 */
   handleCall?: (command: string, arg: unknown) => Promise<unknown> | unknown;
+  /** 设置后 handler 完成前推进服务端单调时钟，使响应携带合法 metadata。 */
+  serverProcessingMs?: number;
+  handlerDelayMs?: number;
 }
 
 function attachRtcServer(
@@ -319,10 +358,23 @@ function attachRtcServer(
     },
   };
   const protocol = new SocketProtocol(serverSocket);
-  const server = new ChannelServer(protocol, "rtc-test", 1000, options.deferInit === true);
+  let serverNow = 0;
+  let callCount = 0;
+  const server = new ChannelServer(protocol, "rtc-test", 1000, options.deferInit === true, {
+    now: () => serverNow,
+  });
   server.registerChannel(ISettingService.channelName, {
-    call: async (_ctx, command, arg) =>
-      options.handleCall ? options.handleCall(command, arg) : result,
+    call: async (_ctx, command, arg) => {
+      const value = options.handleCall ? await options.handleCall(command, arg) : result;
+      if (options.handlerDelayMs) {
+        await new Promise((resolve) => setTimeout(resolve, options.handlerDelayMs));
+      }
+      if (options.serverProcessingMs !== undefined) {
+        callCount += 1;
+        serverNow += options.serverProcessingMs * callCount;
+      }
+      return value;
+    },
   });
   channel.addEventListener("send", (event) => {
     const data = (event as { data: Uint8Array }).data;
@@ -363,6 +415,50 @@ function flush(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
 }
 
+/** 可手动推进的计时器，避免合并窗口与过期边界依赖真实等待。 */
+function createManualTimers(options: { leakCleared?: boolean } = {}): {
+  now: () => number;
+  setTimeout: (handler: () => void, timeoutMs: number) => ReturnType<typeof setTimeout>;
+  clearTimeout: (handle: ReturnType<typeof setTimeout>) => void;
+  /** 记录所有调度过的时长，用于断言没有额外新增过期计时。 */
+  scheduled: number[];
+  advance: (milliseconds: number) => void;
+} {
+  let current = 0;
+  let nextId = 1;
+  const timers = new Map<number, { at: number; handler: () => void }>();
+  const scheduled: number[] = [];
+  return {
+    now: () => current,
+    scheduled,
+    setTimeout: (handler, timeoutMs) => {
+      scheduled.push(timeoutMs);
+      const id = nextId++;
+      timers.set(id, { at: current + timeoutMs, handler });
+      return id as unknown as ReturnType<typeof setTimeout>;
+    },
+    clearTimeout: (handle) => {
+      // 模拟底层调度器丢弃 clearTimeout：已清理的计时器仍会被执行。
+      if (options.leakCleared) return;
+      timers.delete(Number(handle));
+    },
+    advance: (milliseconds) => {
+      current += milliseconds;
+      let fired = true;
+      while (fired) {
+        fired = false;
+        for (const [id, timer] of [...timers.entries()].sort((a, b) => a[1].at - b[1].at)) {
+          if (timer.at > current) continue;
+          timers.delete(id);
+          timer.handler();
+          fired = true;
+          break;
+        }
+      }
+    },
+  };
+}
+
 function isSignalSocket(socket: FakeWebSocket): boolean {
   return new URL(socket.url).pathname === "/ws/rtc";
 }
@@ -395,7 +491,10 @@ interface Harness {
 
 async function bootWebRtc(
   options: Partial<WebRtcConnectionOptions> = {},
-  hooks: { fallbackOnCall?: (command: string) => void } = {},
+  hooks: {
+    fallbackOnCall?: (command: string) => void;
+    fallbackServer?: FallbackServerOptions;
+  } = {},
 ): Promise<Harness> {
   const pending = connectViaWebRtcManaged("ws://test/ws", {
     initializeTimeoutMs: 500,
@@ -412,7 +511,7 @@ async function bootWebRtc(
   const fallback = FakeWebSocket.instances.find(isFallbackSocket);
   assert.ok(fallback, "fallback WebSocket 应该已创建");
   fallback.open();
-  attachFallbackServer(fallback, hooks.fallbackOnCall);
+  attachFallbackServer(fallback, hooks.fallbackOnCall, hooks.fallbackServer);
   const connection = await pending;
   const signal = FakeWebSocket.instances.find(isSignalSocket);
   assert.ok(signal, "fallback ready 后应创建信令 WebSocket");
@@ -426,6 +525,7 @@ async function completeRtcUpgrade(
   peer: FakePeerConnection,
   channel: FakeDataChannel,
   result = "rtc-ok",
+  serverOptions: RtcServerOptions = {},
 ): Promise<void> {
   assert.equal(countSent(signal, "offer"), 0, "信令 open 后、ICE 完成前不能发送 offer");
   peer.completeIce();
@@ -436,7 +536,7 @@ async function completeRtcUpgrade(
   assert.equal(offer.version, 1);
   assert.equal(offer.sdp, "v=0\r\nfake-offer");
 
-  attachRtcServer(channel, result);
+  attachRtcServer(channel, result, serverOptions);
   // Host 通过同一受保护端点的二进制帧发送 answer；这里按真实浏览器语义交付。
   signal.receiveBinary(
     new TextEncoder().encode(
@@ -459,8 +559,10 @@ interface ReadyRtcHarness extends Harness {
 
 async function bootReadyRtc(
   options: Partial<WebRtcConnectionOptions> = {},
+  rtcServerOptions: RtcServerOptions = {},
+  fallbackServer?: FallbackServerOptions,
 ): Promise<ReadyRtcHarness> {
-  const harness = await bootWebRtc(options);
+  const harness = await bootWebRtc(options, fallbackServer ? { fallbackServer } : {});
   const { connection, signal } = harness;
   signal.open();
   await flush();
@@ -468,7 +570,7 @@ async function bootReadyRtc(
   assert.ok(peer);
   const channel = peer.channels[0];
   assert.ok(channel);
-  await completeRtcUpgrade(signal, peer, channel);
+  await completeRtcUpgrade(signal, peer, channel, "rtc-ok", rtcServerOptions);
   assert.notEqual(connection.getSnapshot().services, harness.fallbackServices);
   return {
     ...harness,
@@ -1610,6 +1712,234 @@ test("心跳发送抛错立即回退 WSS，并停止后续 ping", async () => {
     const sentAfterFailure = signal.sent.length;
     await waitFor(30);
     assert.equal(signal.sent.length, sentAfterFailure, "失败后不能继续发送 ping");
+  } finally {
+    connection?.dispose();
+    restore();
+  }
+});
+
+test("延迟样本随 RTC/WSS 切换立即清空，不借用切换前旧通道样本", async () => {
+  const restore = installFakeWebSocket();
+  let connection: Awaited<ReturnType<typeof connectViaWebRtcManaged>> | undefined;
+  try {
+    const harness = await bootWebRtc(
+      { trafficPublishIntervalMs: 0 },
+      { fallbackServer: { serverProcessingMs: 2, handlerDelayMs: 10 } },
+    );
+    connection = harness.connection;
+    const { fallbackServices, signal } = harness;
+
+    // WSS 阶段的样本属于切换前旧通道，升级后不能显示。
+    await fallbackServices.settingService.get();
+    await waitFor(20);
+    assert.equal(connection.getSnapshot().latency?.serverProcessingMs, 2);
+
+    signal.open();
+    await flush();
+    const peer = FakePeerConnection.instances[0];
+    assert.ok(peer);
+    const channel = peer.channels[0];
+    assert.ok(channel);
+    await completeRtcUpgrade(signal, peer, channel, "rtc-ok", {
+      serverProcessingMs: 7,
+      handlerDelayMs: 10,
+    });
+
+    assert.equal(connection.getSnapshot().connectionInfo?.transport, "webrtc");
+    assert.equal(connection.getSnapshot().latency, undefined, "RTC 建立后不能借用 WSS 样本");
+
+    const rtcServices = connection.getSnapshot().services;
+    assert.ok(rtcServices);
+    await rtcServices.settingService.get();
+    await waitFor(20);
+    assert.equal(connection.getSnapshot().latency?.serverProcessingMs, 7);
+
+    peer.close();
+    await flush();
+    assert.equal(connection.getSnapshot().services, fallbackServices);
+    assert.equal(connection.getSnapshot().latency, undefined, "回退后不能借用切换前 WSS 样本");
+
+    await fallbackServices.settingService.get();
+    await waitFor(20);
+    assert.equal(connection.getSnapshot().latency?.serverProcessingMs, 4, "切换后新样本可用");
+
+    connection.dispose();
+    assert.equal(connection.getSnapshot().latency, undefined);
+  } finally {
+    connection?.dispose();
+    restore();
+  }
+});
+
+test("RTC 延迟样本过期立即清空，且不增加信令或业务帧", async () => {
+  const restore = installFakeWebSocket();
+  let connection: Awaited<ReturnType<typeof connectViaWebRtcManaged>> | undefined;
+  try {
+    const harness = await bootReadyRtc(
+      { latencyStaleMs: 60, trafficPublishIntervalMs: 0 },
+      { serverProcessingMs: 3, handlerDelayMs: 10 },
+    );
+    connection = harness.connection;
+    const { signal } = harness;
+    const services = connection.getSnapshot().services;
+    assert.ok(services);
+    await services.settingService.get();
+    await waitFor(20);
+    assert.equal(connection.getSnapshot().latency?.serverProcessingMs, 3);
+
+    const sentBeforeExpiry = signal.sent.length;
+    const trafficBeforeExpiry = connection.getSnapshot().traffic;
+    await waitFor(120);
+    assert.equal(connection.getSnapshot().latency, undefined);
+    assert.equal(signal.sent.length, sentBeforeExpiry);
+    assert.deepEqual(connection.getSnapshot().traffic, trafficBeforeExpiry);
+  } finally {
+    connection?.dispose();
+    restore();
+  }
+});
+
+test("RTC 关闭前在途请求的迟到响应不能回填延迟", async () => {
+  const restore = installFakeWebSocket();
+  let connection: Awaited<ReturnType<typeof connectViaWebRtcManaged>> | undefined;
+  try {
+    let resolveCall: ((value: unknown) => void) | null = null;
+    const inFlight = new Promise<unknown>((resolve) => {
+      resolveCall = resolve;
+    });
+    const harness = await bootReadyRtc(
+      { trafficPublishIntervalMs: 0 },
+      { handleCall: () => inFlight },
+    );
+    connection = harness.connection;
+    const { fallbackServices, peer } = harness;
+
+    const services = connection.getSnapshot().services;
+    assert.ok(services);
+    // 连接销毁会按既有语义 reject；立即挂 catch，避免测试进程把拒绝当成未处理异常。
+    const call = services.settingService.get().catch(() => undefined);
+    await waitFor(5);
+    peer.close();
+    await flush();
+    assert.equal(connection.getSnapshot().services, fallbackServices);
+    assert.equal(connection.getSnapshot().latency, undefined);
+
+    resolveCall?.("late");
+    await call;
+    await waitFor(20);
+    assert.equal(connection.getSnapshot().latency, undefined, "旧 RTC 迟到样本不能回填");
+  } finally {
+    connection?.dispose();
+    restore();
+  }
+});
+
+test("RTC 失败切回时，切换前已完成但尚未通知的 fallback 样本不能显示", async () => {
+  const restore = installFakeWebSocket();
+  const clock = createManualTimers();
+  try {
+    const { connection, fallbackServices, peer } = await bootReadyRtc(
+      {
+        trafficPublishIntervalMs: 150,
+        latencyStaleMs: 10_000,
+        now: clock.now,
+        setTimeout: clock.setTimeout,
+        clearTimeout: clock.clearTimeout,
+      },
+      { serverProcessingMs: 3, handlerDelayMs: 5 },
+      { serverProcessingMs: 2, handlerDelayMs: 5 },
+    );
+
+    // B 在 RTC 活跃期间完成：fallback owner 已持有样本，但合并通知尚未发布。
+    await fallbackServices.settingService.get();
+    await waitFor(20);
+    assert.equal(connection.getSnapshot().latency, undefined);
+
+    peer.close();
+    await flush();
+    assert.equal(connection.getSnapshot().services, fallbackServices);
+
+    // 推进 fallback 的合并发布：B 是切换前完成的样本，不能被当作新样本。
+    clock.advance(150);
+    assert.equal(connection.getSnapshot().latency, undefined, "切换前完成的 B 不能借用");
+
+    await fallbackServices.settingService.get();
+    await waitFor(20);
+    clock.advance(150);
+    assert.equal(connection.getSnapshot().latency?.serverProcessingMs, 4, "切换后完成的 C 才显示");
+    connection.dispose();
+  } finally {
+    restore();
+  }
+});
+
+test("同一 fallback 样本对象重复发布不重新计算过期", async () => {
+  const restore = installFakeWebSocket();
+  const clock = createManualTimers();
+  try {
+    const { connection, fallbackServices } = await bootWebRtc(
+      {
+        trafficPublishIntervalMs: 150,
+        latencyStaleMs: 400,
+        now: clock.now,
+        setTimeout: clock.setTimeout,
+        clearTimeout: clock.clearTimeout,
+      },
+      { fallbackServer: { serverProcessingMs: 2, handlerDelayMs: 5, metadataCallLimit: 1 } },
+    );
+
+    await fallbackServices.settingService.get();
+    await waitFor(20);
+    clock.advance(150);
+    assert.equal(connection.getSnapshot().latency?.serverProcessingMs, 2);
+    const expiryTimers = (): number => clock.scheduled.filter((delay) => delay === 400).length;
+    const before = expiryTimers();
+
+    // 第二次响应没有 metadata：fallback latency 对象不变，合并发布不能重置选择器 TTL。
+    await fallbackServices.settingService.get();
+    await waitFor(20);
+    clock.advance(150);
+    assert.equal(connection.getSnapshot().latency?.serverProcessingMs, 2);
+    assert.equal(expiryTimers(), before, "同一对象重复发布不能新增过期计时");
+    connection.dispose();
+  } finally {
+    restore();
+  }
+});
+
+test("RTC 旧过期回调迟到不能清除新样本", async () => {
+  const restore = installFakeWebSocket();
+  const clock = createManualTimers({ leakCleared: true });
+  let connection: Awaited<ReturnType<typeof connectViaWebRtcManaged>> | undefined;
+  try {
+    const { connection: opened } = await bootReadyRtc(
+      {
+        latencyStaleMs: 50,
+        now: clock.now,
+        setTimeout: clock.setTimeout,
+        clearTimeout: clock.clearTimeout,
+      },
+      { serverProcessingMs: 3, handlerDelayMs: 5 },
+    );
+    connection = opened;
+    const services = connection.getSnapshot().services;
+    assert.ok(services);
+
+    await services.settingService.get();
+    await waitFor(20);
+    assert.equal(connection.getSnapshot().latency?.serverProcessingMs, 3);
+    clock.advance(20);
+
+    await services.settingService.get();
+    await waitFor(20);
+    assert.equal(connection.getSnapshot().latency?.serverProcessingMs, 6);
+
+    // 第一个计时器已被替换，但调度器仍执行它：不能清除当前样本。
+    clock.advance(30);
+    assert.equal(connection.getSnapshot().latency?.serverProcessingMs, 6, "旧计时器不能清除新样本");
+
+    clock.advance(20);
+    assert.equal(connection.getSnapshot().latency, undefined);
   } finally {
     connection?.dispose();
     restore();

@@ -30,9 +30,19 @@ export const enum ResponseType {
   EventFire = 204,
 }
 
+/** 响应 header 第 3 项的可选 metadata；旧对端忽略未知尾项。 */
+export interface IRawResponseMetadata {
+  readonly serverProcessingMs: number;
+}
+
 export type IRawResponse =
   | { type: ResponseType.Initialize }
-  | { type: ResponseType.PromiseSuccess; id: number; data: any }
+  | {
+      type: ResponseType.PromiseSuccess;
+      id: number;
+      data: any;
+      metadata?: IRawResponseMetadata;
+    }
   | {
       type: ResponseType.PromiseError;
       id: number;
@@ -50,8 +60,14 @@ export type IRawResponse =
         taskId?: unknown;
         traceId?: unknown;
       };
+      metadata?: IRawResponseMetadata;
     }
-  | { type: ResponseType.PromiseErrorObj; id: number; data: any }
+  | {
+      type: ResponseType.PromiseErrorObj;
+      id: number;
+      data: any;
+      metadata?: IRawResponseMetadata;
+    }
   | { type: ResponseType.EventFire; id: number; data: any };
 
 export type IHandler = (response: IRawResponse) => void;
@@ -63,4 +79,22 @@ export interface IChannelServer<TContext = string> {
 
 export interface IChannelClient {
   getChannel<T extends IChannel>(channelName: string): T;
+}
+
+export interface ChannelRequestLatencySample {
+  readonly totalMs: number;
+  readonly serverProcessingMs: number;
+  readonly networkRoundTripMs: number;
+}
+
+export interface ChannelClientOptions {
+  /** 单调时钟，默认 performance.now()。 */
+  readonly now?: () => number;
+  /** 每个通过校验的完整请求/响应样本回调一次；回调异常不得影响 RPC。 */
+  readonly onRequestLatencySample?: (sample: ChannelRequestLatencySample) => void;
+}
+
+export interface ChannelServerOptions {
+  /** 单调时钟，默认 performance.now()。 */
+  readonly now?: () => number;
 }

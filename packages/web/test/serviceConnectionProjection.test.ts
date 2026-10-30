@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import type { WebConnectionInfo } from "@zcode/shared";
+import type { WebConnectionInfo, WebConnectionLatency } from "@zcode/shared";
 import { projectServiceConnection } from "../src/connection/serviceConnectionProjection.js";
 
 /** 连接快照只读投影：不新增服务、store 或第二份连接事实。 */
@@ -15,13 +15,15 @@ const connectionInfo: WebConnectionInfo = {
 };
 /** 独立字段，不能塞进 connectionInfo；投影必须保持快照中的同一引用。 */
 const traffic = { sentBytes: 123, receivedBytes: 456 };
+const latency: WebConnectionLatency = { networkRoundTripMs: 18, serverProcessingMs: 5 };
 
-test("原样传递连接状态、connectionInfo 与独立 traffic", () => {
+test("原样传递连接状态、connectionInfo、traffic 与 latency", () => {
   const projection = projectServiceConnection({
     status: "connected",
     generation: 7,
     rpcReady: true,
     connectionInfo,
+    latency,
     traffic,
   });
 
@@ -30,11 +32,27 @@ test("原样传递连接状态、connectionInfo 与独立 traffic", () => {
     generation: 7,
     rpcReady: true,
     connectionInfo,
+    latency,
     traffic,
   });
   assert.equal(projection.connectionInfo, connectionInfo, "必须复用同一只读快照，不复制事实");
+  assert.equal(projection.latency, latency, "latency 必须复用快照引用，不复制数值");
   assert.equal(projection.traffic, traffic, "traffic 必须复用快照引用，不复制数值");
   assert.deepEqual(projection.traffic, { sentBytes: 123, receivedBytes: 456 });
+  assert.deepEqual(projection.latency, { networkRoundTripMs: 18, serverProcessingMs: 5 });
+});
+
+test("没有 latency 时保持缺失，不补造 0 ms 或第二份状态", () => {
+  const projection = projectServiceConnection({
+    status: "connected",
+    generation: 9,
+    rpcReady: true,
+    connectionInfo,
+    traffic,
+  });
+
+  assert.equal("latency" in projection, false, "缺失样本不能写成占位事实");
+  assert.equal(projection.traffic, traffic);
 });
 
 test("没有 connectionInfo 时仍原样保留 traffic，且不补造直连信息", () => {
@@ -50,6 +68,16 @@ test("没有 connectionInfo 时仍原样保留 traffic，且不补造直连信�
   assert.equal(projection.rpcReady, false);
   assert.equal(projection.traffic, traffic);
   assert.equal("connectionInfo" in projection, false, "缺失时不能写入占位事实");
+  assert.equal("latency" in projection, false, "断连时不能保留旧样本");
+});
+
+test("WebApp 把连接快照 latency 接入同一投影并纳入 memo 依赖", () => {
+  const projection = webAppSource.match(
+    /projectServiceConnection\(\{([\s\S]*?)\}\),\s*\[([\s\S]*?)\],/,
+  );
+  assert.ok(projection, "WebApp 必须使用唯一投影函数并声明 memo 依赖");
+  assert.match(projection[1], /latency:\s*snapshot\.latency/, "投影输入必须携带快照 latency");
+  assert.match(projection[2], /snapshot\.latency/, "memo 依赖必须包含 snapshot.latency");
 });
 
 test("WebApp 把连接快照 traffic 接入同一投影并纳入 memo 依赖", () => {

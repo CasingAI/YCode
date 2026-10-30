@@ -3,12 +3,16 @@ import { type IDisposable, CancellationTokenSource, toDisposable } from "./found
 import { BufferReader, BufferWriter, deserialize, serialize } from "./serialization.js";
 import type { IMessagePassingProtocol } from "./protocol.js";
 import {
+  type ChannelServerOptions,
   type IChannelServer,
   type IRawResponse,
+  type IRawResponseMetadata,
   type IServerChannel,
   RequestType,
   ResponseType,
 } from "./channels.shared.js";
+
+const defaultNow = (): number => performance.now();
 
 export class ChannelServer<TContext = string> implements IChannelServer<TContext>, IDisposable {
   private channels = new Map<string, IServerChannel<TContext>>();
@@ -18,13 +22,16 @@ export class ChannelServer<TContext = string> implements IChannelServer<TContext
     { request: any; timer: ReturnType<typeof setTimeout> }[]
   >();
   private protocolListener: IDisposable | null;
+  private readonly now: () => number;
 
   constructor(
     private protocol: IMessagePassingProtocol,
     private ctx: TContext,
     private timeoutDelay = 1000,
     private deferInit = false,
+    options: ChannelServerOptions = {},
   ) {
+    this.now = options.now ?? defaultNow;
     this.protocolListener = this.protocol.onMessage((msg) => this.onRawMessage(msg));
     if (!this.deferInit) {
       this.sendResponse({ type: ResponseType.Initialize });
@@ -47,11 +54,27 @@ export class ChannelServer<TContext = string> implements IChannelServer<TContext
         return;
       case ResponseType.PromiseSuccess:
       case ResponseType.PromiseError:
-      case ResponseType.EventFire:
       case ResponseType.PromiseErrorObj:
+        // metadata 只作为既有 header 的可选第 3 项；不新增帧或消息类型。
+        this.send(
+          response.metadata !== undefined
+            ? [response.type, response.id, response.metadata]
+            : [response.type, response.id],
+          response.data,
+        );
+        return;
+      case ResponseType.EventFire:
         this.send([response.type, response.id], response.data);
         return;
     }
+  }
+
+  /**
+   * 在响应准备写出前结束计时；非法差值不生成 metadata，避免把缺失伪装成 0。
+   */
+  private measureProcessing(startedAt: number): IRawResponseMetadata | undefined {
+    const elapsed = this.now() - startedAt;
+    return Number.isFinite(elapsed) && elapsed >= 0 ? { serverProcessingMs: elapsed } : undefined;
   }
 
   private send(header: any, body: any = undefined): void {
@@ -110,6 +133,8 @@ export class ChannelServer<TContext = string> implements IChannelServer<TContext
       return;
     }
 
+    // 路由成功、handler 执行前开始计时；等待 channel 注册与未知 channel 超时不计入。
+    const startedAt = this.now();
     const cts = new CancellationTokenSource();
     let promise: Promise<any>;
 
@@ -129,6 +154,7 @@ export class ChannelServer<TContext = string> implements IChannelServer<TContext
             id: request.id,
             data,
             type: ResponseType.PromiseSuccess,
+            metadata: this.measureProcessing(startedAt),
           });
         },
         (error) => {
@@ -173,6 +199,7 @@ export class ChannelServer<TContext = string> implements IChannelServer<TContext
               id: request.id,
               data: rpcErrorPayload,
               type: ResponseType.PromiseError,
+              metadata: this.measureProcessing(startedAt),
             });
             return;
           }
@@ -181,6 +208,7 @@ export class ChannelServer<TContext = string> implements IChannelServer<TContext
             id: request.id,
             data: error,
             type: ResponseType.PromiseErrorObj,
+            metadata: this.measureProcessing(startedAt),
           });
         },
       )
