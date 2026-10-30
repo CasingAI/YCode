@@ -15,8 +15,3 @@ export function isPlanApprovalToolName(value: unknown): boolean {
   const normalized = value.trim().toLowerCase();
   return normalized === "createplan" || normalized === "exitplanmode";
 }
-
-/** 历史 `EnterPlanMode` 行过滤的共享判据：行过滤器改走这里，不写字面量。 */
-export function isEnterPlanModeToolName(value: unknown): boolean {
-  return typeof value === "string" && value.trim().toLowerCase() === "enterplanmode";
-}

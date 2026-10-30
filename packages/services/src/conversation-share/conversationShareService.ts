@@ -27,7 +27,6 @@ import type { ConversationRow } from "@zcode/shared/zcode-protocol-v4";
 import {
   PROTOCOL_V4_LIMITS,
   ZCODE_ATTACHMENT_FAULT_CODES,
-  isEnterPlanModeToolName,
   readZCodeAttachmentFaultCode,
 } from "@zcode/shared/zcode-protocol-v4";
 import { Emitter } from "@zcode/rpc";
@@ -323,7 +322,9 @@ function hasUnsupportedArtifactReference(value: unknown): boolean {
  * 只降级「已定稿但无法承载」的内容；运行中的轮次/行/工具/子代理仍由
  * collectShareStructureIssues 阻断 —— 那些内容尚未定稿，跳过等于分享半成品。
  */
-function sanitizeUnsupportedShareStructures(rows: readonly ConversationRow[]): ConversationRow[] {
+export function sanitizeUnsupportedShareStructures(
+  rows: readonly ConversationRow[],
+): ConversationRow[] {
   const sanitized: ConversationRow[] = [];
   for (const row of rows) {
     if (row.kind === "toolCall" && row.display?.kind === "node_repl_images") {
@@ -360,11 +361,6 @@ function sanitizeUnsupportedShareStructures(rows: readonly ConversationRow[]): C
       //   （conversationTurnWorkSegments.ts 的 assistantHistoryDefaultOpen）——这是它必须走的主因。
       // - goalVerify / goalSet / retryNotice / replyWithdrawn 在分享页本来就不渲染，纯占位吃 max_rows 配额。
       // - modelChange 只能显示一句泛化的「模型已切换」，信息量低且暴露内部切模型行为。
-      continue;
-    }
-    if (row.kind === "toolCall" && isEnterPlanModeToolName(row.toolName)) {
-      // EnterPlanMode 只是内部模式切换边界，渲染层（isVisibleAssistantWorkRow）本来就过滤掉，
-      // 但它仍会进 payload 白吃 max_rows / max_payload_bytes 配额，永远不显示。
       continue;
     }
     sanitized.push(row);

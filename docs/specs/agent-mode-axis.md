@@ -71,6 +71,7 @@ harness 层的 Ask（管助手工具箱）此前对 Bash 整 Tool 拒绝，与�
 - **任务轴可选 Agent / Team。** off-peak / automation 的任务表单只提供 `yolo`（Agent）与 `team`（Team）两档，不提供 Ask / Plan；新建省略默认 Agent，更新省略保留原值，列表与协议输出保留 Team。所有创建入口（UI、`CronCreate` / `CronUpdate` / `OffPeakCreate`）同规。详见 [`automation-execution-mode.md`](./automation-execution-mode.md)。
 - **自动化执行期间禁止模型自行切档。** runtime 在自动化输入真正开始执行时加无人值守锁（归因 `automationId` / `offPeakTaskId` 与既有 queryId 前缀），锁定期间任何 `source: "tool"` 的档位写入硬拒绝；人工 UI 命令可改档但不解锁，只有之后被接受的人工新消息才解锁。锁的持久化、解锁边界与 fail-closed 规则见 [`automation-execution-mode.md`](./automation-execution-mode.md)。
 - **默认档与计划工具。** `CreatePlan` 仅 Plan 档可成功调用（Plan 专属），不切档、不询问、不还原任何档位；Ask / Agent 档调用返回可读错误，指引模型先调 `EnterPlanMode` 再重试，不走权限拒绝。`EnterPlanMode` 全档工具面可见，仅 Ask / Agent / Team 档成功切进 Plan，Plan 档内调用返回可读错误（已在 Plan）。`prePlanMode` 的退出还原逻辑已删除（历史 `EnterPlanMode` / `ExitPlanMode` 行仍按旧规则水合，见「兼容面」）。
+- **`EnterPlanMode` 的调用行是普通工具调用记录。** 进入计划模式同样是一次正常工具调用：成功、运行中、失败/拒绝都要在聊天时间线（含公开分享载荷）留下调用记录，按通用工具卡展示工具名与状态。它不是计划审批、不是计划卡，也不引入第二份计划状态；`CreatePlan` 继续独占计划卡，计划卡不会替代 `EnterPlanMode` 的调用记录。过滤只允许发生在 UI 派生层，协议投影与 runtime 行为不变，desktop continuous 与 web remote replayable 共用同一份行；历史记录没有迁移或回填。
 
 ## 状态所有者与事件顺序
 
@@ -132,6 +133,7 @@ flowchart TD
 - **`permissionFullAccessReceiptSchema`** 的 `mode` 是 `z.literal("yolo")`（全访问授权记录的永远是授权后的完全访问状态），`previousMode` 保持宽值域以容纳旧的 `build` / `edit` / `auto` / `bare`。
 - **命令行值域是破坏性收紧**：旧客户端发 `mode: "build"` 不再被接受；服务端 `setMode` 路径上用 `normalizeLegacyExecutionMode` 归一，避免把只读档悄悄放大成完全访问。
 - **退出计划模式的提示由标签翻档承载**：`plan_mode_exit` 提醒不再发送，`needsPlanModeExitReminder` 簿记删除；`plan_mode_exit` source 枚举保留，旧会话轨迹仍可读取。
+- **`EnterPlanMode` 历史行与新建行同规**：可见性由当前 UI 派生层决定，历史行不做迁移、不回填、不改写协议投影。
 - **任务轴 `ZCodeTaskMode` / `zcodeSessionModeSchema` 保留旧值**（承载已落盘数据），只新增 `readonly`，读取路径归一。
 
 ## 验收场景
@@ -145,6 +147,7 @@ flowchart TD
    5a. Team 档写操作同样直接放行（`ruleId` 同 `mode.yolo`，无独立分支），每个 model step 注入 `<mode>Team</mode>`；Collaboration modes 的 Team 行为一句授权式文案 + `team` 技能指针。Team 档细则与验收见 [`team-mode.md`](./team-mode.md)。
    5b. 回合中途无模型切档工具；composer 四选与 CLI `/mode` 显示名为 `Plan` / `Ask` / `Agent` / `Team`，界面不再出现「只读模式 / 完全访问」作为档位显示名。
 6. Ask / Agent 档模型调用 `EnterPlanMode` → 成功切进 Plan，档位变为 Plan；Plan 档内再调 `EnterPlanMode` → 可读错误（已在 Plan），无权限拒绝态。Plan 档模型调用 `CreatePlan` → 当回合以 `plan_created` 停止，档位不变；Ask / Agent 档直接调 `CreatePlan` → 不落盘，返回可读错误指引先调 `EnterPlanMode` 再重试，无 failed 徽标、无 `Permission denied`。产品 UI 路径上计划批准弹窗已移除（见 `plan-card-execute.md`），批准与执行统一由计划卡的「执行计划」按钮完成：随同一次 `sendText` 切到完全访问（`yolo`），不还原任何历史档位。
+   6a. `EnterPlanMode` 在成功、运行中、失败/拒绝三种状态下都作为普通工具行出现在聊天时间线；紧接着的 `CreatePlan` 仍单独渲染计划卡。公开分享页保留这些普通调用行，按其他工具行相同规则计入 `max_rows` / `max_payload_bytes`，无需额外豁免；历史会话无需迁移即同规显示。隔离浏览器回归 `packages/ui/test/conversationProcessInteractionBrowser.test.ts` 真实挂载时间线，断言三种终态都带各自的工具摘要行与状态文案（已执行 / 执行失败 / 已拒绝）、都没有计划卡动作入口，且 `CreatePlan` 仍是唯一计划卡。
 7. Goal `active` 时进入计划模式或只读模式 → 抛错，且不落盘、不改内存。
    7a. Ask 或 Plan 下发送 `/goal`：Composer 不切档，出现「Goal 无法在 Ask / Plan 模式下使用」的既有提示，发送被拦下、草稿保留。发送按钮保持可点（点击与 Enter 同路，由发送时门禁拦截并弹提示；按钮置灰方案因禁用态无悬停/触摸反馈已回退），`/` 面板不提供 goal/target 候选（见 `goal-command-scope-and-decoration.md`「受限档门禁」）。协议直连 CLI 发 `mode: "plan" | "readonly"` 的 `sendGoalCommand` 同样被拒（`guard.planGoalMutuallyExclusive` / `guard.readOnlyGoalMutuallyExclusive`），且不落盘目标、不改档位。
    7b. 会话停在 Ask、Composer 草稿档切到 Agent 后立即发送 `/goal`（载荷 `mode: "yolo"`）→ 先把 Agent 写进会话档（`setExecutionState`），再写目标并起续跑；顺序为落档 → `setTarget` → 续跑，不被会话旧档拒掉。
