@@ -84,6 +84,15 @@ function todoRow(rowId: number): ToolCallRow {
   return toolRow(rowId, "TodoWrite");
 }
 
+/** 沙盒与 Bash 并列，同样落进可折叠过程段。 */
+function bashRow(rowId: number): ToolCallRow {
+  return { ...toolRow(rowId, "Bash"), input: { command: "ls -la" } };
+}
+
+function sandboxRow(rowId: number, toolName = "JSVM"): ToolCallRow {
+  return toolRow(rowId, toolName);
+}
+
 /**
  * CreatePlan 行，带得动完整计划卡。脱流判定认的是「switch-mode 身份 + title/overview/markdown
  * 任一在场」+「行属本气泡最后一次响应」，所以这里用现役工具名而不是历史 ExitPlanMode，
@@ -179,6 +188,16 @@ test("连续可折叠的过程行按汇总计，不按原始行数计", () => {
   ]);
 
   assert.ok(splitRuns > oneRun, "同样 5 行，被隔断成两段应比一段更高，说明是按连续段而非行数计的");
+});
+
+test("Bash → JSVM → Bash 按一段过程估高，沙盒不把终端切成两段", () => {
+  const singleRow = estimateOf([userRow(1), bashRow(2)]);
+  const bashSandboxBash = estimateOf([userRow(1), bashRow(2), sandboxRow(3), bashRow(4)]);
+  assert.equal(bashSandboxBash, singleRow, "沙盒与终端同属可折叠段，三条应只按一行过程行估高");
+
+  // 历史 Sandbox 别名与现役 JSVM 同规则：都不能被当成不可折叠行逐条累加。
+  const aliased = estimateOf([userRow(1), sandboxRow(2, "Sandbox")]);
+  assert.equal(aliased, singleRow);
 });
 
 test("超长正文按行数封顶，不按字符数无限累加", () => {

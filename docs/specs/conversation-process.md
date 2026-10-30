@@ -4,13 +4,15 @@
 
 ## 目标
 
-一个回合里连续出现的「查阅 / 终端 / 编辑 / 思考」行数量可以很大，逐条铺开会让正文被过程噪音淹没。本改动把**同一回合内连续的过程行**二次折叠成一行可展开的过程行，收起态显示一行计数：
+一个回合里连续出现的「查阅 / 终端 / 沙盒 / 编辑 / 思考」行数量可以很大，逐条铺开会让正文被过程噪音淹没。本改动把**同一回合内连续的过程行**二次折叠成一行可展开的过程行，收起态显示一行计数：
 
 ```
-2 次内容搜索 · 1 次文件查找 · 3 次文件读取 · 4 次网页搜索 · 6 次网页读取 · 终端 3 次 · 编辑 1 次 · 思考 4 次
+2 次内容搜索 · 1 次文件查找 · 3 次文件读取 · 4 次网页搜索 · 6 次网页读取 · 终端 3 次 · 沙盒 2 次 · 编辑 1 次 · 思考 4 次
 ```
 
-展开后回到逐条铺开的那些行（查阅行 / 终端行 / 编辑行 / 思考行），再展开其中某一行仍走各自原有的展开逻辑看明细 —— 两级展开。
+展开后回到逐条铺开的那些行（查阅行 / 终端行 / 沙盒行 / 编辑行 / 思考行），再展开其中某一行仍走各自原有的展开逻辑看明细 —— 两级展开。
+
+Bash 与 JSVM/Sandbox 是并列的执行工具：两者都参与本 spec 的连续段折叠，但沙盒保持自己的名字、图标、卡片与执行语义，只把「参与过程折叠」这一层对齐终端；摘要按真实调用次数显示「沙盒 N 次」，不并入终端计数。
 
 工作段状态行另有「工具 N 次 · 思考 Y」的总览指标；它按正式 `ToolCallRow` 和 reasoning duration 统计，并递归合并子代理用量，不改变本 spec 的四类过程折叠口径。详见 [`conversation-work-segment-usage.md`](./conversation-work-segment-usage.md)。
 
@@ -28,15 +30,18 @@
 - **折叠单位是「连续过程行」**。判定与既有 `buildAssistantWorkRenderItems()` 的工作项输出同源，不重新解析工具输入：
   - 每条查阅工具行独立参与分类与计数，不先合成中间分组。
   - `row` 且 `row.kind === "reasoning"` → 思考
-  - `row` 且 `row.kind === "toolCall"` → 复用 `isExploreToolCall` / `isExecuteToolCall` / 文件写入家族（`file-write`）判定，分别归入查阅 / 终端 / 编辑
+  - `row` 且 `row.kind === "toolCall"` → 复用 `isExploreToolCall` / `isExecuteToolCall` / 文件写入家族（`file-write`）判定，分别归入查阅 / 终端 / 编辑；沙盒工具（现役 `JSVM` 与历史别名 `Sandbox`）归入独立的「沙盒」桶
     - 「查阅」细分桶复用 `classifyToolCallActivity`：文件与网页独立计数；工具身份无法可信细分的旧记录不参加查阅计数，且不能根据 title 或 URL 反推。
     - **shell 家族一律归「终端」**，不按命令内容重判。
+    - **沙盒身份复用 shared `normalizeZCodeToolName`**：`JSVM` 与 `Sandbox` 归一为同一工具身份，两者都归「沙盒」，不归 shell、不归查阅、不归编辑。沙盒没有跨端 tool family，不得为了分桶把它塞进 `shell` 或新公共 family；别名是纯身份归一，历史记录无需迁移。
+    - `Bash → JSVM/Sandbox → Bash` 属于同一段连续过程行，必须折进同一个过程行；沙盒不能把两侧终端切成两段。展开后仍是 Bash 行 → 沙盒卡 → Bash 行的原始行序。
     - 命令还没到的 shell 行（`isShellToolCallAwaitingCommand`）两个桶都不进，保留为独立行。
-  - 其余（不属于上述四类的工具行、`assistantText`、`artifact`、`subagent`、`hookInvocation`、`timelineMarker`、`agentToolCall`、`cuaGroup`）**不参与折叠**，照旧铺开：正文、待办、子智能体、CUA、产物、hook 明细都不能被折进去。Todo 工具卡片始终参与消息流渲染，不再提供“显示待办”开关；待办作为可见独立行隔开前后过程段，详见 [`todo-display-always-on.md`](./todo-display-always-on.md)。
-- **计数口径**：每条过程行计 1（总计为 `rows.length`），不按分组聚合。查阅计数按 `file-search`、`file-find`、`directory-list`、`file-read`、`web-search`、`web-read` 分列，不再合并成「搜索 / 列表 / 文件」；未知类别不猜测、不并入上述计数。计数为 0 的桶不出现在文案里。
-- **查阅行不分组**：每条查阅工具单独成行，按原始行序铺开；文件查阅与网页查阅只是同一批行的活动标注，不合并成可折叠容器，也不跨越或重排原始行序。外层过程行仍可包含查阅、终端、编辑和思考行，并使用细分计数。
+  - 其余（不属于上述查阅 / 终端 / 沙盒 / 编辑 / 思考的工具行、`assistantText`、`artifact`、`subagent`、`hookInvocation`、`timelineMarker`、`agentToolCall`、`cuaGroup`）**不参与折叠**，照旧铺开：正文、待办、子智能体、CUA、产物、hook 明细都不能被折进去。Todo 工具卡片始终参与消息流渲染，不再提供“显示待办”开关；待办作为可见独立行隔开前后过程段，详见 [`todo-display-always-on.md`](./todo-display-always-on.md)。
+- **计数口径**：每条过程行计 1（总计为 `rows.length`），不按分组聚合。查阅计数按 `file-search`、`file-find`、`directory-list`、`file-read`、`web-search`、`web-read` 分列，终端、沙盒、编辑、思考各自单列；未知类别不猜测、不并入上述计数。计数为 0 的桶不出现在文案里。沙盒计数只统计 `JSVM` / `Sandbox` 身份的行，不把 shell 命令或 node_repl `js` 行算进去。
+- **查阅行不分组**：每条查阅工具单独成行，按原始行序铺开；文件查阅与网页查阅只是同一批行的活动标注，不合并成可折叠容器，也不跨越或重排原始行序。外层过程行仍可包含查阅、终端、沙盒、编辑和思考行，并使用细分计数。
 - **动作状态**：仅实际执行状态（v4 `running` 或旧记录 `in_progress`）展示进行态动作，中文统一“中”尾缀；输入生成、等待审批和排队不得显示执行中的动作。完成时用中性动作。失败、拒绝、取消仍显示原状态提示，不能映射为成功动作；此规则同样适用于只读分享摘要。
 - **终端桶只有一条形态**：终端行永远逐条铺开，展开过程行后每条各自可展开看命令与输出，这一桶只存在**一层**折叠。曾经有过的终端分组（「终端 · N 个命令」容器）已整体删除，连同它的设置项 `toolGroupingTerminalEnabled` / 「分组终端命令」一起：在会话里那一层只可能出现在过程行内部，等于给同一批命令叠第二道折叠 —— 用户展开过程行本来就是要看命令行，却还要再点开一次容器。因此它不再是「终端这一桶可以配置的形态」，也不要再按聚合容器的样式把它加回来；两个渲染入口（会话消息流 `ConversationTurnGroup`、分享只读页 `ConversationShareReadonlyTimeline`）都走同一条逐条渲染路径。
+- **沙盒桶只有一条形态，且不伪装成终端**：沙盒行（`JSVM` / 历史 `Sandbox`）永远逐条铺开，使用沙盒卡自己的名字、图标、说明、源码与输出展开逻辑；过程行只提供外层两段式折叠，不能把沙盒行改画成终端行，也不能在沙盒卡上再叠一层「运行中 / 已完成」状态。沙盒卡已有自己的 `ToolLayout`，过程行只负责它外层的那一行计数与 `forceOpen` 默认态。运行中展开、段结束收起、用户手动收起持久化的规则与其它过程行完全一致；沙盒不参与终端计数，摘要显示「沙盒 N 次」。
 - **编辑桶只有一条形态**：文件写入家族（`Write` / `Edit` 等）归入「编辑」桶，行永远单行铺开（文件名 + diff 计数），展开过程行后每条各自可展开看 diff，这一桶只存在**一层**折叠。曾经有过的编辑分组（「更改 · 文件名」容器）已整体删除，连同它的设置项 `toolGroupingChangesEnabled` / 「分组文件更改」一起：在会话里那一层只可能出现在过程行内部，等于给同一批编辑叠第二道折叠 —— 用户展开过程行本来就是要看改了哪里，却还要再点开一次容器；同一文件被连续编辑时它收起摘要只报得出「+1」这类自指计数，也失去存在的意义。因此它不再是「编辑这一桶可以配置的形态」，也不要再按聚合容器的样式把它加回来；两个渲染入口（会话消息流 `ConversationTurnGroup`、分享只读页 `ConversationShareReadonlyTimeline`）都走同一条逐条渲染路径。
 - **查阅桶只有一条形态**：查阅工具（Grep / Glob / 列目录 / Read / WebSearch / WebFetch）永远逐条铺开，展开过程行后每条各自可展开看明细，这一桶只存在**一层**折叠；过程行自身的计数折叠保留，连续查阅行仍会折成一行计数，六种活动桶（`file-search` / `file-find` / `directory-list` / `file-read` / `web-search` / `web-read`）细分计数不变。曾经有过的 Explore 聚合分组（「文件查阅 · N 次文件读取」「网页查阅 · N 次网页读取」容器）已整体删除，连同它的设置项 `toolGroupingExploreEnabled` / 「分组探索工具」一起：在会话里那一层只可能出现在过程行内部，等于给同一批查阅操作叠第二道折叠 —— 用户展开过程行本来就是要看具体读取了什么，却还要再点开一次容器。因此它不再是「查阅这一桶可以配置的形态」，也不要再按聚合容器的样式把它加回来；两个渲染入口（会话消息流 `ConversationTurnGroup`、分享只读页 `ConversationShareReadonlyTimeline`）都走同一条逐条渲染路径。`ExploreToolCallBlock` 只作为历史会话中 `kind === "explore"` 旧记录的兜底渲染路径保留，不再有新的产生来源。
 - **长度不设门槛**：连续过程行即使只有 1 条也折叠成一行过程行（与 ZCode 侧既有行为一致），保证「过程永远只有一行」的可预期性。
@@ -58,7 +63,8 @@
 - UI 投影链路（状态与事件顺序不变）：`runtime ToolCallRow (identity/input/status/order owner) → classifyToolCallActivity → shared UI renderer / process fold → Desktop, Web and mobile replay views`。分类是同步纯计算，不新增异步协议、状态或持久化。
 - 投影：`packages/ui/src/v4/conversationAssistantWorkItems.ts`
   - 新增导出类型 `ConversationAssistantWorkChildItem`（原 `ConversationAssistantWorkRenderItem` 的全部成员）、`ConversationProcessRenderItem`，`ConversationAssistantWorkRenderItem` 变为二者的联合。
-  - `ProcessBucket` 与 `ProcessCounts` 使用六种 `ToolCallActivity` 活动桶加 `terminal | changes | reasoning`；不另设聚合 `explore` 计数，避免细分活动重复计数。
+  - `ProcessBucket` 与 `ProcessCounts` 使用六种 `ToolCallActivity` 活动桶加 `terminal | sandbox | changes | reasoning`；不另设聚合 `explore` 计数，避免细分活动重复计数。展示顺序固定为「文件查阅细分 → 网页查阅细分 → 终端 → 沙盒 → 编辑 → 思考」。
+  - 行的分桶判定收敛为单一纯函数 `classifyProcessRow(row)`（`conversationProcessFold.ts` 导出）：`resolveProcessBucket(item)` 与虚拟滚动的高度估算（`timelineTurnHeightEstimate.ts`）都必须调用它，禁止各自复刻一组谓词。否则「高度按两段算、渲染按一段算」会让滚动比例与实际渲染漂移。
   - 新增常量 `ENABLE_TURN_PROCESS = true`；`ConversationAssistantWorkRenderOptions` 新增可选 `enableProcess`（缺省取常量）。
   - `buildAssistantWorkRenderItems()` 在既有分组之后做一次折叠，输出 `kind: "process"` 项：`{ key, rowId, nodes, counts, running }`。
 - 渲染：`packages/ui/src/v4/ConversationTurnGroup.tsx`
@@ -114,16 +120,22 @@ ConversationTurnGroup ─────┴─▶ ConversationWorkRenderItem(kind �
 20. Read 的目录类型只出现在 rawOutput/content/output 中，路径只在 input.file_path 中：普通行、过程计数和只读分享均识别为目录，并保留目标路径。
 21. 运行中的 WebSearch / WebFetch 单行显示「搜索网页中 {query}」或「读取网页中 {url}」；完成后动作恢复中性；目标未到达时动作不重复。
 22. 输入生成、等待审批、失败、拒绝和取消不显示执行中的动作；失败、拒绝和取消在普通工具行及只读分享摘要中保留可见状态。
+23. `Bash → JSVM → Bash` 连续调用只折出一行「终端 2 次 · 沙盒 1 次」，不因沙盒行断成两个过程段；展开后按原序是 Bash 行、沙盒卡、Bash 行。
+24. 连续两次沙盒调用（现役 `JSVM`、历史 `Sandbox` 各一）折成一行「沙盒 2 次」，不是「终端」也不是「查阅」；展开后两张卡各自保留沙盒名称、图标、说明和源码/输出展开态，不出现重复的运行状态外壳。
+25. 沙盒位于运行段尾部时过程行默认展开；段结束或用户手动收起后收起，行为与终端所在的过程行一致。
+26. 历史会话里未迁移的 `Sandbox` 行按别名直接归入沙盒桶，不要求改写持久化记录，也不改变工具卡的渲染分流。
 
 ## 验证
 
 - 使用 `mise.toml` 指定的 Node 运行 `pnpm typecheck`、`pnpm lint` 和 `pnpm architecture:check --changed`。`max-lines` 是 error 级，投影文件因此拆出了折叠模块。
 - 单测：`TSX_TSCONFIG_PATH=packages/ui/tsconfig.json node --import tsx --test packages/ui/test/processFold.test.ts packages/ui/test/processOpenKey.test.ts`
-  - `processFold.test.ts` 覆盖：六种查阅活动计数、查阅行逐条计数、shell（含只读命令）归终端、写入工具计编辑、相邻终端行各自成行、正文切段、单条折叠、末段 running、关闭过程折叠后逐行铺开、文案跳过零值桶，以及中英文 renderer 与单行查阅动作标签。
+  - `processFold.test.ts` 覆盖：六种查阅活动计数、查阅行逐条计数、shell（含只读命令）归终端、写入工具计编辑、相邻终端行各自成行、正文切段、单条折叠、末段 running、关闭过程折叠后逐行铺开、文案跳过零值桶，以及中英文 renderer 与单行查阅动作标签；并覆盖 `JSVM` / `Sandbox` 别名归沙盒、`Bash → JSVM → Bash` 保持单段、沙盒不计入终端/查阅/编辑。
+  - `timelineTurnHeightEstimate.test.ts` 覆盖：`Bash → JSVM → Bash` 与单段折叠同高、沙盒行不会被当成不可折叠行重复计高，证明高度分段与 `classifyProcessRow` 同源。
   - `toolActivityRender.test.ts` 覆盖：目录元数据合并、跨平台目标路径、文件与网页交替时保持原始行序并逐条渲染、WebFetch URL 优先、无目标不重复动作、输入生成和审批不显示执行态，以及只读分享的目标与失败/拒绝/停止状态。两份 renderer 测试需带 `--import ./packages/ui/test/helpers/registerAssetStubs.mjs`。
   - `processOpenKey.test.ts` 覆盖：相同作用域生成相同键、不同 `sessionId` / `logEpoch` 隔离相同 `processKey`、缺失作用域时稳定回退。
   - 间距判定另有一份 `packages/ui/test/conversationWorkItemGap.test.ts`：计划卡 / 自动化卡两侧都 16px、待办行与过程行 / 正文行同贴紧 2px、无 markdown 的 `ExitPlanMode` 不算卡、首项不加间距、四个常量取值；flow 层用真实 `buildConversationFlowItems` 输出覆盖「过程块 → 正文段 → 过程块 = 2px、用户气泡 / 表头之后仍是默认 20px、卡片边缘 16px」与 `mt-*` → `pt-*` 的映射。
-  - 仓库既有测试依赖 tsx（`.js` 说明符指向 `.ts` 源文件）；UI 包带 `@/*` 路径别名，使用 `TSX_TSCONFIG_PATH` 或 `tsx --tsconfig packages/ui/tsconfig.json`。React 静态渲染测试覆盖摘要和展开配置，不等于真实点击 E2E；本次未操作正在运行的 YCode。
+  - 隔离浏览器交互回归另有 `packages/ui/test/conversationProcessInteractionBrowser.test.ts`（`node:test` + 仓库 `chromiumFixture`，只启动测试自己的 Chromium，不连接运行中的 YCode）：真实挂载 `ConversationRow[] → buildConversationTurnRenderUnitFrame → ConversationTurnGroup`，用真实点击验证「终端 2 次 · 沙盒 1 次」摘要、展开后 Bash 行 → 沙盒卡 → Bash 行的原始行序、沙盒卡二次展开的源码与输出，以及桌面 1000px 与手机 375px 视口下的可展开与无横向溢出；同一 fixture 还锁定 `EnterPlanMode` 成功 / 失败 / 拒绝三态都是普通工具行、`CreatePlan` 仍是唯一计划卡（验收场景 6a、23、24）。
+  - 仓库既有测试依赖 tsx（`.js` 说明符指向 `.ts` 源文件）；UI 包带 `@/*` 路径别名，使用 `TSX_TSCONFIG_PATH` 或 `tsx --tsconfig packages/ui/tsconfig.json`。React 静态渲染测试覆盖摘要和展开配置，真实点击与展开行为由上面的隔离浏览器用例覆盖；所有浏览器用例都未操作正在运行的 YCode。
 
 ## 未覆盖 / 已知取舍
 

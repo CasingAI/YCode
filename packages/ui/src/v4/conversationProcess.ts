@@ -4,11 +4,16 @@
 import type { ToolCallActivity } from "@/lib/toolCallActivity.js";
 
 export type ExploreActivityBucket = Exclude<ToolCallActivity, "unknown">;
-export type ProcessBucket = ExploreActivityBucket | "terminal" | "changes" | "reasoning";
+export type ProcessBucket =
+  | ExploreActivityBucket
+  | "terminal"
+  | "sandbox"
+  | "changes"
+  | "reasoning";
 export type ProcessCountBucket = ProcessBucket;
 export type ProcessCounts = Record<ProcessCountBucket, number>;
 
-/** 展示顺序：文件查阅细分、网页查阅细分 → 终端 → 编辑 → 思考。 */
+/** 展示顺序：文件查阅细分、网页查阅细分 → 终端 → 沙盒 → 编辑 → 思考。 */
 export const TURN_PROCESS_BUCKETS: readonly ProcessCountBucket[] = [
   "file-search",
   "file-find",
@@ -17,6 +22,7 @@ export const TURN_PROCESS_BUCKETS: readonly ProcessCountBucket[] = [
   "web-search",
   "web-read",
   "terminal",
+  "sandbox",
   "changes",
   "reasoning",
 ];
@@ -29,6 +35,7 @@ const TURN_PROCESS_BUCKET_MESSAGE_IDS: Record<ProcessCountBucket, string> = {
   "web-search": "chat.toolCall.process.webSearch",
   "web-read": "chat.toolCall.process.webRead",
   terminal: "chat.toolCall.process.terminal",
+  sandbox: "chat.toolCall.process.sandbox",
   changes: "chat.toolCall.process.changes",
   reasoning: "chat.toolCall.process.reasoning",
 };

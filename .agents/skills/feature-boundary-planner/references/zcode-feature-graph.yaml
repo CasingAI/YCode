@@ -307,6 +307,12 @@ nodes:
       - 搜索文件内容
       - 读取网页中
       - tool activity naming
+      - 过程折叠
+      - process fold
+      - JSVM
+      - Sandbox
+      - 沙盒
+      - EnterPlanMode
     codeSeeds:
       - file: packages/ui/src/lib/toolCallActivity.ts
         symbol: classifyToolCallActivity
@@ -314,11 +320,22 @@ nodes:
         symbol: readToolMetadata
       - file: packages/ui/src/v4/conversationAssistantWorkItems.ts
         symbol: buildAssistantWorkRenderItems
+      - file: packages/ui/src/v4/conversationProcessFold.ts
+        symbol: classifyProcessRow
+      - file: packages/ui/src/v4/conversationProcess.ts
+        symbol: TURN_PROCESS_BUCKETS
+      - file: packages/ui/src/v4/conversationTurnRenderUnits.ts
+        symbol: buildConversationTurnRenderUnits
+      - file: packages/shared/src/tool-identity.ts
+        symbol: normalizeZCodeToolName
     invariants:
       - Runtime tool records own identity, status, inputs, outputs and order; the shared UI derives activity labels without new state.
       - File and web activities are labeled on each row independently; consecutive lookup rows are never merged into a
         collapsible container and keep their original order. URLs and titles never determine the tool activity.
       - Only executing tools use running action labels; approval, failure, denial and cancellation retain their own status semantics.
+      - "JSVM and the legacy Sandbox alias share one independent sandbox process bucket: they join the same consecutive fold run as Bash (Bash to JSVM to Bash stays one process row), count as sandbox rather than terminal, and keep their own sandbox card identity and ToolLayout. normalizeZCodeToolName resolves the alias, so history needs no migration."
+      - "Process bucket display order is file-search, file-find, directory-list, file-read, web-search, web-read, terminal, sandbox, changes, reasoning. classifyProcessRow is the single classification entry shared by the render projection and the virtual-scroll height estimate."
+      - "EnterPlanMode is a normal visible tool row, not a plan card: it stays outside the process buckets and is neither hidden nor promoted to plan-approval rendering."
   - id: surface.get-context-usage-card
     kind: ui-surface
     label: GetContextUsage context capacity card

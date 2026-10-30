@@ -272,6 +272,7 @@ test("Todo 保留独立行：两段过程之间可见，且不计入四类过程
     "web-search": 0,
     "web-read": 0,
     terminal: 0,
+    sandbox: 0,
     changes: 0,
     reasoning: 0,
   });
@@ -283,6 +284,7 @@ test("Todo 保留独立行：两段过程之间可见，且不计入四类过程
     "web-search": 0,
     "web-read": 0,
     terminal: 1,
+    sandbox: 0,
     changes: 0,
     reasoning: 1,
   });

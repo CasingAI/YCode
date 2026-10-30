@@ -3,7 +3,7 @@ import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AssistantTextRow, ReasoningRow, ToolCallRow } from "@zcode/shared/zcode-protocol-v4";
-import { ZCodeIntlProvider } from "../src/i18n/IntlProvider.js";
+import { ZCodeIntlProvider, useZCodeIntl } from "../src/i18n/IntlProvider.js";
 import { ExploreToolCallBlock } from "../src/ToolCallBlocks/renderers/explore.js";
 import { ReadToolCallBlock } from "../src/ToolCallBlocks/renderers/read.js";
 import { SearchToolCallBlock } from "../src/ToolCallBlocks/renderers/search.js";
@@ -149,6 +149,30 @@ const WRITE_ROW = toolRow({
   toolName: "Write",
   input: { file_path: "/tmp/b" },
 });
+// 沙盒与 Bash 是并列执行工具：参与同一段过程折叠，但保持独立桶与自己的卡片。
+const JSVM_ROW = toolRow({
+  rowId: 11,
+  toolName: "JSVM",
+  input: { description: "算一下", code: "return 1+1;" },
+});
+const SANDBOX_ALIAS_ROW = toolRow({
+  rowId: 12,
+  toolName: "Sandbox",
+  input: { description: "历史别名", code: "return 2;" },
+});
+
+const EMPTY_COUNTS = {
+  "file-search": 0,
+  "file-find": 0,
+  "directory-list": 0,
+  "file-read": 0,
+  "web-search": 0,
+  "web-read": 0,
+  terminal: 0,
+  sandbox: 0,
+  changes: 0,
+  reasoning: 0,
+} as const;
 
 function processRowOf(rows: Parameters<typeof buildAssistantWorkRenderItems>[0], running = false) {
   const items = buildAssistantWorkRenderItems(rows, {
@@ -181,6 +205,7 @@ test("连续过程行折成一行，分别统计六种查阅活动及终端/编�
     "web-search": 1,
     "web-read": 1,
     terminal: 1,
+    sandbox: 0,
     changes: 1,
     reasoning: 1,
   });
@@ -227,30 +252,16 @@ test("单条过程行同样折叠", () => {
   const { items, processRow } = processRowOf([BASH_ROW]);
   assert.equal(items.length, 1);
   assert.deepEqual(processRow.counts, {
-    "file-search": 0,
-    "file-find": 0,
-    "directory-list": 0,
-    "file-read": 0,
-    "web-search": 0,
-    "web-read": 0,
+    ...EMPTY_COUNTS,
     terminal: 1,
-    changes: 0,
-    reasoning: 0,
   });
 });
 
 test("只读 shell 命令同样计入终端，不因只读改判成查阅", () => {
   const { processRow } = processRowOf([READONLY_BASH_ROW]);
   assert.deepEqual(processRow.counts, {
-    "file-search": 0,
-    "file-find": 0,
-    "directory-list": 0,
-    "file-read": 0,
-    "web-search": 0,
-    "web-read": 0,
+    ...EMPTY_COUNTS,
     terminal: 1,
-    changes: 0,
-    reasoning: 0,
   });
 });
 
@@ -291,6 +302,48 @@ test("相邻两条终端各自成行，计数仍按条数计", () => {
   );
 });
 
+test("Bash → JSVM → Bash 属同一连续段，沙盒不把终端切成两段", () => {
+  const { items, processRow } = processRowOf([BASH_ROW, JSVM_ROW, READONLY_BASH_ROW]);
+
+  // 沙盒与终端并列参与折叠：仍是同一个过程段，而不是 process / row / process。
+  assert.equal(items.length, 1);
+  assert.deepEqual(processRow.counts, {
+    ...EMPTY_COUNTS,
+    terminal: 2,
+    sandbox: 1,
+  });
+  assert.deepEqual(
+    processRow.nodes.map((node) => {
+      if (node.kind !== "row") return node.kind;
+      return node.row.kind === "toolCall" ? node.row.toolName : node.row.kind;
+    }),
+    ["Bash", "JSVM", "Bash"],
+  );
+});
+
+test("历史 Sandbox 别名与现役 JSVM 同归沙盒桶，不计入终端或查阅", () => {
+  const { items, processRow } = processRowOf([SANDBOX_ALIAS_ROW, JSVM_ROW]);
+
+  assert.equal(items.length, 1);
+  assert.deepEqual(processRow.counts, {
+    ...EMPTY_COUNTS,
+    sandbox: 2,
+  });
+  assert.equal(processRow.counts.terminal, 0);
+  assert.equal(processRow.counts["file-read"], 0);
+  assert.equal(processRow.counts["file-search"], 0);
+  assert.equal(processRow.counts.changes, 0);
+});
+
+test("沙盒单行同样折叠，并按真实调用次数显示「沙盒」", () => {
+  const { items, processRow } = processRowOf([JSVM_ROW]);
+  assert.equal(items.length, 1);
+  assert.deepEqual(processRow.counts, {
+    ...EMPTY_COUNTS,
+    sandbox: 1,
+  });
+});
+
 test("无法归类的 shell 行留在过程行之外，不被静默计入某个桶", () => {
   // 命令还没到的 shell 行（input 为空）既不是查阅也不是终端：宁可多显示一行，
   // 也不要把它藏进「终端 N 次」里。
@@ -301,15 +354,8 @@ test("无法归类的 shell 行留在过程行之外，不被静默计入某个�
   });
   const { items, processRow } = processRowOf([READONLY_BASH_ROW, pendingShell]);
   assert.deepEqual(processRow.counts, {
-    "file-search": 0,
-    "file-find": 0,
-    "directory-list": 0,
-    "file-read": 0,
-    "web-search": 0,
-    "web-read": 0,
+    ...EMPTY_COUNTS,
     terminal: 1,
-    changes: 0,
-    reasoning: 0,
   });
   assert.deepEqual(
     items.map((item) => item.kind),
@@ -338,7 +384,7 @@ test("关闭折叠时输出与改动前一致（逐行铺开）", () => {
   );
 });
 
-test("formatProcessText：跳过零值桶并按文件/网页活动-终端-编辑-思考顺序拼接", () => {
+test("formatProcessText：跳过零值桶并按文件/网页活动-终端-沙盒-编辑-思考顺序拼接", () => {
   const intl = {
     formatMessage: ({ id }: { id: string }, values?: Record<string, string | number>) =>
       `${id.replace("chat.toolCall.process.", "")}=${String(values?.count ?? "")}`,
@@ -350,28 +396,43 @@ test("formatProcessText：跳过零值桶并按文件/网页活动-终端-编辑
     "file-read": 0,
     "web-search": 3,
     "web-read": 1,
-    terminal: 0,
+    terminal: 1,
+    sandbox: 2,
     changes: 1,
     reasoning: 3,
   };
   assert.equal(
     formatProcessText(intl, counts),
-    "fileSearch.other=2 · fileFind.one=1 · webSearch.other=3 · webRead.one=1 · changes.one=1 · reasoning.other=3",
+    "fileSearch.other=2 · fileFind.one=1 · webSearch.other=3 · webRead.one=1 · terminal.one=1 · sandbox.other=2 · changes.one=1 · reasoning.other=3",
   );
-  assert.equal(
-    formatProcessText(intl, {
-      "file-search": 0,
-      "file-find": 0,
-      "directory-list": 0,
-      "file-read": 0,
-      "web-search": 0,
-      "web-read": 0,
-      terminal: 0,
-      changes: 0,
-      reasoning: 0,
-    }),
-    "",
-  );
+  assert.equal(formatProcessText(intl, { ...EMPTY_COUNTS }), "");
+});
+
+// 真实 locale 的渲染集成：摘要文案由 i18n 提供，沙盒计数必须出现在过程行文本里。
+function ProcessSummaryProbe({ counts }: { counts: ProcessCounts }) {
+  const { intl } = useZCodeIntl();
+  return createElement("span", null, formatProcessText(intl, counts));
+}
+
+test("过程摘要 SSR：中英文均显示真实沙盒调用次数，且不与终端混用文案", () => {
+  const counts: ProcessCounts = { ...EMPTY_COUNTS, terminal: 1, sandbox: 2 };
+  const render = (locale: "zh-CN" | "en-US") =>
+    renderToStaticMarkup(
+      createElement(
+        ZCodeIntlProvider,
+        { initialLocale: locale },
+        createElement(ProcessSummaryProbe, { counts }),
+      ),
+    );
+
+  const zh = render("zh-CN");
+  assert.ok(zh.includes("终端 1 次"), zh);
+  assert.ok(zh.includes("沙盒 2 次"), zh);
+  assert.ok(zh.indexOf("终端 1 次") < zh.indexOf("沙盒 2 次"), "终端排在沙盒之前");
+
+  const en = render("en-US");
+  assert.ok(en.includes("1 terminal call"), en);
+  assert.ok(en.includes("2 sandbox calls"), en);
 });
 
 // 回归：普通空 reasoning（例如 Responses 加密块）继续隐藏；只有显式阶段空行才参与

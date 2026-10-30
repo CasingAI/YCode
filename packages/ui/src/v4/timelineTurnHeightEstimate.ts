@@ -19,11 +19,7 @@
 // 14px（--ui-font-size）。下面的 CHARS_PER_LINE 按 896px 列 + 中文全角标定；
 // 改 conversationLayout 的断点时要一并复核这个常量。
 
-import {
-  isChangesToolCallRow,
-  isExecuteToolCallRow,
-  isExploreToolCallRow,
-} from "@/v4/conversationToolRowClass.js";
+import { classifyProcessRow } from "@/v4/conversationProcessFold.js";
 import type { ConversationTurnRenderUnit } from "@/v4/conversationTurnRenderUnits.js";
 import type { AssistantWorkRow, ConversationTurnFlowItem } from "@/v4/conversationTurnFlowItems.js";
 import { extractPlanToolCallContent } from "@/lib/planToolCall.js";
@@ -79,11 +75,12 @@ function estimateTextHeight(text: string | undefined): number {
   return lines * TEXT_LINE_PX;
 }
 
-/** 与 conversationProcessFold.resolveProcessBucket 同源的折叠判定。 */
+/**
+ * 折叠判定直接复用过程行的唯一分类入口（`classifyProcessRow`），不在这里复刻谓词：
+ * 高度分段与真实渲染若各写一套，增加/调整邻居桶时就会「按两段估、按一段画」。
+ */
 function isFoldableSummaryRow(row: AssistantWorkRow): boolean {
-  if (row.kind === "reasoning") return true;
-  if (row.kind !== "toolCall") return false;
-  return isExploreToolCallRow(row) || isExecuteToolCallRow(row) || isChangesToolCallRow(row);
+  return classifyProcessRow(row) !== null;
 }
 
 /**

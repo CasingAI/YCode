@@ -25,6 +25,7 @@
 - 永不向用户弹审批。Ask / Plan 档也放行：会话内内存、LocalStorage、工作区只读 FS（`fs.promises` 读类）、全局 `fetch`（跟服务器通讯），以及把一个文件读进来 eval；不改工作区。Agent 档可通过同一套 `fs.promises` 写回工作区，仍不询问。`fetch` 三档都能发，不走 WebFetch 的按域名审批。
 - **岗位（模型分流）**：Ask / Plan 是首要场景——这两档里 Bash **只放行少量白名单命令**（不是「凡只读 / 无副作用就能跑」；没在名单里会被拒，与命令是否真有副作用无关），`Sandbox` 仍可用。接到沙盒里的工作区写按会话工作模式挡（Ask / Plan 只读，Agent 可写）；出站 `fetch` 不按档位挡。Agent 不强制分流，Bash 对工作区通常更强。Bare 拒 `Sandbox`。工具 description 只保留短能力句；何时用写在系统 Prompt 的 Collaboration modes 段，怎么用写在官方 `sandbox` 技能（按需加载，不常驻）。对模型的文案必须写「白名单」，不得写成「只读命令子集」。
 - 聊天卡对齐 Bash：模型必须写一句话说明；折叠行只显示这句，源码和输出在展开态。超长输出对齐 Bash（内联有上限，超出落产物，模型拿预览和引用）。
+- **回合过程折叠**：沙盒与 Bash 是并列执行工具，沙盒行像终端行一样参与回合过程折叠，`Bash → JSVM/Sandbox → Bash` 仍是一段连续过程；折叠摘要按真实调用次数单列「沙盒 N 次」，不并入终端计数。沙盒只借用过程行的外层收起形态，卡本身仍用沙盒的名字、图标、说明与源码/输出展开语义，不改画成终端，也不在过程行内重复一层运行状态。规则与验收见 [`conversation-process.md`](./conversation-process.md)。
 - 超时对齐 Bash：默认 120 秒，模型最多改到 600 秒。
 
 ### 聊天工具卡（display payload 通道）
@@ -36,7 +37,7 @@
 - **展开态**：源码/路径 + 输出（return 文本 + console），渲染 wire 上已有的 `output.text`（即模型读到的同一段文本），不再 raw JSON 转储。后台态显示“已在后台”（带 task ID），不把代码当摘要。
 - **纯只读**：卡上无按钮、无跳转；只保留工具卡框架自带的展开/收起与失败状态。
 - **降级**：display 缺席时折叠行只剩 kindLabel（有输入兜底时显示 description），展开态仍显示文本投影；不出 raw JSON、不报错。
-- **工具身份与渲染分流**：现役 wire 名为 `JSVM`，历史会话中的 `Sandbox` 是兼容别名；共享 `normalizeZCodeToolName` 将两者规范为 `JSVM`。两名登记在 `ZCODE_KNOWN_TOOL_NAMES`，但不登记跨端 tool family，避免进入通用工具分类；`resolveRenderer` 按规范名分流到沙盒卡。状态面板的时间线证据同样兼容新旧名，且仅在实例状态未判定时作为入口临时依据。`shell` family 的旧 kind 识别不按沙盒工具名匹配。
+- **工具身份与渲染分流**：现役 wire 名为 `JSVM`，历史会话中的 `Sandbox` 是兼容别名；共享 `normalizeZCodeToolName` 将两者规范为 `JSVM`。两名登记在 `ZCODE_KNOWN_TOOL_NAMES`，但不登记跨端 tool family，避免进入通用工具分类；`resolveRenderer` 按规范名分流到沙盒卡。状态面板的时间线证据同样兼容新旧名，且仅在实例状态未判定时作为入口临时依据。回合过程折叠也复用这一身份归一，把两名归入独立「沙盒」桶；`shell` family 的旧 kind 识别不按沙盒工具名匹配，沙盒行不得计入终端或查阅。别名无需迁移历史记录。
 
 display 载荷（一个 kind，contracts/shared 两侧 strict schema 逐字段同步）：
 

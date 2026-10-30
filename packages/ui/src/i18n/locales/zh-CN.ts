@@ -4823,6 +4823,8 @@ const zhCN: Record<string, string> = {
   "chat.toolCall.process.webRead.other": "{count} 次网页读取",
   "chat.toolCall.process.terminal.one": "终端 {count} 次",
   "chat.toolCall.process.terminal.other": "终端 {count} 次",
+  "chat.toolCall.process.sandbox.one": "沙盒 {count} 次",
+  "chat.toolCall.process.sandbox.other": "沙盒 {count} 次",
   "chat.toolCall.process.changes.one": "编辑 {count} 次",
   "chat.toolCall.process.changes.other": "编辑 {count} 次",
   "chat.toolCall.process.reasoning.one": "思考 {count} 次",

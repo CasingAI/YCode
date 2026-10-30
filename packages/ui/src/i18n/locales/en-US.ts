@@ -5134,6 +5134,8 @@ const enUS: Record<string, string> = {
   "chat.toolCall.process.webRead.other": "{count} web reads",
   "chat.toolCall.process.terminal.one": "{count} terminal call",
   "chat.toolCall.process.terminal.other": "{count} terminal calls",
+  "chat.toolCall.process.sandbox.one": "{count} sandbox call",
+  "chat.toolCall.process.sandbox.other": "{count} sandbox calls",
   "chat.toolCall.process.changes.one": "{count} edit",
   "chat.toolCall.process.changes.other": "{count} edits",
   "chat.toolCall.process.reasoning.one": "{count} thought",

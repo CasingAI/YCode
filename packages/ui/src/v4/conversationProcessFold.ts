@@ -16,20 +16,30 @@ import {
   type ProcessCounts,
 } from "@/v4/conversationProcess.js";
 import { classifyToolCallActivity } from "@/lib/toolCallActivity.js";
+import { normalizeZCodeToolName } from "@zcode/shared";
+import type { AssistantWorkRow } from "@/v4/conversationTurnRenderUnits.js";
 
 /**
- * 过程行归类：只认六种查阅活动、终端、编辑与思考。返回 null 的项
+ * 沙盒工具身份：现役 `JSVM` 与历史 `Sandbox` 由 shared `normalizeZCodeToolName` 归一到同一名字，
+ * 别名无需迁移历史记录。不能为了分桶把它塞进 shell（那会把卡片伪装成终端）。
+ */
+function isSandboxToolCallRow(row: AssistantWorkRow): boolean {
+  return row.kind === "toolCall" && normalizeZCodeToolName(row.toolName) === "JSVM";
+}
+
+/**
+ * 单行的过程分桶：`resolveProcessBucket` 与虚拟滚动高度估算共用这一个入口，
+ * 避免两处各写一组谓词导致「高度按两段算、渲染按一段算」。
+ *
+ * 只认六种查阅活动、终端、沙盒、编辑与思考。返回 null 的行
  * （正文、子智能体、CUA、产物、hook、timelineMarker）不参与折叠，必须在过程行之间原样铺开——
  * 正文被折进过程里，回合就读不出结论了。
  */
-export function resolveProcessBucket(
-  item: ConversationAssistantWorkChildItem,
-): ProcessBucket | null {
-  if (item.kind !== "row") return null;
-
-  const { row } = item;
+export function classifyProcessRow(row: AssistantWorkRow): ProcessBucket | null {
   if (row.kind === "reasoning") return "reasoning";
   if (row.kind !== "toolCall") return null;
+  // 沙盒保持独立身份，但与其他过程行连续折叠。
+  if (isSandboxToolCallRow(row)) return "sandbox";
   // 三个谓词互斥：file-write 家族被 isExploreToolCall/isExecuteToolCall 排除，只落入编辑桶。
   if (isExploreToolCallRow(row)) {
     const activity = classifyToolCallActivity({
@@ -43,6 +53,13 @@ export function resolveProcessBucket(
   if (isExecuteToolCallRow(row)) return "terminal";
   if (isChangesToolCallRow(row)) return "changes";
   return null;
+}
+
+export function resolveProcessBucket(
+  item: ConversationAssistantWorkChildItem,
+): ProcessBucket | null {
+  if (item.kind !== "row") return null;
+  return classifyProcessRow(item.row);
 }
 
 function resolveRenderItemRowId(item: ConversationAssistantWorkChildItem): number {
