@@ -195,6 +195,12 @@ export const resolveBuildAliases = ({
     rootDirectory,
     "../../packages/shared/src/config-schema.ts",
   ),
+  // workspace ignore 子路径同样必须精确映射；漏声明会被拼成
+  // `src/index.ts/workspaceFileIgnore` 导致 CLI/Desktop agent 打包失败。
+  "@zcode/shared/workspaceFileIgnore": resolve(
+    rootDirectory,
+    "../../packages/shared/src/workspaceFileIgnore.ts",
+  ),
   "@zcode/shared/workspace-hook-discovery": resolve(
     rootDirectory,
     "../../packages/shared/src/workspace-hook-discovery.ts",
