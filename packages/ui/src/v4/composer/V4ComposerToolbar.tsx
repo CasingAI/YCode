@@ -81,6 +81,7 @@ import {
   buildRegistryModelSelectGroups,
   decodeModelGroupSelectValue,
   encodeModelGroupSelectValue,
+  resolveModelGroupDisplayName,
   withModelGroupSection,
 } from "@/lib/modelSelectionGroups.js";
 
@@ -293,9 +294,9 @@ function V4ComposerModelControlsImpl({
       teamPlanFallbackLabel: intl.formatMessage({
         id: "settings.modelProvider.connectionMode.teamPlan",
       }),
+      otherGroupLabel: intl.formatMessage({ id: "chat.toolbar.model.otherGroup" }),
     });
     // 模型组分节（docs/specs/model-group.md）：registry 分组 + 组分节的唯一拼装入口
-      otherGroupLabel: intl.formatMessage({ id: "chat.toolbar.model.otherGroup" }),
     // 在 withModelGroupSection；整节 Primary（view.modelGroupsPrimary）时组逐条置顶一级展开。
     return withModelGroupSection({
       registryGroups,
@@ -496,7 +497,11 @@ function V4ComposerModelControlsImpl({
     // 组意图（docs/specs/model-group.md）：胶囊整名展示组名，不带 provider 前缀；
     // 组已被删除时按名快照展示（spec：不为文案编造新名字，也不退回「选择模型」）。
     if (draftGroupIntent) {
-      const groupName = selectedModelGroupView?.name ?? draftGroupIntent.groupNameSnapshot;
+      // 组名回填规则与命令中心副文案共用 resolveModelGroupDisplayName：当前视图名优先，
+      // 组已删时按名快照展示（spec：不为文案编造新名字，也不退回「选择模型」）。
+      const groupName =
+        resolveModelGroupDisplayName(modelSelectionView, draftGroupIntent) ??
+        draftGroupIntent.groupNameSnapshot;
       return { fullLabel: groupName, modelLabel: groupName };
     }
     // 非可选值（未选 / synthetic / 不可用）：占位文案或默认「选择模型」。

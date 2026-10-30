@@ -274,6 +274,19 @@ test("有效 pin 即使其他成员不可新选，仍优先复用", () => {
   });
 });
 
+test("停用的组即使钉死成员仍可解析也按 noMembers 拒绝，不沿用旧 pin", () => {
+  // docs/specs/model-group.md：enabled=false 的组离开选择器，发送按无可用成员拒绝；
+  // 停用不是成员 selectable=false，不能借已有 pin 继续执行。
+  const pinned: ModelSelection = { providerId: "p1", modelId: "m2" };
+  const state = { intent: INTENT, pickSeed: "kept-seed" };
+  const disabled: ModelGroupSnapshot = { ...GROUP, enabled: false };
+  assert.deepEqual(decide({ currentState: state, pinnedSelection: pinned, groups: [disabled] }), {
+    kind: "failure",
+    reasonCode: "modelGroup.noMembers",
+    groupName: "演示组",
+  });
+});
+
 test("组内所有成员均 selectable=false 时，新钉死返回原 noMembers 拒绝", () => {
   const group: ModelGroupSnapshot = {
     ...GROUP,

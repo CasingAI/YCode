@@ -55,10 +55,12 @@ export interface ModelCatalogPort {
   listModelGroupSnapshots?(): Promise<readonly ModelCatalogGroupSnapshot[]>;
 }
 
-/** 钉死快照：组 ID + 当前名 + 成员顺序（与个人配置同一顺序）。 */
+/** 钉死快照：组 ID + 当前名 + 启用开关 + 成员顺序（与个人配置同一顺序）。 */
 export interface ModelCatalogGroupSnapshot {
   groupId: string;
   name: string;
+  /** 缺省启用；false 时 admission 按 modelGroup.noMembers 拒绝（旧盘同口径）。 */
+  enabled?: boolean;
   memberOrder: readonly (ModelGroupMemberRef & {
     supportedReasoningLevels?: readonly string[];
     defaultReasoningLevel?: string;

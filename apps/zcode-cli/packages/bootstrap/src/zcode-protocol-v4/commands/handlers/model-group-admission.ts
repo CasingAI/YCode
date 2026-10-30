@@ -6,6 +6,7 @@
 // 裁决与提交分离：编辑路径要求「先裁决（可拒绝）、后提交（写状态）」——拒绝必须发生在
 // rewind 之前，不能先改了会话组钉死再拒绝。两条路径共用同一份裁决实现，不各写一套。
 import type { ModelGroupIntent, ModelSelection } from "@zcode/shared";
+import { pickLowestCostReasoningLevel } from "@zcode/shared/model-selection";
 import { decideSessionModelGroupPin, type ModelGroupSnapshot } from "@zcode/core";
 import type { V4SessionRecordView } from "../types.js";
 import { V4InputAdmissionRejectedError } from "./session-flow.js";
@@ -63,6 +64,8 @@ async function readModelGroupAdmissionSnapshot(
     groups: groups.map((group) => ({
       groupId: group.groupId,
       name: group.name,
+      // 停用组保留在快照里：admission 要按 noMembers 拒绝而不是误判 deleted。
+      enabled: group.enabled ?? true,
       memberOrder: group.memberOrder.map((member) => {
         const options = resolveModelOptions(member);
         return {
@@ -213,4 +216,44 @@ export async function resolveAdmissionModelGroupSelection(
   const outcome = await decideAdmissionModelGroup(record, requestedIntent);
   await commitAdmissionModelGroup(record, outcome);
   return outcome;
+}
+
+/**
+ * 命令中心 AI 历史搜索隐藏会话的组 admission（docs/specs/model-group.md
+ * 「命令中心 AI 历史搜索的组输入」）：新隐藏会话没有既有 pin，先走与普通发送相同的
+ * decide/commit；组路径再把本次成员实际支持的档位压到最低成本档（shared
+ * pickLowestCostReasoningLevel），不让搜索沿用成员默认/绑定档。
+ * 空档位表不编档。组不可用或提交失败时先回收隐藏会话再原样上抛，网关据此回
+ * ACK failed 并保留 modelGroup.* reasonCode；调用方不得退回具体模型继续跑。
+ */
+export async function prepareAiHistorySearchModelGroupAdmission(
+  record: V4SessionRecordView,
+  requestedIntent: ModelGroupIntent,
+  options: { closeHiddenSession: () => Promise<void> },
+): Promise<AdmissionModelGroupOutcome> {
+  try {
+    const outcome = await decideAdmissionModelGroup(record, requestedIntent);
+    if (!outcome.needsPin) return outcome;
+    const lowestLevel = pickLowestCostReasoningLevel(outcome.supportedThoughtLevels);
+    const committed =
+      lowestLevel === undefined
+        ? outcome
+        : {
+            ...outcome,
+            selection: {
+              providerId: outcome.selection.providerId,
+              modelId: outcome.selection.modelId,
+              options: {
+                ...outcome.selection.options,
+                reasoningLevel: lowestLevel,
+              },
+            },
+          };
+    await commitAdmissionModelGroup(record, committed);
+    return committed;
+  } catch (error) {
+    // 组不可用/提交失败都不得留下隐藏会话：关闭是幂等的，调用方外层 catch 再关一次也无害。
+    await options.closeHiddenSession();
+    throw error;
+  }
 }

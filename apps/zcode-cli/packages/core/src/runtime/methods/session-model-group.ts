@@ -28,6 +28,8 @@ export interface ModelGroupSnapshotMember extends ModelGroupMemberRef {
 export interface ModelGroupSnapshot {
   readonly groupId: string;
   readonly name: string;
+  /** 组启用开关；缺省视为启用（旧调用方/旧盘同口径）。false 时按 noMembers 拒绝。 */
+  readonly enabled?: boolean;
   readonly memberOrder: readonly ModelGroupSnapshotMember[];
 }
 
@@ -97,6 +99,12 @@ export function decideSessionModelGroupPin(input: {
       reasonCode: "modelGroup.deleted",
       groupName: currentState?.intent?.groupNameSnapshot ?? requestedIntent.groupNameSnapshot,
     };
+  }
+  // 停用组离开选择器，发送按「无可用成员」拒绝（docs/specs/model-group.md）。
+  // 停用不是成员 selectable=false：即使已有钉死成员仍可解析也不能借旧 pin 继续执行。
+  // 普通发送、编辑重发、Subagent 与 AI 历史搜索都经过这里，是唯一判定处。
+  if (group.enabled === false) {
+    return { kind: "failure", reasonCode: "modelGroup.noMembers", groupName: group.name };
   }
   // 新选择资格和时段偏好不改变成员可解析性，不能因此打断已有会话绑定。
   const availableMembers = group.memberOrder.filter((member) => input.isMemberAvailable(member));

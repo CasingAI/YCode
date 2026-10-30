@@ -11,10 +11,7 @@ import { v4ConversationFileRewindPreviewResultSchema } from "./transport.js";
 import { modelGroupIntentSchema, modelSelectionSchema } from "../model-selection.js";
 import { modelExecutionSchema } from "../model-execution.js";
 import { sessionLanguageSchema } from "./session-config.js";
-import {
-  sandboxEvalResultSchema,
-  sandboxResetResultSchema,
-} from "./sandbox-eval-result.js";
+import { sandboxEvalResultSchema, sandboxResetResultSchema } from "./sandbox-eval-result.js";
 import { submissionModeSchema } from "./submission.js";
 import {
   amendWorkflowRunSettingsPayloadSchema,
@@ -356,16 +353,30 @@ export const commandPayloadSchemas = {
   // 对外只流式回答与引用。浮层禁止自己拼「创建会话 → 发文本 → 再删」（那条路径容易漏进侧栏）。
   // 成功以 { type: "startAiHistorySearch", sessionId } 回 ACK.result：隐藏会话 id 仅供浮层订阅
   // 投影渲染回答与引用，不挂完整会话页；关闭/取消/结束时由 cancelAiHistorySearch 回收。
-  startAiHistorySearch: z.object({
-    workspaceId: z.string().min(1),
-    query: z.string().trim().min(1).max(4000),
-    language: sessionLanguageSchema.optional(),
-    // 发起时工作区会话的当前模型（UI 侧 modelSelectionService.getView() 的
-    // effectiveSelection 单向随命令下发）。缺席时沿旧行为走 CLI 配置默认；
-    // CLI 侧 Registry 校验失败也回退默认、不让整轮失败。
-    // 原因：CLI 是另一个进程，读不到 UI 进程的模型目录，只能 UI 随命令带。
-    model: modelSelectionSchema.optional(),
-  }),
+  startAiHistorySearch: z
+    .object({
+      workspaceId: z.string().min(1),
+      query: z.string().trim().min(1).max(4000),
+      language: sessionLanguageSchema.optional(),
+      // 发起时工作区会话的当前模型（UI 侧 modelSelectionService.getView() 的
+      // effectiveSelection 单向随命令下发）。缺席时沿旧行为走 CLI 配置默认；
+      // CLI 侧 Registry 校验失败也回退默认、不让整轮失败。
+      // 原因：CLI 是另一个进程，读不到 UI 进程的模型目录，只能 UI 随命令带。
+      model: modelSelectionSchema.optional(),
+      // 模型组意图（docs/specs/model-group.md「命令中心 AI 历史搜索的组输入」）：
+      // 「最后展示的模型」是组时随命令下发；与 model 严格互斥，两者都缺席沿用旧默认。
+      // 隐藏会话在 CLI 侧按普通 admission 钉死成员并压到最低成本档，不在 UI 抽选。
+      modelGroupIntent: modelGroupIntentSchema.optional(),
+    })
+    .superRefine((payload, context) => {
+      if (payload.model && payload.modelGroupIntent) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "model and modelGroupIntent are mutually exclusive",
+          path: ["modelGroupIntent"],
+        });
+      }
+    }),
   // cancelAiHistorySearch：中止一次性搜索运行并删除隐藏会话（关浮层 / Esc / 改字时）。
   // 工作区级命令（信封 sessionId 为 null，路由键在 payload.searchSessionId）。
   // 幂等：会话已回收时为 noop 成功，不报错。

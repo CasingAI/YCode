@@ -150,6 +150,36 @@ export function selectModelGroupCandidates<T extends ModelGroupMemberRef>(
   return normal.length > 0 ? normal : deprioritized;
 }
 
+/**
+ * 关闭思考的档位值集合；与 UI `thoughtLevelLabelIds.ts` 的关闭语义同一张表。
+ * 归一化只做 trim + 小写，比较时不改写配置原值。
+ */
+const NO_THOUGHT_LEVEL_VALUES = new Set([
+  "disabled",
+  "false",
+  "no",
+  "none",
+  "nothink",
+  "no-think",
+  "no_think",
+  "off",
+]);
+
+/**
+ * 一次性 AI 历史搜索的最低成本档位（docs/specs/command-center-ai-history-search.md）：
+ * 档位表含关闭语义值时取顺序里的第一个关闭值，否则取配置第一项（配置声明顺序）。
+ * 返回配置原值；空表/缺席返回 undefined，调用方不得自编档位。
+ * UI 与 CLI 共用这一份实现，不各写一套关闭词表与取舍规则。
+ */
+export function pickLowestCostReasoningLevel(
+  values: readonly string[] | undefined,
+): string | undefined {
+  if (!values || values.length === 0) return undefined;
+  return (
+    values.find((value) => NO_THOUGHT_LEVEL_VALUES.has(value.trim().toLowerCase())) ?? values[0]
+  );
+}
+
 /** FNV-1a 32 位：零依赖、跨进程一致，成员抽选的均匀度足够。 */
 function fnv1a32(text: string): number {
   let hash = 0x811c9dc5;

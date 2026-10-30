@@ -32,6 +32,18 @@ export function findModelGroupView(
   return view.modelGroups?.find((group) => group.groupId === groupId) ?? null;
 }
 
+/**
+ * 组意图的展示名（docs/specs/composer-displayed-model.md）：组还在读当前视图名，
+ * 已删 / 停用 / 目录未就绪用意图里的名快照。Composer 胶囊与命令中心副文案共用。
+ */
+export function resolveModelGroupDisplayName(
+  view: Pick<ModelSelectionView, "modelGroups"> | null | undefined,
+  intent: { readonly groupId: string; readonly groupNameSnapshot: string } | null | undefined,
+): string | null {
+  if (!intent) return null;
+  return findModelGroupView(view, intent.groupId)?.name ?? intent.groupNameSnapshot;
+}
+
 export interface ModelProviderGroupLabelOptions {
   apiKeyLabel?: string;
   apiKeyBadgeLabel?: string;

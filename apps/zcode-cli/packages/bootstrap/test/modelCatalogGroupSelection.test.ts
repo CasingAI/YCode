@@ -48,6 +48,7 @@ test("catalog snapshot 透传成员新选择策略并同时补目录档位快照
     {
       groupId: "model-group:test",
       name: "测试组",
+      enabled: true,
       memberOrder: [
         {
           providerId: "p",
@@ -66,4 +67,27 @@ test("catalog snapshot 透传成员新选择策略并同时补目录档位快照
       ],
     },
   ]);
+});
+
+test("catalog snapshot 透传组停用标记：旧配置缺省视为启用", async () => {
+  const port = createModelCatalogPort({
+    registry: {
+      getView: () => ({ revision: 1, providers: [] }) as never,
+    } as unknown as ProviderRegistryModelSource,
+    currentSelection: () => undefined,
+    modelGroupsSource: async () =>
+      [
+        { groupId: "model-group:enabled", name: "启用组", memberOrder: [] },
+        { groupId: "model-group:disabled", name: "停用组", enabled: false, memberOrder: [] },
+      ] as never,
+  });
+
+  const snapshots = await port.listModelGroupSnapshots?.();
+  assert.deepEqual(
+    snapshots?.map((group) => ({ groupId: group.groupId, enabled: group.enabled })),
+    [
+      { groupId: "model-group:enabled", enabled: true },
+      { groupId: "model-group:disabled", enabled: false },
+    ],
+  );
 });

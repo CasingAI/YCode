@@ -214,6 +214,18 @@ test("无可用成员抛 modelGroup.noMembers", async () => {
   );
 });
 
+test("停用组即使成员可解析也抛 modelGroup.noMembers，不回落父模型", async () => {
+  await assert.rejects(
+    resolveSubagentModelGroupPin({
+      intent: INTENT,
+      childSessionId: "child-disabled",
+      groups: [{ ...GROUPS[0]!, enabled: false }],
+      resolveSelection,
+    }),
+    /modelGroup\.noMembers/,
+  );
+});
+
 /**
  * 复刻 `packages/provider` 的档位校验口径：Selection 必须带 reasoningLevel，
  * 且档位必须属于模型当前支持表；缺档位判 `reasoning-level-missing`。

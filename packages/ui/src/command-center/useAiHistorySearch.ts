@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CommandAck } from "@zcode/shared/zcode-protocol-v4";
-import type { ModelSelection } from "@zcode/shared/model-selection";
-import type { IModelSelectionService, ModelSelectionViewInput } from "@zcode/services";
+import type { ModelGroupIntent, ModelSelection } from "@zcode/shared/model-selection";
+import type { IModelSelectionService } from "@zcode/services";
+import type { AiSearchModelInput } from "@/command-center/aiSearchModelInput.js";
 import {
   acquireWorkspaceConnection,
   type WorkspaceConnectionAgentService,
@@ -58,18 +59,21 @@ function workspaceScope(workspaceAbsPath: string, workspaceIdentity?: string) {
  * 输入框右侧的圈随之熄灭；连接租约保留到下一次 start/reset/卸载再释放，
  * 避免收口瞬间释放把 keep-warm 中的快照一起丢掉。
  * 连接租约不跨 run 复用：新一轮 start 先放掉上一轮的持有再建新的。
- * 模型：发起时读一次工作区模型服务视图的 effectiveSelection，随 start 载荷下发
- * （CLI 钉到隐藏会话）；读失败/无选择时字段缺席，沿旧行为走 CLI 配置默认。
+ * 模型：发起时读一次工作区模型意图（具体选择或组意图），随 start 载荷下发
+ * （CLI 钉到隐藏会话）。组意图直接下发 `modelGroupIntent`，不查具体兜底、不由 UI
+ * 选成员；具体选择走原 getView → 最低档 → `model` 路径。读失败/无选择时字段缺席，
+ * 沿旧行为走 CLI 配置默认。
  */
 export function useAiHistorySearchRunner(params: {
   workspaceAbsPath: string;
   workspaceIdentity?: string;
   agentService: WorkspaceConnectionAgentService | null;
   modelSelectionService: Pick<IModelSelectionService, "getView"> | null;
-  /** 与副文案显示同一份视图的输入：recent 意图，不带则视图无 effectiveSelection。 */
-  modelSelectionInput?: ModelSelectionViewInput;
+  /** 与副文案显示同一份视图的输入：displayed/recent 互斥意图，整体优先顺序已解析。 */
+  modelInput?: AiSearchModelInput;
 }): AiHistorySearchRunner {
-  const { workspaceAbsPath, workspaceIdentity, agentService, modelSelectionService, modelSelectionInput } = params;
+  const { workspaceAbsPath, workspaceIdentity, agentService, modelSelectionService, modelInput } =
+    params;
   const { intl, locale } = useZCodeIntl();
   const [status, setStatus] = useState<AiHistorySearchStatus>("idle");
   const [searchSessionId, setSearchSessionId] = useState<string | null>(null);
@@ -219,9 +223,12 @@ export function useAiHistorySearchRunner(params: {
         agentService,
       );
       heldRef.current = { connection, session: null };
-      // 发起时工作区当前模型只读一次：getView 失败/无有效选择时字段缺席，
-      // CLI 回退配置默认。读模型不阻断发送（失败只记日志）。
-      const sendStart = (model?: ModelSelection) => {
+      // 发起时工作区当前模型意图只读一次：具体选择走 getView；组意图直接下发，
+      // 成员与档位由 CLI admission 权威裁决。读模型不阻断发送（失败只记日志）。
+      const sendStart = (choice?: {
+        model?: ModelSelection;
+        modelGroupIntent?: ModelGroupIntent;
+      }) => {
         void connection.transport
           .sendCommand(
             createCommandEnvelope({
@@ -230,7 +237,9 @@ export function useAiHistorySearchRunner(params: {
                 workspaceId,
                 query: trimmed,
                 language: locale.startsWith("zh") ? "zh-CN" : "en-US",
-                ...(model ? { model } : {}),
+                // model 与 modelGroupIntent 互斥（协议同规则），这里最多只带一侧。
+                ...(choice?.model ? { model: choice.model } : {}),
+                ...(choice?.modelGroupIntent ? { modelGroupIntent: choice.modelGroupIntent } : {}),
               },
               sessionId: null,
             }),
@@ -266,11 +275,11 @@ export function useAiHistorySearchRunner(params: {
             setError(
               reasonCode.startsWith(AI_HISTORY_SEARCH_UNSUPPORTED_FAULT_PREFIX)
                 ? intl.formatMessage({ id: "commandCenter.aiSearch.unsupported" })
-                : (ack.message?.trim() ||
+                : ack.message?.trim() ||
                     intl.formatMessage(
                       { id: "commandCenter.aiSearch.failed" },
                       { code: reasonCode || ack.status },
-                    )),
+                    ),
             );
           })
           .catch((sendError: unknown) => {
@@ -286,16 +295,24 @@ export function useAiHistorySearchRunner(params: {
             );
           });
       };
+      // 组意图是完整的选择事实：直接下发，不 getView 找具体兜底、不在 UI 选成员。
+      // CLI 组 admission 权威选成员并压到该成员最低档；失败在 ACK 里返回。
+      if (modelInput && "modelGroupIntent" in modelInput) {
+        sendStart({ modelGroupIntent: modelInput.modelGroupIntent });
+        return;
+      }
       if (!modelSelectionService) {
         sendStart();
         return;
       }
       // 模型读取与发送解耦：getView 挂起时不等它，缺席即按无模型发送。
-      // 与副文案显示同一份意图：recent 当 input 传进去解析 effectiveSelection，
-      // 还拿不到时退 preferredSelection（新建任务同款），都不在才回退 CLI 默认。
+      // 和副文案共用同一份具体选择；还拿不到时退 preferredSelection，都不在才回退 CLI 默认。
       // 搜索只跑最低成本档位：身份沿用当前选择，档位按该模型档位表压低后再下发。
+      // 组意图不会走到这里：上面的分支已直接下发 modelGroupIntent。
+      const viewInput =
+        modelInput && "selection" in modelInput ? { selection: modelInput.selection } : undefined;
       void modelSelectionService
-        .getView(modelSelectionInput)
+        .getView(viewInput)
         .then(
           (view) =>
             resolveAiSearchModelSelection(
@@ -311,10 +328,19 @@ export function useAiHistorySearchRunner(params: {
         )
         .then((model) => {
           if (!inFlightRef.current) return;
-          sendStart(model ?? undefined);
+          sendStart(model ? { model } : undefined);
         });
     },
-    [agentService, intl, locale, modelSelectionInput, modelSelectionService, releaseHeld, workspaceAbsPath, workspaceIdentity],
+    [
+      agentService,
+      intl,
+      locale,
+      modelInput,
+      modelSelectionService,
+      releaseHeld,
+      workspaceAbsPath,
+      workspaceIdentity,
+    ],
   );
 
   const reset = useCallback(() => {

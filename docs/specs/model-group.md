@@ -35,7 +35,7 @@ flowchart TD
 - 用户可创建、重命名、删除、启用/停用组；组内添加、移除、排序**具体模型**（provider+model 二元组），并为支持思考深度的成员保存具体档位值。添加成员时在同一弹窗中选模型和档位；有档位表时默认选中模型当前默认档，并保存该值；无档位表时只保存模型身份。界面不提供“跟随模型默认”选项。旧配置缺少档位字段仍按未绑定读取，执行时使用模型默认档；选定具体档位后写入该值。已绑定档位不再受模型默认值后续变化影响。模型组成员候选包含普通模型选择器中隐藏或关闭的已配置模型；隐藏/关闭只控制普通选择器的展示，不阻止加入模型组。加入模型组不改变 CLI/runtime 对实际可用性的校验。
 - **成员档位在添加时一次确定，之后不可改**：添加弹窗里选定的档位随成员一起落盘，成员行只读展示，不再提供档位下拉编辑。要换档位就删掉该成员再重新添加，不做“原地改值”的第二条写入路径。
 - **同一模型可以重复加入**：组内不按 provider+model 去重，同一模型可加入多次（例如同模型不同档位各一条）；成员列表按加入顺序完整保留，每条独立可移除。持久化同样不去重。
-- 组启用（`enabled`，缺省 `true`）：关闭后该组离开模型选择器，但详情页仍可编辑、标记保留，重开后按已保存标记恢复；旧盘缺字段视为启用。停用组的发送按「无可用成员」拒绝（`modelGroup.noMembers`，文案用当前名），胶囊保留组名，不回落、不清意图。
+- 组启用（`enabled`，缺省 `true`）：关闭后该组离开模型选择器，但详情页仍可编辑、标记保留，重开后按已保存标记恢复；旧盘缺字段视为启用。停用组的发送（`sendText` / 带首条输入的 `createSession` / `editUserQuery` / Subagent / 命令绑定 / 命令中心 AI 历史搜索）在唯一共享组 admission/决策处按 `enabled=false` 拒绝：即使会话已有仍可解析的钉死成员也不沿用，按「无可用成员」拒绝（`modelGroup.noMembers`，文案用当前名），胶囊保留组名，不回落、不清意图。普通发送与 AI 历史搜索不各写一套判定。
 - 模型组整体 Primary（`modelGroupsPrimary`，缺省 `false`）：挂在个人配置顶层（与 `providerOrder` 同层），只决定「模型组」分节在一二级，不参与可执行判定，不改变成员可用性与排序；关闭保留标记。打开后只渲染一个置顶的本地化「模型组」分节（`directItems`），各模型组作为该分节内的普通可选条目平铺，组名只出现一次，组条目之间没有分割线，分节与首个供应商分组之间有分割线；关闭后整节收进一个二级「模型组」菜单。旧盘缺字段视为非 Primary；历史逐组 `isPrimary` 字段只做兼容读取，不再写入、不再参与投影。
 - 草稿组意图（Renderer）：菜单点组只写 `modelGroupIntent` 草稿；`updateDraftConfig` 与 `persistV4ComposerDraft`、`seedImportedSessionDraft` 必须原样携带组意图，组与具体选择互斥，覆盖即丢用户意图（本次修复的依据：选组后新会话模型选项为空）。
 - 组身份走独立命名空间：组 ID 由 Host 生成（`model-group:` 前缀 + slug），禁止占用保留供应商 ID（`account:`、`builtin:` 前缀），组不得注册成假供应商，不进 Registry 的 providers 名单。
@@ -205,6 +205,30 @@ Agent / SendMessage → 取得既有 child execution claim（沿用 owner、fenc
 - **命令绑定**：文件头 `model: model-group:<groupId>`（+ `model-group-name` 快照）/ 内置绑定配置存组意图，与具体模型互斥。解析时刻为发送/预填时：插入命令芯片时若绑定是组，发送侧按 admission 语义在发送当下现读组名单解析为具体模型（`findCommandModelBinding` 返回组意图时走组 admission 路径）；绑定组已删或无可用成员时芯片置不可用并 toast 提示，不静默切换成别的模型。
 - **自动化**：DB `model_selection` 列存组意图 JSON（与具体模型 JSON 互斥，同一列区分形态），`ZCodeAutomation` / run 均带 `modelGroupIntent`。解析时刻为定时/触发 run 实际执行时（`resolveAutomationSubmissionModelSelection`）：首次派发在目标 Host 现读组名单哈希钉死并固定进 run，同一 run 重试复用已固定选择。降级：组已删 / 无可用成员时派发失败并记录 `lastError`（`modelGroup.deleted` / `modelGroup.noMembers` 同款文案），不回落 Workspace 首选；用户另选后恢复。
 
+### 命令中心 AI 历史搜索的组输入
+
+命令中心浮层沿用「最后展示的模型」时，展示事实可能是一个具体模型，也可能是一个组（docs/specs/command-center-ai-history-search.md）。组输入只落到一次性隐藏会话，不改变可见会话、最近选择或 accepted 历史。
+
+- **配置意图与协议互斥**：`startAiHistorySearch` payload 增加可选 `modelGroupIntent`（`{ groupId, groupNameSnapshot }`，`packages/shared/src/model-selection.ts`），与 `model` 严格互斥（superRefine）；两者都缺席保持 CLI 配置默认的旧行为，ACK 形状不变。UI 只消费整体 choice：要么下发具体 `model`，要么下发 `modelGroupIntent`，不把「组名 + recent 具体模型」拼成一个混合输入。
+- **状态所有者与唯一写入路径**：隐藏 `ai_history_search` 会话是这次组钉死的唯一 owner。Host/CLI 创建隐藏会话后、`startPromptTurn` 之前调用与普通发送相同的 `decideAdmissionModelGroup`（bootstrap `model-group-admission.ts`），经 `commitAdmissionModelGroup` 写会话组状态与模型选择并发 `ModelSelected`；Renderer 不抽选、不哈希、不自行挑成员。
+- **最低成本档位**：组路径不把成员默认档直接用于搜索。裁决结果带 `supportedThoughtLevels` 时，用共享纯函数 `pickLowestCostReasoningLevel`（`@zcode/shared/model-selection`）取最低成本档：档位表含关闭语义值（与 UI 同一张表，大小写不敏感）时取第一个关闭值，否则取配置第一项，保留配置原值；表为空/缺席返回 `undefined`，不编档位。UI 与 CLI 共用这一份实现，不各写一套。
+- **事件顺序**：
+
+```text
+浮层选组 → startAiHistorySearch{modelGroupIntent}（与 model 互斥）
+  → Host 创建隐藏会话（deferred，无痕）
+  → decideAdmissionModelGroup：现读组名单 + 同一拍模型目录
+    → 组已删 → modelGroup.deleted；停用/无可用成员 → modelGroup.noMembers
+    → 首次钉死（新隐藏会话必无既有 pin）→ outcome.supportedThoughtLevels
+  → pickLowestCostReasoningLevel → 调整 selection 档位
+  → commitAdmissionModelGroup：写 runtime/model_group + 会话模型选择 + ModelSelected
+  → startPromptTurn（隐藏会话首轮）
+  → 成功/失败终态：flushThenClose；取消：cancel 路径回收
+```
+
+- **失败语义**：组已删 / 停用 / 无可用成员在启动 turn 之前拒绝：先复用现有 `closeAiHistorySearchSession` 无痕回收隐藏会话，再原样上抛 `V4InputAdmissionRejectedError`；网关把 `reasonCode` 原样带进 ACK `failed`（`modelGroup.deleted` / `modelGroup.noMembers`）。失败不得退回具体模型/CLI 默认继续跑，不得把隐藏会话写进会话索引或持久库。turn 已启动后的失败仍走现有终态清理，不新增第二条回收路径。
+- **桌面与手机边界**：命令、owner 与投影不变；desktop-continuous 与手机 web-remote-replayable 都只消费同一份 ACK 与隐藏会话投影，恢复链路不重新抽选或改档。浮层关闭/取消/改字仍按现有 cancel 语义回收。
+
 ## 决策记录
 
 - owner：组名单在个人配置；钉死在会话模型配置
@@ -269,6 +293,7 @@ Agent / SendMessage → 取得既有 child execution claim（沿用 owner、fenc
 35. 旧 child 仅有具体选择与持久 profile 组意图、无组条目：恢复仍沿用 A 并补写组状态；已有组状态或 Fork 带原种子时保留原种子与当前档位。读取或写入模型配置失败时不发起模型请求。
 36. 从组中删除 A 或使 A 的配置不可解析后续跑：按原种子合法重钉，持久化新选择；`ModelSelected` 在 `TurnStarted` 前提交，时间线显示实际 A → B，刷新或重连后的模型与真实请求相同。组已删、无可用成员时明确失败，不改写旧 pin、不回落父模型。
 37. 原 profile 未绑定组、而是显式具体模型或父模型继承的 child：续跑仍恢复该 child 已保存的选择；父模型变化不隐式修改已启动子会话。内部仅作用于本次 execution 的模型 override 保持现有执行作用域，不改写 child 的会话 pin；首轮 override 也不借会话初始化写成永久选择，移除 override 后按该 child 的 profile 或组完成首次绑定。构造期模型能力、上下文预算、消息和本轮请求均使用实际执行模型，不能为避免持久化而改用另一模型初始化。
+38. 命令中心 AI 历史搜索选组：`startAiHistorySearch` 带 `modelGroupIntent`（不带 `model`）时，隐藏会话按组当前名单钉死成员，并以 `pickLowestCostReasoningLevel` 从该成员实际支持档位取最低成本档；档位表为空时不补档。组已删、停用、无可用成员时不启动 turn、不写会话模型、不落库，隐藏会话被无痕回收，ACK `failed` 的 `reasonCode` 为 `modelGroup.deleted` / `modelGroup.noMembers` 且保留同款文案。payload 同时带 `model` 与 `modelGroupIntent` 被 schema 拒绝；两者都缺席仍走 CLI 默认。
 
 ## 验证
 

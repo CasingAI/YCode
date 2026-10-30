@@ -16,7 +16,7 @@ interface StorageLike {
   setItem(key: string, value: string): void;
 }
 
-interface ComposerRecent {
+export interface ComposerRecent {
   readonly modelSelection?: ModelSelection;
   /** 模型组意图（docs/specs/model-group.md）；与 modelSelection 互斥。 */
   readonly modelGroupIntent?: ModelGroupIntent;

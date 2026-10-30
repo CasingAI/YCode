@@ -44,22 +44,30 @@
   重开浮层看进度，完成后重开直接看答案。Host 断开时删除该会话。
   允许内存态、重启即消失，不要求进任务索引。
   服务/UI 不把这次运行写入 tasks-index。
-- 模型沿用当前工作区上次选用：浮层不另开选择器；UI 在 `startAiHistorySearch`
-  载荷里带上发起时工作区会话的当前模型，CLI 把它钉到隐藏会话的
-  `runtimeConfig.modelSelection` 再跑这一轮。当前模型 = 工作区**最后展示的模型**
-  （`readComposerDisplayedModel`，见 `docs/specs/composer-displayed-model.md`）
-  当 input 传给模型服务视图解析出的 `effectiveSelection`；记录缺失或坏数据时退
-  `readComposerRecent` 的具体 `modelSelection`（既有最近提交偏好，行为不变），
-  再无则退回目录的 `preferredSelection`；两者都拿不到时字段缺席，沿旧行为走 CLI
-  配置默认；CLI 侧 Registry 校验失败也回退默认、不让整轮失败。副文案显示的必须是
-  同一份输入解析出的同一份选择，保证显示即所用。
+- 模型意图沿用当前工作区上次选用：浮层不另开选择器；UI 在 `startAiHistorySearch`
+  载荷里带上发起时工作区的当前模型意图，CLI 把它落到隐藏会话再跑这一轮。当前意图 =
+  工作区**最后展示的模型意图**（`readComposerDisplayedModel`，见
+  `docs/specs/composer-displayed-model.md`），有两种互斥形态：具体 `selection` 或
+  `modelGroupIntent`（组 ID + 组名快照）。优先级为 displayed 具体 → displayed 组 →
+  `readComposerRecent` 具体 → `readComposerRecent` 组（既有最近提交偏好，行为不变）；
+  均缺失才退回目录的 `preferredSelection` / CLI 配置默认。displayed 是组意图时，
+  UI 不查具体兜底、不在 UI 选成员，直接下发 `modelGroupIntent`，由 CLI 在
+  admission 权威选成员；displayed 是具体模型时沿用原路径：当 input 传给模型服务
+  视图解析出的 `effectiveSelection`，再按最低成本档位下发 `model`。
   原因：不带 input 的 `getView()` 本来就没有 `effectiveSelection`，只有目录 +
   `preferredSelection`；CLI 是另一个进程，读不到 UI 进程的模型目录，唯一可用
-  事实源是 UI 侧该工作区的模型服务，单向随命令下发，不反向回查。
-- 搜索只用最低成本档位：模型身份（provider/model）沿用当前选择，但思考档位
+  事实源是 UI 侧该工作区的模型服务，单向随命令下发，不反向回查。组意图不需要
+  UI 进程目录就能下发，成员裁决本来就属于 CLI。
+- 组意图的权威裁决与失败：CLI 用现有组 admission（同一份个人配置与目录）选出实际
+  成员，按该成员支持档位的最低成本项启动；组已删除、为空、全部不可用或已停用时不
+  回落旧/default，ACK `status=failed`，`reasonCode` 为 `modelGroup.deleted` /
+  `modelGroup.noMembers`，`message` 用当前名或组名快照。浮层只透传 ACK 的
+  `message` 报错，不在 UI 侧重试或改选成员。
+- 搜索只用最低成本档位：具体模型身份（provider/model）沿用当前选择，但思考档位
   （`reasoningLevel`）在下发前压到该模型档位表的最低成本项——档位表含关闭语义值
   （`off`/`disabled`/`none`/`no-think` 等，不分大小写）时用关闭值，否则用档位表
-  第一项（配置声明顺序为低→高）。副文案显示压低后的同一份选择，保证显示即所用。
+  第一项（配置声明顺序为低→高）。组意图不带档位，档位由 CLI 按被选成员的档位表
+  同规则压低。副文案显示的必须是同一份输入解析出的同一份选择，保证显示即所用。
   原因：搜索是只读归纳，不值得烧高思考档位；压低只影响本轮隐藏会话的下发载荷，
   不改用户工作区的当前选择与 recent。
 
@@ -73,6 +81,11 @@ input → HiddenSearchRun（唯一 owner）→ 一次 turn → 结构化回答+�
 - 新增一条工作区级一次性命令 `startAiHistorySearch`，由 Host/CLI 内部创建隐藏会话、
   跑一轮、对外只流式回答与引用。不要让浮层自己拼「创建会话 → 发文本 → 再删」：
   那条路径容易漏进侧栏。
+- 载荷：`{ workspaceId, query, language?, model?, modelGroupIntent? }`。`model` 与
+  `modelGroupIntent` 互斥（严格 runtime 校验：同时出现即拒绝），两者都缺席是合法的
+  旧行为（CLI 配置默认）。成功 ACK 的 `result` 仍是
+  `{ type: "startAiHistorySearch", sessionId }`，浮层投影与取消协议不变。组意图的
+  成员选择、档位压低与失败码由 CLI 权威裁决，UI 不在本地把组展开成成员。
 - 路由跟现有工作区会话命令同一条：桌面持续链路与远端可回放链路都打到该工作区的
   Host，不能只按本地路径猜。无可用运行时则浮层明确失败，不降级成关键词搜索冒充 AI。
 - 浮层用现有对话投影订阅这份隐藏会话，但只渲染回答与引用，不挂完整会话页。
@@ -96,11 +109,14 @@ mobile: replayable ─ snapshot + gap repair ┘
 输入不为空时，列表最上面多一项，和任务/文件行同一套列表样式，不要做成第五个范围标签。
 
 - 主文案：用 AI 搜索。不复述搜索框里的查询——查询就在输入框里，复述一遍是废话。
-- 副文案：当前工作区的**模型名 + 思考等级**（如「Deepseek V4.1 Flash · 高」）。取的是
-  与发起时下发给 CLI 的同一份模型视图，让用户在按回车前就知道这一轮会用哪个模型跑。
-  模型名用 `formatModelDisplayName`，思考等级查思考控件同一张档位词表
-  （`thoughtLevelLabelId`），不得直接显示规范值。模型视图未就绪（loading / error /
-  unavailable）或无有效选择时，退回静态文案「查阅对话历史并归纳」。
+- 副文案：当前工作区的**模型意图**。具体模型时显示「模型名 + 思考等级」
+  （如「Deepseek V4.1 Flash · 高」），取与发起时下发给 CLI 的同一份模型视图，
+  让用户在按回车前就知道这一轮会用哪个模型跑。模型名用
+  `formatModelDisplayName`，思考等级查思考控件同一张档位词表
+  （`thoughtLevelLabelId`），不得直接显示规范值。displayed 是模型组意图时**只显示
+  组名**（当前视图名优先，组不在视图时用 `groupNameSnapshot`），不猜成员、不猜
+  档位，也不附加“自动选择”等冗余说明。模型视图未就绪（loading / error /
+  unavailable）且具体意图无效时，退回静态文案「查阅对话历史并归纳」。
   原因：命令中心是浮层，浮层开着时用户够不到工作区的模型切换器，模型在浮层打开那一刻就
   定死了；用户改不了它，那"会拿哪个跑"只能在发起前告知，事后显示没有决策价值。
 - 右侧可带快捷键提示（回车，当它被高亮时）
@@ -195,6 +211,8 @@ mobile: replayable ─ snapshot + gap repair ┘
 
 - 无可用运行时（未连接 Host）：浮层明确失败提示，不误创建可见任务。
 - 运行失败：回答区状态行换成可操作的错误文案，保留重试入口（再点列表 AI 项）。
+- 组已删除 / 为空 / 无可用成员 / 停用：CLI 拒绝，浮层展示 ACK `message`；不回落
+  旧具体模型、不改写成默认、不静默降级成其他组。
 - 取消（Esc / 改字 / 关浮层）：中止运行并回收会话，无残留任务，不报错。
 
 ## 明确不做
@@ -216,3 +234,9 @@ mobile: replayable ─ snapshot + gap repair ┘
 6. 有查询时列表第一项为「用 AI 搜索」；默认高亮时回车发起 AI 搜索。
    空查询打开浮层仍是近期列表，无此项。
 7. 点来源关闭浮层并跳转高亮；改搜索框回到结果列表，不把它当成追问。
+8. 前台 Composer 最后展示的是模型组 G：副文案只显示组名（当前视图名优先名快照），
+   发起载荷只带 `modelGroupIntent`，不带 `model`，UI 不查具体兜底。
+9. 记录中的组已删除 / 无可用成员：CLI 拒绝并返回 `modelGroup.deleted` /
+   `modelGroup.noMembers`，浮层展示 `message`，不回落旧具体/default。
+10. 最近一次发送偏好是具体模型 A、最后展示的是组 G：命令中心使用 G，而不是 A。
+    没有 displayed 记录时才使用 recent 的具体/组意图。

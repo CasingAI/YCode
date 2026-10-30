@@ -133,6 +133,8 @@ export function createModelCatalogPort(deps: ModelCatalogPortDeps): ModelCatalog
       return groups.map((group) => ({
         groupId: group.groupId,
         name: group.name,
+        // 停用组仍进快照：admission 需要按 modelGroup.noMembers 拒绝，而不是误判 deleted。
+        enabled: group.enabled ?? true,
         memberOrder: group.memberOrder.map((member) => {
           const modelOptionsForMember = modelOptions.get(`${member.providerId}/${member.modelId}`);
           return {

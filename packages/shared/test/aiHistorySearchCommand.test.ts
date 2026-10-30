@@ -70,6 +70,45 @@ test("startAiHistorySearch payload：model 可选，缺席沿旧行为走 CLI �
     false,
   );
 });
+test("startAiHistorySearch payload：modelGroupIntent 可选，与 model 严格互斥", () => {
+  const group = { groupId: "model-group:fast", groupNameSnapshot: "快速模型" };
+  const withGroup = commandPayloadSchemas.startAiHistorySearch.safeParse({
+    workspaceId: "/tmp/proj",
+    query: "结论",
+    modelGroupIntent: group,
+  });
+  assert.equal(withGroup.success, true);
+  if (withGroup.success) assert.deepEqual(withGroup.data.modelGroupIntent, group);
+
+  // 组与具体模型是互斥的两种 choice：混合载荷必须被 schema 拒绝。
+  assert.equal(
+    commandPayloadSchemas.startAiHistorySearch.safeParse({
+      workspaceId: "/tmp/proj",
+      query: "结论",
+      model: { providerId: "zai", modelId: "glm-5" },
+      modelGroupIntent: group,
+    }).success,
+    false,
+  );
+  // 坏组意图（缺 groupId / 空组名快照字段）同样拒绝。
+  assert.equal(
+    commandPayloadSchemas.startAiHistorySearch.safeParse({
+      workspaceId: "/tmp/proj",
+      query: "结论",
+      modelGroupIntent: { groupNameSnapshot: "快速模型" },
+    }).success,
+    false,
+  );
+  assert.equal(
+    commandPayloadSchemas.startAiHistorySearch.safeParse({
+      workspaceId: "/tmp/proj",
+      query: "结论",
+      modelGroupIntent: { groupId: "", groupNameSnapshot: "快速模型" },
+    }).success,
+    false,
+  );
+});
+
 test("cancelAiHistorySearch payload：隐藏会话 id 必填", () => {
   assert.equal(
     commandPayloadSchemas.cancelAiHistorySearch.safeParse({ searchSessionId: "sess_ai_search_abc" })

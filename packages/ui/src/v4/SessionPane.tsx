@@ -87,7 +87,7 @@ import { parseModelPickerValue } from "@/lib/zcodeSessionProjection.js";
 import { captureComposerRecentSubmission } from "@/lib/composerRecent.js";
 import {
   recordComposerDisplayedModel,
-  resolveForegroundDisplayedModelSelection,
+  resolveForegroundDisplayedModel,
 } from "@/lib/composerDisplayedModel.js";
 import { resolveProviderLabel } from "@/lib/registryProviderView.js";
 import {
@@ -1371,14 +1371,16 @@ export function SessionPane({
   });
   const modelSelectionView =
     modelSelectionRead.state.status === "ready" ? modelSelectionRead.state.view : null;
-  // 工作区“最后展示的模型”（docs/specs/composer-displayed-model.md）：只有前台主
-  // Composer 真正展示具体可用模型时才写。focused / telemetryVisible 是既有前台信号；
-  // 后台 pane、隐藏 tab 的普通重渲染与目录/会话更新不得抢写。
+  // 工作区“最后展示的模型意图”（docs/specs/composer-displayed-model.md）：只有前台主
+  // Composer 真正展示具体可用模型或模型组意图时才写。focused / telemetryVisible 是既有
+  // 前台信号；后台 pane、隐藏 tab 的普通重渲染与目录/会话更新不得抢写。
   const displayedModelProviderId = draftConfig.modelSelection?.providerId ?? "";
   const displayedModelId = draftConfig.modelSelection?.modelId ?? "";
   const displayedModelReasoningLevel = draftConfig.modelSelection?.options?.reasoningLevel ?? "";
+  const displayedModelGroupId = draftConfig.modelGroupIntent?.groupId ?? "";
+  const displayedModelGroupName = draftConfig.modelGroupIntent?.groupNameSnapshot ?? "";
   useEffect(() => {
-    const selection = resolveForegroundDisplayedModelSelection({
+    const displayed = resolveForegroundDisplayedModel({
       foreground: { focused, visible: telemetryVisible, readOnly, selectionSideChat },
       displayProvider: provider ?? ZCODE_AGENT_PROVIDER,
       view: modelSelectionView,
@@ -1392,10 +1394,15 @@ export function SessionPane({
                 : {}),
             }
           : null,
+      groupIntent: displayedModelGroupId
+        ? { groupId: displayedModelGroupId, groupNameSnapshot: displayedModelGroupName }
+        : null,
     });
-    if (!selection) return;
-    recordComposerDisplayedModel(workspacePath, selection, workspaceIdentity);
+    if (!displayed) return;
+    recordComposerDisplayedModel(workspacePath, displayed, workspaceIdentity);
   }, [
+    displayedModelGroupId,
+    displayedModelGroupName,
     displayedModelId,
     displayedModelProviderId,
     displayedModelReasoningLevel,

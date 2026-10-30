@@ -2,9 +2,23 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   modelGroupDeprioritizeScheduleSchema,
+  pickLowestCostReasoningLevel,
   selectModelGroupCandidates,
   type ModelGroupMemberRef,
 } from "../src/model-selection.js";
+
+test("最低成本档位优先关闭语义值，否则取配置第一项并保留原值", () => {
+  // 关闭语义值优先于配置顺序，且返回配置原值而不是归一化文本。
+  assert.equal(pickLowestCostReasoningLevel(["low", "OFF", "high"]), "OFF");
+  assert.equal(pickLowestCostReasoningLevel(["no_think", "low"]), "no_think");
+  assert.equal(pickLowestCostReasoningLevel(["high", "low"]), "high");
+  assert.equal(pickLowestCostReasoningLevel(["Low", "No-Think"]), "No-Think");
+});
+
+test("最低成本档位：空表/缺席返回 undefined，不编档位", () => {
+  assert.equal(pickLowestCostReasoningLevel(undefined), undefined);
+  assert.equal(pickLowestCostReasoningLevel([]), undefined);
+});
 
 test("模型组候选默认包含旧成员、排除 selectable=false 并保留完整快照", () => {
   const members = [

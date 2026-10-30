@@ -94,6 +94,7 @@ import type { SessionLease } from "@/v4/sessionDataLayer.js";
 import { formatModelChangeThoughtLabel } from "@/v4/modelChangeThoughtLabel.js";
 import { readComposerRecent } from "@/lib/composerRecent.js";
 import { readComposerDisplayedModel } from "@/lib/composerDisplayedModel.js";
+import { resolveModelGroupDisplayName } from "@/lib/modelSelectionGroups.js";
 import { resolveAiSearchModelInput } from "@/command-center/aiSearchModelInput.js";
 import { resolveAiSearchModelSelection } from "@/command-center/aiSearchModelLevel.js";
 import { useAiHistorySearchStatusStore } from "@/store/aiHistorySearchStatusStore.js";
@@ -713,20 +714,28 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
   const modelSelectionReady =
     open && workspaceServicesResolution.connectionKind !== "remote-waiting";
   // 命令中心没有草稿 intent：不带 input 的 getView() 只有目录 + preferredSelection，
-  // 本来就没有 effectiveSelection。优先读工作区“最后展示的模型”（前台 Composer 真正
-  // 展示过的具体模型，docs/specs/composer-displayed-model.md）；记录缺失/坏数据才退
-  // 最近一次 accepted 发送偏好（readComposerRecent，与本记录分开存储）。视图按当前
-  // 账号/目录解析出 effectiveSelection，input 为空时视图回 preferredSelection。
+  // 本来就没有 effectiveSelection。优先读工作区“最后展示的模型意图”（前台 Composer
+  // 真正展示过的具体模型或模型组，docs/specs/composer-displayed-model.md）；
+  // 记录缺失/坏数据才退最近一次 accepted 发送偏好（readComposerRecent，完整记录，
+  // 与本记录分开存储）。displayed 整体优先，组意图也优先于 recent 的具体模型。
   const aiSearchModelInput = useMemo(
     () =>
       resolveAiSearchModelInput(
         readComposerDisplayedModel(workspaceAbsPath, workspaceIdentity),
-        readComposerRecent(workspaceAbsPath, workspaceIdentity)?.modelSelection,
+        readComposerRecent(workspaceAbsPath, workspaceIdentity),
       ),
     // 浮层打开那一刻读一次定死：开着时用户够不到模型切换器，不跟随后续变化。
     // open 参与依赖，远端 attachment 等待中重开浮层也能重新读本地记录。
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [modelSelectionReady, open, workspaceAbsPath, workspaceIdentity],
+  );
+  // 服务视图输入仍只接受具体选择：组意图不扩服务契约，只用来读同 workspace 组名。
+  const aiSearchModelViewInput = useMemo(
+    () =>
+      aiSearchModelInput && "selection" in aiSearchModelInput
+        ? { selection: aiSearchModelInput.selection }
+        : undefined,
+    [aiSearchModelInput],
   );
   const [rawQuery, setRawQuery] = useState("");
   // AI 搜索回答态：true 时列表换成回答区（spec: docs/specs/command-center-ai-history-search.md）。
@@ -741,7 +750,7 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
     workspaceIdentity,
     agentService: zcodeAgentService ?? null,
     modelSelectionService: scopedModelSelectionService,
-    modelSelectionInput: aiSearchModelInput,
+    modelInput: aiSearchModelInput,
   });
   // 「用 AI 搜索」触发项副文案：浮层打开即告知将用哪个模型跑（spec: 结果列表里怎么出现）。
   // 读与发起时下发给 CLI 的同一份工作区模型服务视图，保证显示的就是会真正使用的模型；
@@ -750,9 +759,19 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
     scopedModelSelectionService,
     modelSelectionReady,
     "remote-waiting",
-    aiSearchModelInput,
+    aiSearchModelViewInput,
   );
   const aiSearchTriggerHint = useMemo(() => {
+    // 组意图副文案只报组名：当前视图名优先，组已删/未就绪用名快照；
+    // 不猜成员、不猜档位，也不附加“自动选择”之类的说明。
+    if (aiSearchModelInput && "modelGroupIntent" in aiSearchModelInput) {
+      const view =
+        modelSelectionView.state.status === "ready" ? modelSelectionView.state.view : null;
+      const groupName = resolveModelGroupDisplayName(view, aiSearchModelInput.modelGroupIntent);
+      return groupName?.trim()
+        ? groupName
+        : intl.formatMessage({ id: "commandCenter.aiSearch.hint" });
+    }
     const state = modelSelectionView.state;
     // 无 input 时视图本来就没有 effectiveSelection：recent 意图已随 input 解析，
     // 还拿不到时退到目录的 preferredSelection（新建任务同款），都不在才静态兜底。
@@ -776,7 +795,7 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
       thought: selection.options?.reasoningLevel,
       intl,
     });
-  }, [intl, modelSelectionView.state]);
+  }, [aiSearchModelInput, intl, modelSelectionView.state]);
   const [manualScope, setManualScope] = useState<CommandCenterSearchScope>("all");
   // 「仅标题」开关（spec: specs/command-center-search.md）：只影响任务分区匹配，
   // 关闭弹窗时随 manualScope 一起重置，不进搜索历史。
