@@ -66,6 +66,13 @@ packages/desktop/resources/macos-window-bounds/
 packages/desktop/resources/macos-about-sheet/
 # CUA Helper SEA 基座下载缓存（scripts/cua-helper-sea-base.mjs 落盘的官方 Node 22 运行时，纯下载产物）
 /.tmp/
+# 本地校验留下的临时目录：tmp/ 放 typecheck、lint、e2e 的输出日志，
+# .tmp-<名称>/ 放一次性验证脚本与补丁，均可随时重跑生成，不入库。
+/tmp/
+/.tmp-*/
+# Emoji 选择器 e2e 的早期草稿目录，正式版本在 packages/ui/test/fixtures/emoji-picker-browser/，
+# 这里只剩本机残留的旧副本。
+/.emoji-e2e/
 # Python 字节码（docker/plugin-eval/summarize.py 在主机上跑会生成）。
 __pycache__/
 *.pyc
