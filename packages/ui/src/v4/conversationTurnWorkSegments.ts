@@ -48,7 +48,13 @@ export function resolveConversationTurnWorkStatus(
   if (!hasWork) return undefined;
   return {
     // 失败轮过去被并入 completed，信息窗口因此会把失败误报成成功完成。
-    state: isRunning ? "running" : isFailed ? "failed" : isInterrupted ? "interrupted" : "completed",
+    state: isRunning
+      ? "running"
+      : isFailed
+        ? "failed"
+        : isInterrupted
+          ? "interrupted"
+          : "completed",
     ...(durationMs !== undefined ? { durationMs } : {}),
   };
 }
@@ -142,6 +148,11 @@ export function buildConversationTurnWorkSegments(options: {
   key: string;
   header?: TurnHeaderRow;
   orderedRows: readonly ConversationRow[];
+  /**
+   * 未按可见性过滤的同段行，仅供最后一次 response 身份判定。
+   * 视觉过滤会裁掉空占位；锚点仍必须看过滤前的行，不能拿可见行当唯一输入。
+   */
+  anchorRows?: readonly ConversationRow[];
   assistantTailRows: readonly AssistantWorkRow[];
   latestAssistantTextRow?: AssistantTextRow;
   isRunning: boolean;
@@ -152,6 +163,9 @@ export function buildConversationTurnWorkSegments(options: {
   nowMs?: number;
 }): ConversationTurnWorkSegment[] {
   const visualDrafts = splitVisualWorkSegments(options.orderedRows);
+  // 段边界由 guided user input 决定；未过滤行只多做一次同样的切分，保证多段时
+  // 每个气泡仍用自己的段内锚点，不会把后一段的新 response 拿去清除前一段的旧卡。
+  const anchorDrafts = splitVisualWorkSegments(options.anchorRows ?? options.orderedRows);
   const tailRowIds = new Set(options.assistantTailRows.map((row) => row.rowId));
   return visualDrafts.map((segment, segmentIndex) => {
     const segmentAssistantRows = segment.orderedRows.filter(isAssistantWorkRow);
@@ -209,6 +223,7 @@ export function buildConversationTurnWorkSegments(options: {
         : `${options.key}:guide:${segment.triggerRow?.entityId ?? segment.triggerRow?.rowId ?? segmentIndex}`;
     const flowItems = buildConversationFlowItems({
       orderedRows: segment.orderedRows,
+      anchorRows: anchorDrafts[segmentIndex]?.orderedRows ?? segment.orderedRows,
       assistantHistoryRows: segmentHistoryRows,
       assistantFollowingRows: segmentFollowingRows,
       assistantTailRows: segmentTailRows,

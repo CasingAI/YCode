@@ -2807,6 +2807,7 @@ const enUS: Record<string, string> = {
   "settings.previewBadge.dark": "Dark",
   "settings.modelProviderTitle": "Providers and models",
   "chat.toolbar.model.groupSection": "Model groups",
+  "chat.toolbar.model.otherGroup": "Other",
   "chat.modelGroup.sendFailedDeleted": "The model group was deleted. Pick another model and retry.",
   "chat.modelGroup.sendFailedNoMembers":
     "The model group has no usable models. Add members in settings and retry.",
@@ -2830,7 +2831,8 @@ const enUS: Record<string, string> = {
   "settings.modelGroups.memberThoughtLevelFixed":
     "Reasoning depth is fixed when the member is added; remove and re-add the member to change it",
   "settings.modelGroups.selectable": "Include in new selections",
-  "settings.modelGroups.existingSessionsHint": "Only affects new selections; existing sessions keep their current model.",
+  "settings.modelGroups.existingSessionsHint":
+    "Only affects new selections; existing sessions keep their current model.",
   "settings.modelGroups.scheduleEdit": "Edit time windows",
   "settings.modelGroups.scheduleAdd": "Set time windows",
   "settings.modelGroups.scheduleTitle": "Deprioritize time windows",
@@ -2849,9 +2851,11 @@ const enUS: Record<string, string> = {
   "settings.modelGroups.endOfDay": "End at 24:00",
   "settings.modelGroups.addScheduleWindow": "Add time window",
   "settings.modelGroups.removeScheduleWindow": "Remove time window",
-  "settings.modelGroups.scheduleInvalid": "Enter a valid IANA time zone, at least one day, and valid times.",
+  "settings.modelGroups.scheduleInvalid":
+    "Enter a valid IANA time zone, at least one day, and valid times.",
   "settings.modelGroups.scheduleEqualTimes": "Start and end times must differ.",
-  "settings.modelGroups.scheduleSaveFailed": "Could not save the time windows. Your edits are still here; try again.",
+  "settings.modelGroups.scheduleSaveFailed":
+    "Could not save the time windows. Your edits are still here; try again.",
   "settings.modelGroups.memberChanged": "The member has changed. Reopen the editor to continue.",
   "settings.modelGroups.memberDragHandle": "Drag to reorder",
   "settings.modelGroups.defaultThoughtLevel": "Default",
@@ -2884,7 +2888,6 @@ const enUS: Record<string, string> = {
   "settings.mcp.group.plugin": "Plugin MCP servers",
   "settings.remoteSync.open": "Sync",
   "settings.remoteSync.preflighting": "Checking remote write access...",
-  "chat.toolbar.model.otherGroup": "Other",
   "settings.remoteSync.preflightTimeout":
     "Remote write check timed out after {seconds}s. Check the remote connection and try again.",
   "settings.remoteSync.preflightFailed": "Remote target is not writable: {path}. {error}",
@@ -3422,7 +3425,7 @@ const enUS: Record<string, string> = {
     "Choose whether this provider's models are expanded at the top level, listed as a submenu, or collapsed into Other.",
   "settings.modelProvider.displayWeight.expanded": "Expanded",
   "settings.modelProvider.displayWeight.submenu": "Submenu",
-  "settings.modelProvider.displayWeight.other": "In \"Other\"",
+  "settings.modelProvider.displayWeight.other": 'In "Other"',
   "settings.modelProvider.renameProvider": "Rename",
   "settings.modelProvider.enableCurrentPlan": "Enable current plan",
   "settings.modelProvider.enableAction": "Enable",

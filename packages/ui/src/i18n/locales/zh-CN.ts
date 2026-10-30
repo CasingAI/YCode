@@ -2632,6 +2632,7 @@ const zhCN: Record<string, string> = {
   "settings.previewBadge.dark": "深色",
   "settings.modelProviderTitle": "供应商和模型",
   "chat.toolbar.model.groupSection": "模型组",
+  "chat.toolbar.model.otherGroup": "其他",
   "chat.modelGroup.sendFailedDeleted": "模型组已删除，请另选模型后重试。",
   "chat.modelGroup.sendFailedNoMembers": "模型组没有可用模型，请在设置中补充成员后重试。",
   "settings.modelGroupsTitle": "模型组",
@@ -2705,7 +2706,6 @@ const zhCN: Record<string, string> = {
   "settings.mcp.group.plugin": "Plugin MCP 服务器",
   "settings.remoteSync.open": "同步",
   "settings.remoteSync.preflighting": "正在检查远端写入权限...",
-  "chat.toolbar.model.otherGroup": "其他",
   "settings.remoteSync.preflightTimeout":
     "远端写入检查超过 {seconds} 秒未返回。请检查远端连接后重试。",
   "settings.remoteSync.preflightFailed": "远端目标不可写：{path}。{error}",

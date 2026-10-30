@@ -204,11 +204,7 @@ export {
 export * from "./remoteUsageTelemetry.js";
 export * from "./sessionCreateTelemetry.js";
 export type { LaunchMarks } from "./launchMarks.js";
-export {
-  LAUNCH_MARKS_QUERY_KEY,
-  parseLaunchMarks,
-  serializeLaunchMarks,
-} from "./launchMarks.js";
+export { LAUNCH_MARKS_QUERY_KEY, parseLaunchMarks, serializeLaunchMarks } from "./launchMarks.js";
 export type {
   CancelPendingRemoteConnectionRequest,
   BindRemoteWorkspaceSessionContextRequest,
@@ -298,6 +294,7 @@ export * from "./subagents-types.js";
 export * from "./settings-source.js";
 export * from "./settings-errors.js";
 export * from "./app-runtime-preferences.js";
+export * from "./provider-search-capability.js";
 export * from "./command-types.js";
 export * from "./plugin-marketplaces.js";
 export * from "./lineChangeStat.js";
@@ -310,7 +307,6 @@ export * from "./zcodePersistedMessageMerge.js";
 export * from "./assistant-presentation.js";
 export * from "./tool-call-summary.js";
 export * from "./tool-identity.js";
-export * from "./provider-search-capability.js";
 export * from "./streaming-tool-input-preview.js";
 export * from "./tool-plan-adapter.js";
 export * from "./permission-request-preview.js";

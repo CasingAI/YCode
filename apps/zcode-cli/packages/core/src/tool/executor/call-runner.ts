@@ -341,7 +341,9 @@ async function executeToolCallImpl(
   );
   if (!permissionResult.allowed) {
     const result = appendPreToolAdditionalContextsToErrorResult(
-      withWorkflowRefineDeniedFollowUp(permissionResult.result, { toolName: canonicalToolCall.name }),
+      withWorkflowRefineDeniedFollowUp(permissionResult.result, {
+        toolName: canonicalToolCall.name,
+      }),
       preToolHookResult.additionalContexts,
     );
     if (result.error?.type === CoreErrorType.PermissionDenied) {

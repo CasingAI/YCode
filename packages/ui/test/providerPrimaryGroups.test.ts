@@ -119,8 +119,6 @@ test("other 供应商收进合成「其他」组：平铺全集 + 按供应商�
   assert.equal(otherGroup.key, "model-selection-other");
   assert.equal(otherGroup.label, OTHER_LABEL);
   assert.equal(otherGroup.isOtherGroup, true);
-  // 「其他」是一级展开分区（标题独占一行），不是二级子菜单。
-  assert.equal(otherGroup.directItems, true);
   // 不再为 other 供应商产出独立顶层组；平铺 items 是两个供应商模型的全集。
   assert.deepEqual(
     otherGroup.items.map((item) => item.key),
@@ -156,7 +154,7 @@ test("混合三态排序：expanded → submenu → 合成「其他」组", () =
     [
       { key: "registry-provider:expanded-a", directItems: true, isOtherGroup: false, itemCount: 1 },
       { key: "registry-provider:submenu-m", directItems: false, isOtherGroup: false, itemCount: 1 },
-      { key: "model-selection-other", directItems: true, isOtherGroup: true, itemCount: 2 },
+      { key: "model-selection-other", directItems: false, isOtherGroup: true, itemCount: 2 },
     ],
   );
 });

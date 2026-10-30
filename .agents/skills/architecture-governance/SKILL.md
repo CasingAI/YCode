@@ -1,5 +1,6 @@
 ---
 name: architecture-governance
+title: 架构治理
 description: Apply the repository's architecture policy to code changes by generating a bounded context package, checking module and layer boundaries, and reporting baseline-aware violations. Use for any code change; skip for documentation-only work.
 ---
 
