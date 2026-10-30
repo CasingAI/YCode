@@ -3464,7 +3464,6 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.capabilities": "Model capabilities",
   "settings.modelProvider.supportsToolCall": "Tool calls",
   "settings.modelProvider.supportsJsonSchemaOutput": "Structured output",
-  "settings.modelProvider.supportsNativeWebSearch": "Native web search",
   "settings.modelProvider.supportsMidConversationSystem": "Mid-conversation system messages",
   "settings.modelProvider.requiresMfjsToolSchema": "MFJS tool schema",
   "settings.modelProvider.otherSettings": "Other settings",

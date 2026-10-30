@@ -3244,7 +3244,6 @@ const zhCN: Record<string, string> = {
   "settings.modelProvider.capabilities": "模型能力",
   "settings.modelProvider.supportsToolCall": "工具调用",
   "settings.modelProvider.supportsJsonSchemaOutput": "结构化输出",
-  "settings.modelProvider.supportsNativeWebSearch": "原生联网搜索",
   "settings.modelProvider.supportsMidConversationSystem": "对话中系统消息",
   "settings.modelProvider.requiresMfjsToolSchema": "MFJS 工具 Schema",
   "settings.modelProvider.otherSettings": "其他设置",

@@ -447,6 +447,10 @@ export interface AppSettings {
   dynamicWorkflowEnabled?: boolean;
   /** 用户是否显式启用定时任务（Cron）模型工具；默认关闭。 */
   automationEnabled?: boolean;
+  /** 网络搜索 Provider 体系总开关（docs/specs/web-search-provider-capability.md）；缺省开启。 */
+  webSearchEnabled?: boolean;
+  /** 网络搜索候选的个人 provider id 有序列表；缺省按模板固定优先级派生。排第一的激活。 */
+  webSearchProviderOrder?: string[];
   /** 是否将正常完成的长篇 Assistant 回答按 Markdown 章节分页阅读；默认关闭。 */
   assistantSectionReadingEnabled?: boolean;
   /**
@@ -510,7 +514,3 @@ export interface AppSettings {
   /** 设置页里的临时 endpoint override；正式/测试默认 base url 由 ZCODE_BASE_URL env 管理。 */
   zcodeEndpointOrigin?: string;
 }
-  /** 网络搜索 Provider 体系总开关（docs/specs/web-search-provider-capability.md）；缺省开启。 */
-  webSearchEnabled?: boolean;
-  /** 网络搜索候选的个人 provider id 有序列表；缺省按模板固定优先级派生。排第一的激活。 */
-  webSearchProviderOrder?: string[];

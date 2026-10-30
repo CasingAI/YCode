@@ -318,6 +318,10 @@ function RootInner({
         modelIoFullRetentionEnabled: appSettings.modelIoFullRetentionEnabled === true,
         dynamicWorkflowEnabled: appSettings.dynamicWorkflowEnabled === true,
         automationEnabled: appSettings.automationEnabled === true,
+        webSearchEnabled: appSettings.webSearchEnabled !== false,
+        ...(appSettings.webSearchProviderOrder === undefined
+          ? {}
+          : { webSearchProviderOrder: appSettings.webSearchProviderOrder }),
       })
       .then(() => {
         if (!cancelled) {
@@ -336,6 +340,8 @@ function RootInner({
     appSettings?.modelIoFullRetentionEnabled,
     appSettings?.dynamicWorkflowEnabled,
     appSettings?.automationEnabled,
+    appSettings?.webSearchEnabled,
+    appSettings?.webSearchProviderOrder,
     services.zcodeAgentService,
   ]);
 
