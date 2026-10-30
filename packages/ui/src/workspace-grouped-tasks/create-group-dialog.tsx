@@ -16,6 +16,7 @@ import { isImeComposingKeyEvent } from "@/lib/imeComposition.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useFlatTaskGroupCreateDialogStore } from "@/store/flatTaskGroupCreateDialogStore.js";
 import { TaskGroupColorDot } from "@/workspace-grouped-tasks/colors.js";
+import { EmojiGlyph } from "@/workspace-grouped-tasks/emoji-glyph.js";
 import { EmojiPickerDialog } from "@/workspace-grouped-tasks/emoji-picker-dialog.js";
 import { TASK_GROUP_COLORS } from "@/workspace-grouped-tasks/types.js";
 import { cn } from "@/components/lib/utils.js";
@@ -119,12 +120,16 @@ export function CreateGroupDialog({
                     aria-label={intl.formatMessage({ id: "taskGroup.emoji" })}
                     title={intl.formatMessage({ id: "taskGroup.emoji" })}
                     className={cn(
-                      "flex size-10 items-center justify-center rounded-lg border text-xl leading-none hover:bg-hover",
+                      "flex size-10 min-w-0 items-center justify-center rounded-lg border leading-none hover:bg-hover",
                       emoji ? "border-border" : "border-dashed border-border",
                     )}
                     onClick={() => setEmojiPickerOpen(true)}
                   >
-                    {emoji ?? <SmilePlus className="size-5 text-foreground-subtlest" />}
+                    {emoji ? (
+                      <EmojiGlyph emoji={emoji} size={20} />
+                    ) : (
+                      <SmilePlus className="size-5 text-foreground-subtlest" />
+                    )}
                   </button>
                   {emoji ? (
                     <button

@@ -1,13 +1,17 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   buildEmojiData,
-  filterByFontSupport,
   resolveLocalEmojiData,
 } from "../src/workspace-grouped-tasks/frimousse-local-data.js";
-import type { EmojiData } from "frimousse";
+import { emojiAssetUrl } from "../src/assets/noto-emoji/index.js";
+import rawEn from "emojibase-data/en/data.json" with { type: "json" };
 
-type EmojiDataEmoji = EmojiData["emojis"][number];
+interface RawEntry {
+  emoji: string;
+  skins?: { emoji: string }[];
+}
 
 // 口径对齐 frimousse 默认解析器：component 组被剔除、无 group 的条目（肤色部件）不进列表。
 const rawMessages = {
@@ -25,7 +29,9 @@ const rawMessages = {
   ],
 };
 
-function rawEmoji(entry: Partial<Parameters<typeof buildEmojiData>[1][number]> & { emoji: string }) {
+function rawEmoji(
+  entry: Partial<Parameters<typeof buildEmojiData>[1][number]> & { emoji: string },
+) {
   return entry;
 }
 
@@ -86,48 +92,74 @@ test("buildEmojiData：肤色变体映射为 frimousse 键、多肤色条目进 
   assert.deepEqual(data.emojis[0].aliases, ["👨🏻‍🤝‍👨🏼"]);
 });
 
-function emoji(version: number, countryFlag?: true): EmojiDataEmoji {
-  return { emoji: "🚀", category: 0, label: "x", version, tags: [], countryFlag };
-}
-
-test("filterByFontSupport：版本过滤与国旗门控", () => {
-  const emojis = [emoji(0.6), emoji(2), emoji(15), emoji(0.6, true)];
-  const full = filterByFontSupport(emojis, { emojiVersion: 2, countryFlags: true });
-  assert.deepEqual(
-    full.map((entry) => entry.version),
-    [0.6, 2, 0.6],
-  );
-  // 国旗渲染不支持：即便版本达标也剔除。
-  const noFlags = filterByFontSupport(emojis, { emojiVersion: 2, countryFlags: false });
-  assert.deepEqual(
-    noFlags.map((entry) => entry.version),
-    [0.6, 2],
-  );
-  // 显式 emojiVersion（Root prop）优先于探测值。
-  const pinned = filterByFontSupport(emojis, { emojiVersion: 2, countryFlags: true }, 0.6);
-  assert.deepEqual(
-    pinned.map((entry) => entry.version),
-    [0.6, 0.6],
-  );
-});
-
-test("resolveLocalEmojiData：本地数据可用、离线环境（无 DOM）隐藏国旗", async () => {
+test("resolveLocalEmojiData：Node 无 DOM 也返回全量数据，国旗与新 emoji 不被过滤", async () => {
   const zh = await resolveLocalEmojiData("zh", {});
   assert.equal(zh.locale, "zh");
   assert.ok(zh.categories.length > 5, "分类完整");
-  assert.ok(zh.emojis.length > 1000, "全量列表");
-  assert.ok(zh.emojis.every((entry) => entry.countryFlag !== true), "node 测试环境无 canvas，国旗按不可渲染处理");
+  assert.ok(zh.emojis.length > 1900, "全量列表");
   assert.ok(zh.skinTones.light.length > 0);
+
+  assert.ok(
+    zh.emojis.some((entry) => entry.emoji === "🇨🇳"),
+    "国旗在无 DOM 环境仍保留",
+  );
+  assert.ok(
+    zh.emojis.some((entry) => entry.emoji === "🫫" && entry.version === 18),
+    "Unicode 18 新 emoji 未被字体探测过滤",
+  );
 
   const en = await resolveLocalEmojiData("en-gb", {});
   assert.equal(en.locale, "en", "未打包的 locale 回落 en");
 });
 
-test("resolveLocalEmojiData：数据集按 locale 缓存（重复打开不重复转换）", async () => {
+test("真实 emojibase zh/en 数据与 3998 个本地图片 key 完整对应", async () => {
+  // 原始数据（含肤色、性别变体与多肤色别名）合计 3998 个不同 emoji，和资源锁一致。
+  const rawValues = (rawEn as RawEntry[]).flatMap((entry) => [
+    entry.emoji,
+    ...(entry.skins ?? []).map((skin) => skin.emoji),
+  ]);
+  const rawUnique = [...new Set(rawValues)];
+  assert.equal(rawUnique.length, 3998, "emojibase 原始数据应覆盖完整资源集");
+  assert.deepEqual(
+    rawUnique.filter((value) => emojiAssetUrl(value) === null),
+    [],
+    "本地图片资源不得缺图",
+  );
+
+  // frimousse 可见目录（base＋单肤色＋多肤色别名）同样不允许出现缺图。
+  const data = await resolveLocalEmojiData("en", {});
+  const visible = data.emojis.flatMap((entry) => [
+    entry.emoji,
+    ...Object.values(entry.skins ?? {}),
+    ...(entry.aliases ?? []),
+  ]);
+  assert.ok(visible.length > 3900);
+  assert.deepEqual(
+    [...new Set(visible)].filter((value) => emojiAssetUrl(value) === null),
+    [],
+    "选择器可见条目不得缺图",
+  );
+  assert.ok(emojiAssetUrl("🇨🇳"), "国家旗帜资源存在");
+  assert.ok(emojiAssetUrl("🫫"), "Unicode 18 新 emoji 资源存在");
+});
+
+test("解析器不依赖 DOM/canvas 或系统字体探测", () => {
+  const source = readFileSync(
+    new URL("../src/workspace-grouped-tasks/frimousse-local-data.ts", import.meta.url),
+    "utf8",
+  );
+  assert.doesNotMatch(
+    source,
+    /CanvasRenderingContext2D|document\.createElement|getContext\(|measureText|getImageData/,
+  );
+  assert.doesNotMatch(source, /detectEmojiFontSupport|filterByFontSupport|EmojiFontSupport/);
+  assert.doesNotMatch(source, /EMOJI_FONT_STACK|rendersInColor/);
+});
+
+test("resolveLocalEmojiData：数据集按 locale 缓存（重复打开返回同一对象）", async () => {
   const first = await resolveLocalEmojiData("zh", {});
   const second = await resolveLocalEmojiData("zh", {});
-  assert.equal(second.emojis.length, first.emojis.length);
-  assert.equal(second.categories.length, first.categories.length);
+  assert.equal(second, first);
 });
 
 test("resolveLocalEmojiData：预中止信号直接抛出", async () => {

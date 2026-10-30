@@ -26,6 +26,7 @@ import { ControlHintTooltip } from "@/ControlHintTooltip.js";
 import { CRON_DEFAULT_GROUP_ID, OFF_PEAK_DEFAULT_GROUP_ID } from "@zcode/shared";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { getTaskGroupDisplayTitle } from "@/workspace-grouped-tasks/group-title.js";
+import { EmojiGlyph } from "@/workspace-grouped-tasks/emoji-glyph.js";
 import { EmojiPickerDialog } from "@/workspace-grouped-tasks/emoji-picker-dialog.js";
 import {
   TASK_GROUP_COLORS,
@@ -160,7 +161,9 @@ export function StickyGroupHeader({
                     setEmojiDialogOpen(true);
                   }}
                 >
-                  {node.group.emoji ? <span aria-hidden="true">{node.group.emoji}</span> : null}
+                  {node.group.emoji ? (
+                    <EmojiGlyph emoji={node.group.emoji} size={16} className="shrink-0" />
+                  ) : null}
                   {intl.formatMessage({ id: "taskGroup.changeEmoji" })}
                 </DropdownMenuItem>
                 {node.group.emoji ? (
@@ -224,7 +227,9 @@ export function StickyGroupHeader({
               setEmojiDialogOpen(true);
             }}
           >
-            {node.group.emoji ? <span aria-hidden="true">{node.group.emoji}</span> : null}
+            {node.group.emoji ? (
+              <EmojiGlyph emoji={node.group.emoji} size={16} className="shrink-0" />
+            ) : null}
             {intl.formatMessage({ id: "taskGroup.changeEmoji" })}
           </ContextMenuItem>
           {node.group.emoji ? (

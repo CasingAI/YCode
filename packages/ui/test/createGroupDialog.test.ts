@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -100,4 +101,15 @@ test("确认值构造：空名回填默认名，非空名 trim，emoji 缺省不
   assert.ok(
     !("emoji" in buildCreateGroupValue({ titleDraft: "组", color: "blue" }, fallbackTitle)),
   );
+});
+
+test("新建分组的 emoji 方块：有值时复用 EmojiGlyph，无值时保留 SmilePlus", () => {
+  const source = readFileSync(
+    new URL("../src/workspace-grouped-tasks/create-group-dialog.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /<EmojiGlyph emoji=\{emoji\} size=\{20\}/);
+  assert.match(source, /<SmilePlus className="size-5 text-foreground-subtlest" \/>/);
+  assert.doesNotMatch(source, /\{emoji \?\? /, "emoji 字符不得作为文本直接输出");
+  assert.doesNotMatch(source, /text-xl/, "方块不再用字号决定 emoji 大小");
 });

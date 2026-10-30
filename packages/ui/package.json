@@ -15,7 +15,8 @@
     "./e2e-store-bridge": "./src/lib/e2eStoreBridgeBootstrap.ts",
     "./remote-workspace-session-store": "./src/store/remoteWorkspaceSessionStore.ts",
     "./styles.css": "./src/styles.css",
-    "./replay": "./src/replay.ts"
+    "./replay": "./src/replay.ts",
+    "./vite/noto-emoji-assets": "./vite/notoEmojiAssetsPlugin.ts"
   },
   "scripts": {
     "lint": "oxlint",
@@ -59,7 +60,7 @@
     "cmdk": "^1.1.1",
     "docx-preview": "^0.4.0",
     "embla-carousel-react": "^8.6.0",
-    "emojibase-data": "^18.0.0",
+    "emojibase-data": "18.0.0",
     "entities": "6.0.1",
     "frimousse": "^0.4.0",
     "highlight.js": "^11.11.1",
@@ -99,7 +100,8 @@
     "@types/react-dom": "^19.2.3",
     "tailwindcss": "^4.2.2",
     "typescript": "^6.0.2",
-    "unified": "^11.0.5"
+    "unified": "^11.0.5",
+    "vite": "^8.0.2"
   },
   "peerDependencies": {
     "@tanstack/react-virtual": "^3.13.23",

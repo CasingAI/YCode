@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>EmojiPickerPanel E2E fixture</title>
+    <script>
+      // 在任何模块加载前记录 fetch / XHR / Resource Timing 与控制台错误，
+      // 浏览器验证脚本只读这些记录，用来断言零外部网络请求。
+      (() => {
+        const requests = [];
+        window.__e2eRequests = requests;
+        window.__e2eConsoleErrors = [];
+        const originalFetch = window.fetch.bind(window);
+        window.fetch = function (input) {
+          try {
+            requests.push({
+              kind: "fetch",
+              url: typeof input === "string" ? input : String(input && input.url),
+            });
+          } catch {}
+          return originalFetch.apply(this, arguments);
+        };
+        const OriginalXHR = window.XMLHttpRequest;
+        function PatchedXHR() {
+          const xhr = new OriginalXHR();
+          const open = xhr.open;
+          xhr.open = function (method, url) {
+            try {
+              requests.push({ kind: "xhr", url: String(url) });
+            } catch {}
+            return open.apply(xhr, arguments);
+          };
+          return xhr;
+        }
+        PatchedXHR.prototype = OriginalXHR.prototype;
+        window.XMLHttpRequest = PatchedXHR;
+        const originalConsoleError = console.error;
+        console.error = function () {
+          try {
+            window.__e2eConsoleErrors.push(
+              Array.from(arguments)
+                .map((value) =>
+                  value instanceof Error ? `${value.name}: ${value.message}` : String(value),
+                )
+                .join(" "),
+            );
+          } catch {}
+          return originalConsoleError.apply(this, arguments);
+        };
+        try {
+          new PerformanceObserver((list) => {
+            for (const entry of list.getEntries()) {
+              requests.push({
+                kind: "resource",
+                url: entry.name,
+                initiatorType: entry.initiatorType,
+              });
+            }
+          }).observe({ type: "resource", buffered: true });
+        } catch {}
+      })();
+    </script>
+    <style>
+      /* styles.css 为 Electron vibrancy 把 body 背景设为透明；验证页需要可见表面。 */
+      html,
+      body,
+      #root {
+        min-height: 100%;
+      }
+      body {
+        background: #f4f4f5 !important;
+        color: #18181b !important;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/main.tsx"></script>
+  </body>
+</html>

@@ -7,7 +7,10 @@
     "sha256": "1564074e13439397221ffd522e2e504d56561994a23d371aa5e3ad43e4f5423f",
     "importRevision": null,
     "provenance": "The original copy revision is not recorded in the current checkout; this pinned license reference is not asserted to be the original import version.",
-    "roots": ["packages/ui/src/components/ui", "packages/ui/src/styles.css"],
+    "roots": [
+      "packages/ui/src/components/ui",
+      "packages/ui/src/styles.css"
+    ],
     "scope": "Upstream-derived portions only; ZCode-specific files in the same directory are not attributed to the upstream project.",
     "license": "MIT"
   },
@@ -19,7 +22,10 @@
     "sha256": "b4f9adb7c568904834d0dd6cc98d16c390d21ca32fc17ae7a267715269bd5529",
     "importRevision": null,
     "provenance": "The original copy revision is not recorded in the current checkout; this pinned license reference is not asserted to be the original import version.",
-    "roots": ["packages/ui/src/components/ai-elements", ".agents/skills/ai-elements"],
+    "roots": [
+      "packages/ui/src/components/ai-elements",
+      ".agents/skills/ai-elements"
+    ],
     "scope": "Upstream-derived UI components, skill instructions, reference documentation and example scripts only; locally adapted for ZCode imports, styling and agent workflow. Original import revision not recorded.",
     "license": "Apache-2.0",
     "modifiedFiles": [
@@ -166,7 +172,9 @@
   },
   {
     "id": "Fig autocomplete registry",
-    "roots": ["apps/zcode-cli/packages/core/src/tool/handlers/generated/bash-command-registry.ts"],
+    "roots": [
+      "apps/zcode-cli/packages/core/src/tool/handlers/generated/bash-command-registry.ts"
+    ],
     "license": "MIT",
     "source": "https://raw.githubusercontent.com/withfig/autocomplete/aef52acff84c45edde61ae610cc2c964802b9a38/LICENSE",
     "file": "third-party/upstream/5129f8779dca579cfcb235570688a2f15822b270575e04f27ef906aabbcc0355.txt",
@@ -195,7 +203,11 @@
     "sha256": "014bb31e83d5c2e76aea1cc6e82217346ab41362f32cb355ad0f5c10aa0aeaff",
     "importRevision": null,
     "provenance": "Original import revision is not recorded. This pinned upstream license/source reference is not asserted to be the original import version.",
-    "roots": [".agents/skills/agent-browser", ".agents/skills/dogfood", ".agents/skills/electron"],
+    "roots": [
+      ".agents/skills/agent-browser",
+      ".agents/skills/dogfood",
+      ".agents/skills/electron"
+    ],
     "scope": "Upstream-derived instructions, reference documents and shell templates; locally adapted for the ZCode workspace. Reference release v0.20.0 contains all three skills.",
     "license": "Apache-2.0",
     "modifiedFiles": [
@@ -246,7 +258,9 @@
     "referenceRevision": "063bee94c3f4df8453406c830b0a7df0f2860278",
     "source": "https://github.com/vercel-labs/agent-skills/tree/063bee94c3f4df8453406c830b0a7df0f2860278",
     "importRevision": null,
-    "roots": [".agents/skills/react-best-practices"],
+    "roots": [
+      ".agents/skills/react-best-practices"
+    ],
     "license": "MIT",
     "scope": "Vendored React/Next.js guidance and local adaptations; local README preserves Shu Ding / Vercel attribution.",
     "reviewRequired": "Pinned upstream README and skill declare MIT, but a complete original copyright/license notice has not been obtained."
@@ -264,5 +278,51 @@
     ],
     "scope": "Upstream audio files only (12 packs x 78 MP3 under packages/ui/src/assets/system-sounds/*/*.mp3 plus the copied license notices); playback code and catalog in packages/ui are ZCode-authored.",
     "license": "CC0-1.0"
+  },
+  {
+    "id": "Google Noto Emoji 18.0 PNG72 images",
+    "referenceRevision": "e20cbc2bbec1926686be9f9bee7d1d2cfa1fea0e",
+    "source": "https://raw.githubusercontent.com/googlefonts/noto-emoji/e20cbc2bbec1926686be9f9bee7d1d2cfa1fea0e/README.md",
+    "file": "third-party/upstream/1ae0343308fe8c7e6e679cd12688df7586aa87df286be19d8bb2969b8abcac64.txt",
+    "sha256": "1ae0343308fe8c7e6e679cd12688df7586aa87df286be19d8bb2969b8abcac64",
+    "importRevision": "e20cbc2bbec1926686be9f9bee7d1d2cfa1fea0e",
+    "provenance": "Vendored from the official googlefonts/noto-emoji checkout at tag v2026-09-24-unicode18_0 (commit e20cbc2bbec1926686be9f9bee7d1d2cfa1fea0e). The complete upstream README at that commit is preserved byte-for-byte as the license evidence; most image resources are Apache-2.0, fonts are OFL-1.1, and region-flags images are public domain; no font files are included. 3,736 PNGs are selected from 2D/png/72 by the emojibase-data 18 zh/en key set and renamed to emoji_u<codepoints>.png. Fourteen upstream keycap/component PNGs not referenced by the data are excluded. The lock file records every retained file hash, byte count and source revision.",
+    "roots": [
+      "packages/ui/src/assets/noto-emoji/noto",
+      "packages/ui/src/assets/noto-emoji/LICENSES/Apache-2.0.txt",
+      "packages/ui/src/assets/noto-emoji/LICENSES/AUTHORS"
+    ],
+    "scope": "Upstream PNG image assets and the complete upstream README, Apache-2.0 text and author file only; the resource lock, generated key index, URL API and build plugin are ZCode-authored. Font files are not included or distributed.",
+    "license": "Apache-2.0"
+  },
+  {
+    "id": "Google Noto Emoji font license (not distributed)",
+    "referenceRevision": "e20cbc2bbec1926686be9f9bee7d1d2cfa1fea0e",
+    "source": "https://raw.githubusercontent.com/googlefonts/noto-emoji/e20cbc2bbec1926686be9f9bee7d1d2cfa1fea0e/LICENSE",
+    "file": "third-party/upstream/500bb1ccf43df7bbb522112f9133a52b16e1c35e809632f5d8609b179152de5b.txt",
+    "sha256": "500bb1ccf43df7bbb522112f9133a52b16e1c35e809632f5d8609b179152de5b",
+    "importRevision": "e20cbc2bbec1926686be9f9bee7d1d2cfa1fea0e",
+    "provenance": "The upstream repository license text is retained for provenance. This project uses only the PNG image resources, not the NotoColorEmoji font files.",
+    "roots": [
+      "packages/ui/src/assets/noto-emoji/LICENSES/OFL-1.1.txt"
+    ],
+    "scope": "OFL-1.1 license text only; no font software is distributed.",
+    "license": "OFL-1.1"
+  },
+  {
+    "id": "googlefonts/noto-emoji region-flags images",
+    "referenceRevision": "e20cbc2bbec1926686be9f9bee7d1d2cfa1fea0e",
+    "source": "https://raw.githubusercontent.com/googlefonts/noto-emoji/e20cbc2bbec1926686be9f9bee7d1d2cfa1fea0e/third_party/region-flags/LICENSE",
+    "file": "third-party/upstream/73af5be6e2ea006b75bebfd2f463f252c5ce8c94024c639dbdd97f0456272a5a.txt",
+    "sha256": "73af5be6e2ea006b75bebfd2f463f252c5ce8c94024c639dbdd97f0456272a5a",
+    "importRevision": "e20cbc2bbec1926686be9f9bee7d1d2cfa1fea0e",
+    "provenance": "Vendored from third_party/region-flags/png in the official googlefonts/noto-emoji checkout at tag v2026-09-24-unicode18_0. The upstream README.third_party pins region-flags revision 743e1f4a92b7d2dac49d7e6af509af63a71f0b45. 262 flag PNGs referenced by emojibase-data 18 are renamed to the same emoji_u<codepoints>.png rule; unused subdivision flags are not copied.",
+    "roots": [
+      "packages/ui/src/assets/noto-emoji/flags",
+      "packages/ui/src/assets/noto-emoji/LICENSES/region-flags-LICENSE.txt",
+      "packages/ui/src/assets/noto-emoji/LICENSES/region-flags-README.third_party"
+    ],
+    "scope": "Upstream flag image assets and preserved upstream public-domain license/readme files only.",
+    "license": "Public Domain"
   }
 ]

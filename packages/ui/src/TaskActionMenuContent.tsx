@@ -1,6 +1,7 @@
 import { TID_V4_TASK_OPEN_IN_SPLIT } from "@zcode/shared";
 import { Check } from "lucide-react";
 import { TaskGroupColorDot } from "@/workspace-grouped-tasks/colors.js";
+import { EmojiGlyph } from "@/workspace-grouped-tasks/emoji-glyph.js";
 import type { TaskGroupMenuItem } from "@/workspace-grouped-tasks/types.js";
 
 interface TaskActionMenuItemProps {
@@ -244,7 +245,11 @@ export function TaskActionMenuContent({
                   ) : (
                     <span className="size-4 shrink-0" aria-hidden="true" />
                   )}
-                  <TaskGroupColorDot color={group.color} />
+                  {group.emoji ? (
+                    <EmojiGlyph emoji={group.emoji} size={16} className="shrink-0" />
+                  ) : (
+                    <TaskGroupColorDot color={group.color} />
+                  )}
                   <span className="truncate">{group.title}</span>
                   {isCurrentGroup ? (
                     <span className="ml-auto shrink-0 text-ui-xs text-foreground-subtlest">

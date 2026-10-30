@@ -8,6 +8,7 @@ import {
   ContextMenuSubTrigger,
 } from "@/components/ui/context-menu.js";
 import { TaskGroupColorDot } from "@/workspace-grouped-tasks/colors.js";
+import { EmojiGlyph } from "@/workspace-grouped-tasks/emoji-glyph.js";
 import type { TaskGroupMenuItem } from "@/workspace-grouped-tasks/types.js";
 
 export function GroupedTaskContextMenuContent({
@@ -77,7 +78,11 @@ export function GroupedTaskContextMenuContent({
                 }
               }}
             >
-              <TaskGroupColorDot color={group.color} />
+              {group.emoji ? (
+                <EmojiGlyph emoji={group.emoji} size={16} className="shrink-0" />
+              ) : (
+                <TaskGroupColorDot color={group.color} />
+              )}
               <span className="truncate">{group.title}</span>
             </ContextMenuItem>
           ))}

@@ -2480,6 +2480,12 @@ The original import revisions of copied components are not recorded in the curre
 
 - UI SFX (uisfx) system sounds (CC0-1.0): packages/ui/src/assets/system-sounds. License reference: https://github.com/romainsimon/uisfx. Original import revision: not recorded.
 
+- Google Noto Emoji 18.0 PNG72 images (Apache-2.0): packages/ui/src/assets/noto-emoji/noto, packages/ui/src/assets/noto-emoji/LICENSES/Apache-2.0.txt, packages/ui/src/assets/noto-emoji/LICENSES/AUTHORS. License reference: https://raw.githubusercontent.com/googlefonts/noto-emoji/e20cbc2bbec1926686be9f9bee7d1d2cfa1fea0e/README.md. Original import revision: e20cbc2bbec1926686be9f9bee7d1d2cfa1fea0e.
+
+- Google Noto Emoji font license (not distributed) (OFL-1.1): packages/ui/src/assets/noto-emoji/LICENSES/OFL-1.1.txt. License reference: https://raw.githubusercontent.com/googlefonts/noto-emoji/e20cbc2bbec1926686be9f9bee7d1d2cfa1fea0e/LICENSE. Original import revision: e20cbc2bbec1926686be9f9bee7d1d2cfa1fea0e.
+
+- googlefonts/noto-emoji region-flags images (Public Domain): packages/ui/src/assets/noto-emoji/flags, packages/ui/src/assets/noto-emoji/LICENSES/region-flags-LICENSE.txt, packages/ui/src/assets/noto-emoji/LICENSES/region-flags-README.third_party. License reference: https://raw.githubusercontent.com/googlefonts/noto-emoji/e20cbc2bbec1926686be9f9bee7d1d2cfa1fea0e/third_party/region-flags/LICENSE. Original import revision: e20cbc2bbec1926686be9f9bee7d1d2cfa1fea0e.
+
 Fig autocomplete source carries the repository's MIT license; the generated registry records npm @withfig/autocomplete@2.692.3 metadata as ISC. The original source MIT notice is retained below.
 
 ## Embedded native and WASM components
@@ -40192,6 +40198,215 @@ without asking permission. Attribution is appreciated but not required.
 
 Legal code: https://creativecommons.org/publicdomain/zero/1.0/legalcode
 SPDX identifier: CC0-1.0
+
+````
+
+### Notice 1ae0343308fe8c7e6e679cd12688df7586aa87df286be19d8bb2969b8abcac64
+
+- Google Noto Emoji 18.0 PNG72 images: https://raw.githubusercontent.com/googlefonts/noto-emoji/e20cbc2bbec1926686be9f9bee7d1d2cfa1fea0e/README.md
+
+````text
+![Noto](https://substackcdn.com/image/fetch/w_1456,c_limit,f_webp,q_auto:good,fl_progressive:steep/https%3A%2F%2Fbucketeer-e05bbc84-baa3-437e-9518-adb32be77984.s3.amazonaws.com%2Fpublic%2Fimages%2Fab4b4276-9bb0-42a6-a675-510fcb6055df_1940x1088.png)
+# Noto Emoji
+Noto Emoji (Stands for No Tofu) is an open source (Open Font License 1.1) emoji library that provides standard Unicode emoji support and tools for working with them including:
+
+- A Unicode compliant color emoji [font](https://github.com/googlefonts/noto-emoji/raw/main/2D/fonts/NotoColorEmoji.ttf).
+- A full library of Noto color emoji font files including vector svgs and pngs
+- [Metadata](https://github.com/googlefonts/emoji-metadata) for Emoji Input (including shortcodes, emoji ordering, ascii equivalents)
+
+## Color Font
+
+The latest font file is found [here](https://github.com/googlefonts/noto-emoji/raw/main/2D/fonts/NotoColorEmoji.ttf). If you want to download a specific version, please look at the gh-pages branch, where you will find the built assets for both our latest and older versions. 
+
+## Monochrome Font
+
+The black-and-white emoji font is back under active development and is available as a [variable font](https://fonts.google.com/noto/specimen/Noto+Emoji)
+
+## Using NotoColorEmoji
+
+NotoColorEmoji uses the CBDT/CBLC color font format, which is supported by Android
+and Chrome/Chromium OS.  Windows supports it starting with Windows 10 Anniversary
+Update in Chrome and Edge.  On macOS, only Chrome supports it, while on Linux it will
+support it with some fontconfig tweaking, see [issue #36](https://github.com/googlei18n/noto-emoji/issues/36). Currently we do not build other color font formats.
+
+## A note about PNGs
+
+The assets provided in the repo are all those used to build the NotoColorEmoji font. With one exception: the flag images in the font are PNG images to which transforms have been applied to standardize the size and generate the wave and border shadow. We do not have SVG versions that reflect these transforms.
+
+## License
+
+Emoji fonts (under the fonts subdirectory) are under the
+[SIL Open Font License, version 1.1](fonts/LICENSE).<br/>
+Tools and most image resources are under the [Apache license, version 2.0](./LICENSE).
+Flag images under third_party/region-flags are in the public domain or
+otherwise exempt from copyright ([more info](third_party/region-flags/LICENSE)).
+
+## Contributing
+
+Please read [CONTRIBUTING](CONTRIBUTING.md) if you are thinking of contributing to this project.
+
+````
+
+### Notice 500bb1ccf43df7bbb522112f9133a52b16e1c35e809632f5d8609b179152de5b
+- Google Noto Emoji font license (not distributed): https://raw.githubusercontent.com/googlefonts/noto-emoji/e20cbc2bbec1926686be9f9bee7d1d2cfa1fea0e/LICENSE
+
+````text
+Copyright 2013 Google LLC
+
+This Font Software is licensed under the SIL Open Font License, Version 1.1.
+This license is copied below, and is also available with a FAQ at:
+https://scripts.sil.org/OFL
+
+
+-----------------------------------------------------------
+SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007
+-----------------------------------------------------------
+
+PREAMBLE
+The goals of the Open Font License (OFL) are to stimulate worldwide
+development of collaborative font projects, to support the font creation
+efforts of academic and linguistic communities, and to provide a free and
+open framework in which fonts may be shared and improved in partnership
+with others.
+
+The OFL allows the licensed fonts to be used, studied, modified and
+redistributed freely as long as they are not sold by themselves. The
+fonts, including any derivative works, can be bundled, embedded, 
+redistributed and/or sold with any software provided that any reserved
+names are not used by derivative works. The fonts and derivatives,
+however, cannot be released under any other type of license. The
+requirement for fonts to remain under this license does not apply
+to any document created using the fonts or their derivatives.
+
+DEFINITIONS
+"Font Software" refers to the set of files released by the Copyright
+Holder(s) under this license and clearly marked as such. This may
+include source files, build scripts and documentation.
+
+"Reserved Font Name" refers to any names specified as such after the
+copyright statement(s).
+
+"Original Version" refers to the collection of Font Software components as
+distributed by the Copyright Holder(s).
+
+"Modified Version" refers to any derivative made by adding to, deleting,
+or substituting -- in part or in whole -- any of the components of the
+Original Version, by changing formats or by porting the Font Software to a
+new environment.
+
+"Author" refers to any designer, engineer, programmer, technical
+writer or other person who contributed to the Font Software.
+
+PERMISSION & CONDITIONS
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of the Font Software, to use, study, copy, merge, embed, modify,
+redistribute, and sell modified and unmodified copies of the Font
+Software, subject to the following conditions:
+
+1) Neither the Font Software nor any of its individual components,
+in Original or Modified Versions, may be sold by itself.
+
+2) Original or Modified Versions of the Font Software may be bundled,
+redistributed and/or sold with any software, provided that each copy
+contains the above copyright notice and this license. These can be
+included either as stand-alone text files, human-readable headers or
+in the appropriate machine-readable metadata fields within text or
+binary files as long as those fields can be easily viewed by the user.
+
+3) No Modified Version of the Font Software may use the Reserved Font
+Name(s) unless explicit written permission is granted by the corresponding
+Copyright Holder. This restriction only applies to the primary font name as
+presented to the users.
+
+4) The name(s) of the Copyright Holder(s) or the Author(s) of the Font
+Software shall not be used to promote, endorse or advertise any
+Modified Version, except to acknowledge the contribution(s) of the
+Copyright Holder(s) and the Author(s) or with their explicit written
+permission.
+
+5) The Font Software, modified or unmodified, in part or in whole,
+must be distributed entirely under this license, and must not be
+distributed under any other license. The requirement for fonts to
+remain under this license does not apply to any document created
+using the Font Software.
+
+TERMINATION
+This license becomes null and void if any of the above conditions are
+not met.
+
+DISCLAIMER
+THE FONT SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO ANY WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT
+OF COPYRIGHT, PATENT, TRADEMARK, OR OTHER RIGHT. IN NO EVENT SHALL THE
+COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+INCLUDING ANY GENERAL, SPECIAL, INDIRECT, INCIDENTAL, OR CONSEQUENTIAL
+DAMAGES, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
+OTHER DEALINGS IN THE FONT SOFTWARE.
+
+````
+
+### Notice 73af5be6e2ea006b75bebfd2f463f252c5ce8c94024c639dbdd97f0456272a5a
+- googlefonts/noto-emoji region-flags images: https://raw.githubusercontent.com/googlefonts/noto-emoji/e20cbc2bbec1926686be9f9bee7d1d2cfa1fea0e/third_party/region-flags/LICENSE
+
+````text
+== Copying ==
+
+The flags in this package were downloaded from Wikipedia and checked to be in
+Public Domain or otherwise exempt from Copyright.  In particular, the following
+are not explicitly tagged as "public_domain" or were tagged according to some
+national law which made them Public Domain in that nation (e.g. `{{PD-AM-exempt}}`)
+
+	AM	https://commons.wikimedia.org/wiki/File:Flag_of_Armenia.svg
+	AZ	https://commons.wikimedia.org/wiki/File:Flag_of_Azerbaijan.svg
+	JE	https://commons.wikimedia.org/wiki/File:Flag_of_Jersey.svg
+	KG	https://commons.wikimedia.org/wiki/File:Flag_of_Kyrgyzstan.svg
+	KZ	https://commons.wikimedia.org/wiki/File:Flag_of_Kazakhstan.svg
+	MD	https://commons.wikimedia.org/wiki/File:Flag_of_Moldova.svg
+	MX	https://commons.wikimedia.org/wiki/File:Flag_of_Mexico.svg
+	MY	https://commons.wikimedia.org/wiki/File:Flag_of_Malaysia.svg
+	RS	https://commons.wikimedia.org/wiki/File:Flag_of_Serbia.svg
+	YT	https://commons.wikimedia.org/wiki/File:Flag_of_Mayotte_(local).svg
+
+	US-SD	https://commons.wikimedia.org/wiki/File:Flag_of_South_Dakota.svg
+	US-UT	https://commons.wikimedia.org/wiki/File:Flag_of_Utah.svg
+
+	MX-AGU	https://commons.wikimedia.org/wiki/File:Flag_of_Aguascalientes.svg
+	MX-BCN	https://commons.wikimedia.org/wiki/File:Flag_of_Baja_California.svg
+	MX-BCS	https://commons.wikimedia.org/wiki/File:Flag_of_Baja_California_Sur.svg
+	MX-CAM	https://commons.wikimedia.org/wiki/File:Flag_of_Campeche.svg
+	MX-CHH	https://commons.wikimedia.org/wiki/File:Flag_of_Chihuahua.svg
+	MX-CHP	https://commons.wikimedia.org/wiki/File:Flag_of_Chiapas.svg
+	MX-CMX	https://commons.wikimedia.org/wiki/File:Flag_of_Mexican_Federal_District.svg
+	MX-COA	https://commons.wikimedia.org/wiki/File:Flag_of_Coahuila.svg
+	MX-COL	https://commons.wikimedia.org/wiki/File:Flag_of_Colima.svg
+	MX-DUR	https://commons.wikimedia.org/wiki/File:Flag_of_Durango.svg
+	MX-GRO	https://commons.wikimedia.org/wiki/File:Flag_of_Guerrero.svg
+	MX-GUA	https://commons.wikimedia.org/wiki/File:Flag_of_Guanajuato.svg
+	MX-HID	https://commons.wikimedia.org/wiki/File:Flag_of_Hidalgo.svg
+	MX-JAL	https://commons.wikimedia.org/wiki/File:Flag_of_Jalisco.svg
+	MX-MEX	https://commons.wikimedia.org/wiki/File:Flag_of_México.svg
+	MX-MIC	https://commons.wikimedia.org/wiki/File:Flag_of_Michoacan.svg
+	MX-MOR	https://commons.wikimedia.org/wiki/File:Flag_of_Morelos.svg
+	MX-NAY	https://commons.wikimedia.org/wiki/File:Flag_of_Nayarit.svg
+	MX-NLE	https://commons.wikimedia.org/wiki/File:Flag_of_Nuevo_Leon.svg
+	MX-OAX	https://commons.wikimedia.org/wiki/File:Flag_of_Oaxaca.svg
+	MX-PUE	https://commons.wikimedia.org/wiki/File:Flag_of_Puebla.svg
+	MX-QUE	https://commons.wikimedia.org/wiki/File:Flag_of_Queretaro.svg
+	MX-ROO	https://commons.wikimedia.org/wiki/File:Flag_of_Quintana_Roo.svg
+	MX-SIN	https://commons.wikimedia.org/wiki/File:Flag_of_Sinaloa.svg
+	MX-SLP	https://commons.wikimedia.org/wiki/File:Flag_of_San_Luis_Potosi.svg
+	MX-SON	https://commons.wikimedia.org/wiki/File:Flag_of_Sonora.svg
+	MX-TAB	https://commons.wikimedia.org/wiki/File:Flag_of_Tabasco.svg
+	MX-TAM	https://commons.wikimedia.org/wiki/File:Flag_of_Tamaulipas.svg
+	MX-TLA	https://commons.wikimedia.org/wiki/File:Flag_of_Tlaxcala.svg
+	MX-VER	https://commons.wikimedia.org/wiki/File:Flag_of_Veracruz.svg
+	MX-YUC	https://commons.wikimedia.org/wiki/File:Flag_of_Yucatan.svg
+	MX-ZAC	https://commons.wikimedia.org/wiki/File:Flag_of_Zacatecas.svg
+
+For individual details, revision history, and information on contributors, see 
+files in `html/`.
 
 ````
 

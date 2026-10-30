@@ -1,0 +1,3 @@
+/* 复用生产样式，并把夹具自身的类名纳入 Tailwind 扫描（styles.css 默认只扫 UI src）。 */
+@import "../../../src/styles.css";
+@source ".";

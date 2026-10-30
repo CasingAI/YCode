@@ -37,6 +37,7 @@ import { isImeComposingKeyEvent } from "@/lib/imeComposition.js";
 import { EmptyGroupDropZone } from "@/workspace-grouped-tasks/task-item.js";
 import { GroupedDraftTaskRow } from "@/workspace-grouped-tasks/draft-task-row.js";
 import { getTaskGroupDisplayTitle } from "@/workspace-grouped-tasks/group-title.js";
+import { EmojiGlyph } from "@/workspace-grouped-tasks/emoji-glyph.js";
 import { EmojiPickerDialog } from "@/workspace-grouped-tasks/emoji-picker-dialog.js";
 import { VirtualizedGroupedTaskList } from "@/workspace-grouped-tasks/virtualized-group-task-list.js";
 import {
@@ -565,7 +566,9 @@ export function GroupItem({
                     setEmojiDialogOpen(true);
                   }}
                 >
-                  {node.group.emoji ? <span aria-hidden="true">{node.group.emoji}</span> : null}
+                  {node.group.emoji ? (
+                    <EmojiGlyph emoji={node.group.emoji} size={16} className="shrink-0" />
+                  ) : null}
                   {intl.formatMessage({ id: "taskGroup.changeEmoji" })}
                 </DropdownMenuItem>
                 {node.group.emoji ? (
@@ -684,7 +687,9 @@ export function GroupItem({
               setEmojiDialogOpen(true);
             }}
           >
-            {node.group.emoji ? <span aria-hidden="true">{node.group.emoji}</span> : null}
+            {node.group.emoji ? (
+              <EmojiGlyph emoji={node.group.emoji} size={16} className="shrink-0" />
+            ) : null}
             {intl.formatMessage({ id: "taskGroup.changeEmoji" })}
           </ContextMenuItem>
           {node.group.emoji ? (

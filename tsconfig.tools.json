@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "types": ["node"]
+  },
+  "include": [
+    "packages/ui/vite/notoEmojiAssetsPlugin.ts",
+    "packages/ui/src/assets/noto-emoji/key.ts",
+    "scripts/vendor-noto-emoji.ts"
+  ]
+}

@@ -31,7 +31,7 @@ export function EmojiPickerDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xs">
+      <DialogContent className="min-w-0 sm:max-w-xs">
         <DialogHeader>
           <DialogTitle>{intl.formatMessage({ id: "taskGroup.emojiPicker.title" })}</DialogTitle>
         </DialogHeader>
