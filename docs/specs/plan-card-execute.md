@@ -49,6 +49,7 @@
 - **计划目录不是计划卡的展开态。** 状态面板、侧边栏启动器和 `ListPlans` 工具摘要打开的是会话级 `plan-directory` side-pane tab，目录数据来自 `state.sessionPlans`，详情行再按 `toolCallId` 打开现有 `PlanDetailSidePane`。`ListPlans` 的模型输出不注入目录；目录页不提供"执行计划"。
 - **计划详情与目录按会话和 remote scope 隔离。** `plan-detail` 与 `plan-directory` tab 的身份包含 `workspaceKey`、`parentSessionId` 和 `remoteSessionId`；远端重连产生的新 scope 不会复用旧详情或目录 tab，详情正文仍只来自对应计划工具 transcript 行。
 - **脱流到气泡末尾只属于最后一个 turn 的计划卡。** 一个消息气泡里，一次模型请求产出一条助手响应，这次响应产出的所有行共享同一个 `assistantResponseId`（`rows.ts` 的行级注释原文：「同一模型 response 的正文与工具共享此 ID」）；气泡里的**最后一个 turn = 最后一次模型请求产出的那次响应**。计划卡只有由这最后一次响应产出时，才脱流到气泡末尾显示（原位留紧凑调用记录，完整卡片统一在段末）。其余位置的计划行随过程行一起折叠，不做任何外提——中段过程里的计划调用在收起态下既不留孤儿小字行，也不在段末重复出卡。
+- **段末计划行直接作为完整卡渲染，不进任何折叠桶。** Plan 档 `CreatePlan` 一成功就 `plan_created` 停轮，计划行天然落在段末。一次 product turn 被 steer 拆成多个视觉工作段时，末段没有最终正文，整段过程行默认收起；若段末计划行跟着进 history 桶，卡片会整张消失，界面上只剩一行「已工作 X」。因此段末计划行产出唯一的 `planCard`（原位即段末，不补 `planCallRecord`，也不落进 history / assistantWork 桶）；同一段里的过程行照旧折叠。
 
 ## 计划详情面板
 
@@ -102,7 +103,7 @@ flowchart TD
 - **i18n**：`planTool.panel.view`、`planTool.panel.execute`；`planTool.panel.open`（保留为「查看」的 aria-label）；`planTool.panel.copy` / `copied` / `viewFull`（删除）。折叠卡复用同一组键，不新增。详情面板头部另加 `planTool.panel.copyPath` / `pathCopied` / `openFile`。计划批准通知的 `planApprovalRequired` / `planApprovalBody` 已删除。
 - **UI（行级路径）**：`ToolCallRow.planFilePath`（`packages/shared/src/zcode-protocol-v4/rows.ts`，可选）经 `packages/ui/src/v4/toolCallRowAdapter.ts` 带进 `extractPlanToolCallContent`（`packages/ui/src/lib/planToolCall.ts`）。字段的**生产者**在运行时与 v4 投影：`plan_file_written` 事件、`AgentRuntime.listSessionPlanFileWrittenFacts` 与冷恢复合成（`bootstrap/src/zcode-protocol-v4/plan-file-hydration.ts`），全部记在 `session-plan-files.md`。
 - **interaction-broker、v4 的命令与 elicitation 适配已删询问分支**；`product-projection` 的 `plan_approval` 投影分支已删除；`ElicitationDialog` 的 plan-approval 渲染分支随交互删除（组件仍被 AskUserQuestion 复用）。
-- **UI（脱流判据）**：`packages/ui/src/v4/conversationTurnFlowItems.ts` — `isPlanCardToolCallRow` 认「这行是完整计划卡」，shared `resolveLastAssistantResponseId` 认「本气泡最后一次模型响应的身份」（段内最后一条非 tail 助手工作行的 `assistantResponseId`）。三者同时成立——是卡、不在段末、且本行 `assistantResponseId` 等于该值——才产出 `planCallRecord`（原位紧凑记录）与 `planCard`（段末完整卡）。
+- **UI（脱流判据）**：`packages/ui/src/v4/conversationTurnFlowItems.ts` — `isPlanCardToolCallRow` 认「这行是完整计划卡」，shared `resolveLastAssistantResponseId` 认「本气泡最后一次模型响应的身份」（段内最后一条非 tail 助手工作行的 `assistantResponseId`）。三者同时成立——是卡、本行 `assistantResponseId` 等于该值、且不在段末——才产出 `planCallRecord`（原位紧凑记录）与 `planCard`（段末完整卡）。本行就是段末（`row.rowId === lastSegmentFlowRowId`）时只产出唯一的 `planCard`，不补 `planCallRecord`，也不落进 history / assistantWork 桶。
 - **同一判据被侧栏摘要复用。** 上述「这行是不是有效计划卡」与「最后一次响应锚点」的纯实现位于 `packages/shared/src/zcode-protocol-v4/plan-card.ts`（`isPlanCardToolCallRow` / `resolveLastAssistantResponseId`）；CLI 的 sessions-index 摘要用 `hasPlanCardInLastAssistantResponse` 决定列表圆点描边（见 `conversation-interaction-session-list-lifecycle.md` 展示规则）。不得在 CLI 或 UI 另一侧重写一套内容/失败/流式语义。锚点只看 `assistantResponseId`（来源是 transcript `assistantMessageId`），不按 UI 可见行过滤；空的 text/reasoning 占位与 `EnterPlanMode` 行只要带 id 就是新响应证据。`reasoning_phase_start` 行也以 `assistantMessageId` 为准，provider `responseId` 只在旧事件缺 `assistantMessageId` 时兜底。
 
 ## 不变量
@@ -126,6 +127,7 @@ flowchart TD
 - 显示层不改名，但分发必须双认：折叠卡不渲染工具名，老行显示旧名无用户可见影响，不做显示映射。工具名只在分发层做新旧双认（shared 注册表登记名字 + UI legacy 分支调共享判定 + renderer 的计划工具兜底），三处判定都走 `isPlanApprovalToolName`；不得因为卡片不显示工具名就跳过分发认领。
 - 脱流判据只在气泡内部计算：以「本行 `assistantResponseId` 是否等于段内最后一条非 tail 助手工作行的 `assistantResponseId`」为准，不读「是不是整条会话的最后一轮」、不读后到的消息——新消息到达不得改变任何已有气泡的显示。
 - 行缺 `assistantResponseId`（旧 snapshot、`timelineOnly`）时一律不脱流：证不出是最后一个 turn 就不优化，失败向安全侧倒。
+- 段末计划卡不得落进任何折叠桶：它是一轮里唯一可执行产出，收起态必须可见；也不得为了露出它把同段过程行默认展开。展开与否由工作段自己的收起态决定，两者互不收买。
 
 ## 负面边界
 
@@ -162,5 +164,5 @@ flowchart TD
 19. 成功态回归：折叠卡、全文渐隐预览卡、失败时的通用工具行，三者互不串形——搁置行（含旧形状）走计划卡分支（桥接层已无失败标记），真失败拦截发生在任何内容分支之前。
 20. 写端回归：新计划行重启后仍是计划卡（`completedToolPartMetadata` 已写出 `permissionDenial` 的历史行走拒绝重放；新 `CreatePlan` 行恒成功，不依赖该标记）。
 21. 分发回归：新会话里 `CreatePlan` 的工具行走 `resolveToolCallIdentity` 得到 `switch-mode` 展示 family、`resolveRenderer` 返回 `SwitchModeToolCallBlock`（不是 `FallbackToolCallBlock`），因此渲染出的是计划卡而不是通用工具行；九月老会话的 `ExitPlanMode` 行仍走同一条卡片分支。
-22. 脱流回归：计划行与气泡内最后一次响应同 `assistantResponseId`（如同一响应里的多个工具调用）→ 原位紧凑记录 + 段末完整卡，两者不重复；计划行属于更早的响应、其后还有别次响应产出的工具行与最终正文（长会话形态，即统计标题下不该插队的场景）→ 不脱流，计划行落回过程桶，收起态只有统计标题与最终正文，无孤儿小字行、无段末重复卡；Plan 档段末计划行为不变；行缺 `assistantResponseId` 时同样不脱流。
+22. 脱流回归：计划行与气泡内最后一次响应同 `assistantResponseId`（如同一响应里的多个工具调用）→ 原位紧凑记录 + 段末完整卡，两者不重复；计划行属于更早的响应、其后还有别次响应产出的工具行与最终正文（长会话形态，即统计标题下不该插队的场景）→ 不脱流，计划行落回过程桶，收起态只有统计标题与最终正文，无孤儿小字行、无段末重复卡；Plan 档段末计划行只产出一份可见的完整卡、不补原位记录；**同一轮被 steer 拆成多个工作段、末段没有最终正文、只以 `CreatePlan` 收口时**，末段过程行默认收起，段末计划卡仍直接可见（不能跟着进折叠桶，也不能因此把前几段展开）；行缺 `assistantResponseId` 时同样不脱流。
 23. `EnterPlanMode` 调用（成功 / 运行中 / 失败或拒绝）以普通工具行出现在时间线与公开分享页，不会被计划卡替换；同一回合随后的 `CreatePlan` 仍渲染独立计划卡。

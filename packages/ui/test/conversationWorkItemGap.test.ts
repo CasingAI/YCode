@@ -79,6 +79,11 @@ function userInputRow(rowId: number): UserInputRow {
   };
 }
 
+/** 运行中追加的 steer 输入：同一 product turn 内按它切出新的视觉工作段。 */
+function guidedUserInputRow(rowId: number): UserInputRow {
+  return { ...userInputRow(rowId), text: "追加", guided: true };
+}
+
 function assistantTextRow(rowId: number, responseId?: string): AssistantTextRow {
   return {
     kind: "assistantText",
@@ -497,22 +502,20 @@ test("计划卡不进 assistantHistory 折叠区：不展开过程也看得见�
   );
 });
 
-test("Plan 档不重复：计划行本来就是段末就不脱流，不会出现调用记录 + 完整卡两份", () => {
-  // Plan 档 CreatePlan 一成功就 plan_created 停轮，卡片天然在末尾。给它配上最后一次响应
-  // 的 id，证明确实是「本来就在段末」这条路挡住了脱流，而不是缺 id 的失败向安全侧倒。
+test("Plan 档不重复：段末计划行只产出一份 planCard，不补原位调用记录", () => {
+  // Plan 档 CreatePlan 一成功就 plan_created 停轮，卡片天然在末尾。段末行直接作为
+  // 完整卡渲染（原位与段末是同一处），所以没有 planCallRecord，也不会出现两份。
   const plan = planCardRow(2, "resp-final");
   const items = flowItemsOf([userInputRow(1), plan]);
 
-  assert.deepEqual(planFlowItemsOf(items), []);
+  assert.deepEqual(planFlowItemsOf(items), [{ kind: "planCard", row: plan }]);
   assert.deepEqual(
     items.map((item) => item.kind),
-    ["userInput", "assistantWork"],
+    ["userInput", "planCard"],
   );
-  const work = items.at(-1);
-  assert.ok(work && work.kind === "assistantWork");
-  assert.deepEqual(
-    work.rows.map((row) => row.rowId),
-    [plan.rowId],
+  assert.equal(
+    items.some((item) => item.kind === "assistantHistory" || item.kind === "assistantWork"),
+    false,
   );
 });
 
@@ -696,23 +699,18 @@ test("整条工作段装配路径：计划卡脱流，且能穿过 CUA 分组投
   assert.equal(items.at(-1)?.kind, "planCard");
 });
 
-test("整条工作段装配路径：Plan 档（计划行在段末）只有一份，不脱流", () => {
+test("整条工作段装配路径：Plan 档（计划行在段末）只有一份，且不进折叠桶", () => {
   const items = workSegmentItems({
     orderedRows: [userInputRow(1), planCardRow(2, "resp-final")],
     isLastTurn: true,
   });
 
-  // 这一轮没有末段正文，整段落进 history 桶——计划卡就在其中原位渲染，没有第二份。
-  assert.deepEqual(planFlowItemsOf(items), []);
+  // 这一轮没有末段正文，段末计划行就是唯一产出：它必须是可见的 flow 项，
+  // 不能落进 history 桶（多段轮里末段默认收起，卡片会整张消失）。
+  assert.deepEqual(planFlowItemsOf(items), [{ kind: "planCard", row: planCardRow(2, "resp-final") }]);
   assert.deepEqual(
     items.map((item) => item.kind),
-    ["userInput", "assistantHistory"],
-  );
-  const history = items.at(-1);
-  assert.ok(history && history.kind === "assistantHistory");
-  assert.deepEqual(
-    history.rows.map((row) => row.rowId),
-    [planCardRow(2, "resp-final").rowId],
+    ["userInput", "planCard"],
   );
 });
 
@@ -743,4 +741,46 @@ test("回归：点「执行计划」后旧气泡开启新 turn，计划卡仍脱
     asHistoryTurn.some((item) => item.kind === "assistantHistory"),
     false,
   );
+});
+
+test("回归：steer 多段轮的末段只有工作行时，段末计划卡仍必须单独可见", () => {
+  // 现场形态：同一 product turn 里用户连发两条 steer，拆成三个视觉工作段；段 1、2
+  // 由下一次 steer 收口，段 3 的模型只有思考与工具调用，最后调 CreatePlan 停轮，
+  // 整轮没有任何最终正文。末段没有可外置的 assistantText，旧装配把整段（含计划卡）
+  // 全塞进 history 桶；多段轮 history 默认收起，卡片就整张消失，界面上只剩一行
+  // 「已工作 6 分 15 秒」。
+  const segments = buildConversationTurnWorkSegments({
+    key: "turn-1",
+    orderedRows: [
+      userInputRow(1),
+      toolRow(2, "Read", {}, "resp-1"),
+      guidedUserInputRow(3),
+      toolRow(4, "Bash", {}, "resp-2"),
+      guidedUserInputRow(5),
+      reasoningRow(6, "resp-3"),
+      planCardRow(7, "resp-3"),
+    ],
+    assistantTailRows: [],
+    isRunning: false,
+    isLastTurn: true,
+    isInterrupted: false,
+    forceOpenHistory: false,
+    timelineOnly: false,
+  });
+
+  assert.equal(segments.length, 3);
+  const last = segments.at(-1);
+  assert.ok(last);
+  // 计划卡脱出折叠桶：收起态也直接看得见；过程行仍留在 history 里。
+  assert.deepEqual(
+    last.flowItems.map((item) => item.kind),
+    ["userInput", "assistantHistory", "planCard"],
+  );
+  assert.equal(last.assistantHistoryDefaultOpen, false);
+  const card = last.flowItems.at(-1);
+  assert.ok(card?.kind === "planCard");
+  assert.equal(card.row.rowId, 7);
+  // 前两段照旧收起：不要为了露出末段卡片把整轮过程都展开。
+  assert.equal(segments[0]?.assistantHistoryDefaultOpen, false);
+  assert.equal(segments[1]?.assistantHistoryDefaultOpen, false);
 });

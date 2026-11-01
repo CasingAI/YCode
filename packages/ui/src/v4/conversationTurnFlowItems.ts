@@ -147,6 +147,20 @@ export function buildConversationFlowItems(options: {
       });
       continue;
     }
+    // 段末计划行就是这一轮的产出：Plan 档 CreatePlan 一成功就 plan_created 停轮，
+    // 卡片天然落在段末。它不能跟着过程行走 history 桶——多段（steer）轮的末段默认
+    // 收起，卡片一进去就整张消失，界面上只剩一行「已工作」；它也不能再补一条原位
+    // 调用记录——原位与段末是同一处，补了就是两份。所以段末行直接产出唯一的完整卡。
+    // 缺 assistantResponseId 时证不出归属，仍按失败向安全侧倒，留在原位。
+    if (
+      isPlanCardToolCallRow(row) &&
+      row.rowId === lastSegmentFlowRowId &&
+      row.assistantResponseId !== undefined &&
+      row.assistantResponseId === turnLastResponseId
+    ) {
+      items.push({ kind: "planCard", row });
+      continue;
+    }
     // 只有本气泡最后一次响应产出的计划卡才脱流：同一次响应里排在计划行之后的工具行会把
     // 它挤出段末，这里把计划行摘成原位的紧凑调用记录，完整卡片统一在段末渲染；更早响应
     // 产出的计划行不走这条路，随过程行一起进折叠桶。
