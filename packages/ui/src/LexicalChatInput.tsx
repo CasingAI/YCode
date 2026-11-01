@@ -54,6 +54,14 @@ import {
 } from "lexical";
 import { SlashCommandPlugin } from "./SlashCommandPlugin.js";
 import { normalizeGoalScopeDecoration } from "./prompt-editor/goalScopeDecoration.js";
+import {
+  disposeCompositionGate,
+  isComposerComposing,
+  notifyCompositionEnd,
+  notifyCompositionStart,
+  runWhenCompositionSettles,
+  setEditableWhenCompositionSettles,
+} from "./prompt-editor/composerCompositionGate.js";
 import { $demoteTopLevelCommandMentionIfMisplaced } from "./prompt-editor/topLevelCommandPlacement.js";
 import type { AppSlashCommand } from "./slashCommandHelpers.js";
 import { MentionPlugin } from "./mentions/MentionPlugin.js";
@@ -610,7 +618,7 @@ function KeyboardPlugin({
             ) {
               const submitResult = onSubmit(text);
               if (shouldResetLexicalEditorAfterSubmit(submitResult)) {
-                resetEditor(editor);
+                runWhenCompositionSettles(editor, "clear", () => resetEditor(editor));
               }
             }
             return true;
@@ -643,7 +651,7 @@ function KeyboardPlugin({
           event.preventDefault();
           const submitResult = onModifiedSubmit(text);
           if (shouldResetLexicalEditorAfterSubmit(submitResult)) {
-            resetEditor(editor);
+            runWhenCompositionSettles(editor, "clear", () => resetEditor(editor));
           }
           return true;
         }
@@ -673,7 +681,7 @@ function KeyboardPlugin({
           // 业务层可能拒绝本次提交并要求草稿留在输入框。
           // Enter 键盘层不能无条件 reset，否则即使业务层未发送，用户输入也会被吃掉。
           if (shouldResetLexicalEditorAfterSubmit(submitResult)) {
-            resetEditor(editor);
+            runWhenCompositionSettles(editor, "clear", () => resetEditor(editor));
           }
         }
         return true;
@@ -788,7 +796,7 @@ function KeyboardPlugin({
       if (shouldSubmitLexicalEnter({ allowSubmitWhenEmpty, enterSubmits: true, text })) {
         const submitResult = onSubmit(text);
         if (shouldResetLexicalEditorAfterSubmit(submitResult)) {
-          resetEditor(editor);
+          runWhenCompositionSettles(editor, "clear", () => resetEditor(editor));
         }
       }
     };
@@ -849,32 +857,8 @@ function TextContentPlugin({
   taskId?: string | null;
 }) {
   const [editor] = useLexicalComposerContext();
-  // IME 组合态标记:不直接依赖 editor.isComposing(),因为它在 update listener 同步执行时
-  // 是否已反映组合态存在时序不确定性,读不到 true 会把中文/日文长文本组合的高耗时误报成打字卡顿。
-  // 改由 compositionstart/compositionend 事件自行维护,稳健可控。
-  const composingRef = useRef(false);
-
-  useEffect(() => {
-    const handleCompositionStart = () => {
-      composingRef.current = true;
-    };
-    const handleCompositionEnd = () => {
-      // compositionend 触发时组合刚结束,但「组合提交」这一拍的 update listener 通常在同一轮
-      // 任务里同步执行,若立即置 false,这次高耗时会被误判为打字卡顿。用 queueMicrotask 把置 false
-      // 延后到当前同步任务之后,确保组合提交那一拍仍按组合态短路,再恢复正常计入。
-      queueMicrotask(() => {
-        composingRef.current = false;
-      });
-    };
-
-    // root 会重挂,用 registerRootListener 在新旧 root 上正确解绑/绑定。
-    return editor.registerRootListener((rootElement, previousRootElement) => {
-      previousRootElement?.removeEventListener("compositionstart", handleCompositionStart);
-      previousRootElement?.removeEventListener("compositionend", handleCompositionEnd);
-      rootElement?.addEventListener("compositionstart", handleCompositionStart);
-      rootElement?.addEventListener("compositionend", handleCompositionEnd);
-    });
-  }, [editor]);
+  // IME 组合态标记统一由 ComposerCompositionGatePlugin 维护（组合事件为准，editor.isComposing()
+  // 兜底），这里不再各自监听 compositionstart/end，避免同一语义出现多个事实源。
 
   useEffect(() => {
     if (!onChange) {
@@ -904,7 +888,7 @@ function TextContentPlugin({
           lagMs,
           textLength: nextText.length,
           isProgrammatic: tags.has(PROGRAMMATIC_UPDATE_TAG),
-          isComposing: composingRef.current,
+          isComposing: isComposerComposing(editor),
           taskId: taskId ?? undefined,
         });
       },
@@ -914,12 +898,50 @@ function TextContentPlugin({
   return null;
 }
 
+/**
+ * 组合态登记插件：组合事件是唯一的事实源，其余插件只读这里的判定。
+ * 见 docs/specs/composer-ime-composition-safety.md。
+ */
+function ComposerCompositionGatePlugin() {
+  const [editor] = useLexicalComposerContext();
+
+  useEffect(() => {
+    const handleCompositionStart = () => notifyCompositionStart(editor);
+    // blur 兜底：部分输入法在失焦时直接中止组合、不发 compositionend，
+    // 不兜底会让排队中的写入永远等不到回放。
+    const handleCompositionStop = () => notifyCompositionEnd(editor);
+
+    const unregisterRoot = editor.registerRootListener((rootElement, previousRootElement) => {
+      if (previousRootElement && previousRootElement !== rootElement) {
+        // root 换代时旧组合随元素一起消失，浏览器不会再补 compositionend；
+        // 不在这里收尾，排队写入会永远等不到回放。
+        notifyCompositionEnd(editor);
+      }
+      previousRootElement?.removeEventListener("compositionstart", handleCompositionStart);
+      previousRootElement?.removeEventListener("compositionend", handleCompositionStop);
+      previousRootElement?.removeEventListener("blur", handleCompositionStop);
+      rootElement?.addEventListener("compositionstart", handleCompositionStart);
+      rootElement?.addEventListener("compositionend", handleCompositionStop);
+      rootElement?.addEventListener("blur", handleCompositionStop);
+    });
+
+    return () => {
+      unregisterRoot();
+      disposeCompositionGate(editor);
+    };
+  }, [editor]);
+
+  return null;
+}
+
 /** 编辑器可编辑状态控制插件 */
 function EditablePlugin({ editable }: { editable: boolean }) {
   const [editor] = useLexicalComposerContext();
 
   useEffect(() => {
-    editor.setEditable(editable);
+    // 组合期间翻转 contentEditable 会让浏览器结束当前组合输入；语音听写的整段识别
+    // 就是一个长组合，中途翻转会把已识别文字整段丢掉。推迟到 compositionend 再切。
+    setEditableWhenCompositionSettles(editor, editable);
   }, [editor, editable]);
 
   return null;
@@ -994,6 +1016,9 @@ function GoalScopeDecorationPlugin() {
 
   useEffect(() => {
     return editor.registerNodeTransform(TextNode, () => {
+      // 组合期间不动树：splitText 会把正在组合的文本节点切开，输入法随即丢失组合锚点。
+      // 装饰是纯视觉，等 compositionend 之后由下一次 transform 补算。
+      if (isComposerComposing(editor)) return;
       normalizeGoalScopeDecoration($getRoot());
     });
   }, [editor]);
@@ -1014,32 +1039,12 @@ function GoalScopeDecorationPlugin() {
  */
 function TopLevelCommandPlacementPlugin() {
   const [editor] = useLexicalComposerContext();
-  const composingRef = useRef(false);
-
-  useEffect(() => {
-    const handleCompositionStart = () => {
-      composingRef.current = true;
-    };
-    const handleCompositionEnd = () => {
-      queueMicrotask(() => {
-        composingRef.current = false;
-      });
-    };
-
-    // root 会重挂，用 registerRootListener 在新旧 root 上正确解绑/绑定。
-    return editor.registerRootListener((rootElement, previousRootElement) => {
-      previousRootElement?.removeEventListener("compositionstart", handleCompositionStart);
-      previousRootElement?.removeEventListener("compositionend", handleCompositionEnd);
-      rootElement?.addEventListener("compositionstart", handleCompositionStart);
-      rootElement?.addEventListener("compositionend", handleCompositionEnd);
-    });
-  }, [editor]);
 
   useEffect(() => {
     return editor.registerNodeTransform(PromptMentionNode, (node) => {
       // 组合输入期间不动树：中文 IME 的组合态里替换节点会和输入法抢文本，
       // 等 compositionend 之后由下一次 transform 补上。
-      if (composingRef.current) return;
+      if (isComposerComposing(editor)) return;
       $demoteTopLevelCommandMentionIfMisplaced(node);
     });
   }, [editor]);
@@ -1417,45 +1422,73 @@ function EditorApiPlugin({
   editorApiRef?: React.MutableRefObject<LexicalChatInputHandle | null>;
 }) {
   const [editor] = useLexicalComposerContext();
+  const appendSequenceRef = useRef(0);
 
   useEffect(() => {
     if (!editorApiRef) {
       return;
     }
 
+    // 组合期间不写树（见 docs/specs/composer-ime-composition-safety.md）：整树替换类写入
+    // 共用一个键，组合结束后只回放最后一次；追加类写入各自独立编号，按顺序全部回放。
+    const settledReplace = (write: () => void) =>
+      runWhenCompositionSettles(editor, "replace", write);
+    const settledAppend = (write: () => void) => {
+      appendSequenceRef.current += 1;
+      runWhenCompositionSettles(editor, `append:${appendSequenceRef.current}`, write);
+    };
+
     editorApiRef.current = {
-      clear: () => resetEditor(editor),
+      clear: () => runWhenCompositionSettles(editor, "clear", () => resetEditor(editor)),
       focus: () => editor.focus(),
       getEditorState: () => editor.getEditorState(),
       getMarkdown: () => getEditorMarkdown(editor.getEditorState()),
       getText: () => getEditorMarkdown(editor.getEditorState()),
-      appendText: (text: string) => appendEditorPlainText(editor, text),
+      appendText: (text: string) => settledAppend(() => appendEditorPlainText(editor, text)),
       appendFileMention: (
         label: string,
         value: string,
         markdown: string,
         data?: MentionItemData,
         trailingText = " ",
-      ) => appendEditorFileMention(editor, label, value, markdown, data, trailingText),
+      ) =>
+        settledAppend(() =>
+          appendEditorFileMention(editor, label, value, markdown, data, trailingText),
+        ),
       insertMention: (mention, selectionState) =>
-        insertEditorMention(editor, mention, selectionState),
-      prependMentionIfMissing: (mention) => prependEditorMentionIfMissing(editor, mention),
+        settledAppend(() => insertEditorMention(editor, mention, selectionState)),
+      prependMentionIfMissing: (mention) => {
+        if (!isComposerComposing(editor)) {
+          return prependEditorMentionIfMissing(editor, mention);
+        }
+        // 组合期间无法同步给出「是否插入」：先排队，按「待编辑」返回让调用方跟随草稿，
+        // 回放后的 onChange 会把真实正文同步回来。
+        settledAppend(() => {
+          prependEditorMentionIfMissing(editor, mention);
+        });
+        return true;
+      },
       setMention: (mention, trailingText) =>
-        replaceEditorWithMention(editor, mention, trailingText),
-      setText: (text: string) => replaceEditorText(editor, text),
+        settledReplace(() => replaceEditorWithMention(editor, mention, trailingText)),
+      setText: (text: string) => settledReplace(() => replaceEditorText(editor, text)),
       setTextWithPluginMentions: (text: string) =>
-        replaceEditorTextWithPluginMentions(editor, text),
+        settledReplace(() => replaceEditorTextWithPluginMentions(editor, text)),
       setTextWithMentions: (text: string, options?: RestoreTextWithMentionsOptions) =>
-        replaceEditorTextWithMentions(editor, text, options),
+        settledReplace(() => replaceEditorTextWithMentions(editor, text, options)),
       setEditorStateJson: (editorStateJson: string) =>
-        replaceEditorStateJson(editor, editorStateJson),
+        settledReplace(() => replaceEditorStateJson(editor, editorStateJson)),
       setSkillMention: (skillName: string, markdown = `$${skillName}`, trailingText = " ") =>
-        replaceEditorWithSkillMention(editor, skillName, markdown, trailingText),
+        settledReplace(() =>
+          replaceEditorWithSkillMention(editor, skillName, markdown, trailingText),
+        ),
       setSlashCommandMention: (
         commandName: string,
         markdown = `/${commandName}`,
         trailingText = " ",
-      ) => replaceEditorWithSlashCommandMention(editor, commandName, markdown, trailingText),
+      ) =>
+        settledReplace(() =>
+          replaceEditorWithSlashCommandMention(editor, commandName, markdown, trailingText),
+        ),
     };
 
     return () => {
@@ -1645,6 +1678,7 @@ export function LexicalChatInput({
           <HistoryPlugin />
           <ComposerEditTargetPlugin />
           <PromptClipboardPlugin />
+          <ComposerCompositionGatePlugin />
           <TextContentPlugin onChange={onChange} taskId={taskId} />
           <KeyboardPlugin
             onSubmit={handleSubmit}
