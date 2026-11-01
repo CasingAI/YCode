@@ -5142,6 +5142,7 @@ const enUS: Record<string, string> = {
   "chat.toolCall.process.changes.other": "{count} edits",
   "chat.toolCall.process.reasoning.one": "{count} thought",
   "chat.toolCall.process.reasoning.other": "{count} thoughts",
+  "chat.toolCall.fileActivity.calls": "{count} calls merged",
   "chat.toolCall.nodeRepl.processing": "Working",
   "chat.toolCall.nodeRepl.completed": "Completed",
   "chat.toolCall.nodeRepl.finished": "Operation completed",

@@ -1,6 +1,7 @@
 import type { ConversationRow, SubagentRow, ToolCallRow } from "@zcode/shared/zcode-protocol-v4";
 import { isShellToolCallAwaitingCommand } from "@/lib/exploreToolCall.js";
 import type { AssistantWorkRow } from "@/v4/conversationTurnRenderUnits.js";
+import type { ConversationProcessChildItem } from "@/v4/conversationFileActivity.js";
 import { foldProcessRows } from "@/v4/conversationProcessFold.js";
 import type { ProcessCounts } from "@/v4/conversationProcess.js";
 import { isAgentToolCallRow, isToolCallRow } from "@/v4/conversationToolRowClass.js";
@@ -37,7 +38,8 @@ export interface ConversationProcessRenderItem {
    */
   key: string;
   rowId: number;
-  nodes: ConversationAssistantWorkChildItem[];
+  /** 进程节点可能已被同文件同动作合并成 `fileActivity`，展开后仍按原序渲染。 */
+  nodes: ConversationProcessChildItem[];
   counts: ProcessCounts;
   /** 该过程行位于当前运行工作段尾部：强制展开，段结束后回归用户展开态。 */
   running: boolean;
@@ -50,7 +52,8 @@ export type ConversationAssistantWorkRenderItem =
 export { ENABLE_CUA_TOOL_CALL_GROUPING } from "@/v4/conversationCuaGroups.js";
 // 终端不分组：会话里的终端分组只可能嵌在回合过程行内部，等于给同一批命令叠第二道折叠。
 // 详见 docs/specs/conversation-process.md「终端桶只有一条形态」。
-// 编辑同理不分组：写入行与终端行同款单行铺开，由过程行折成「编辑 N 次」。
+// 编辑不在这里分组：过程行内部只按「同文件 + 同动作」合并连续调用（见 conversationFileActivity），
+// 其余编辑行保持单行铺开，由过程行折成「编辑 N 次」。
 export const ENABLE_TURN_PROCESS = true;
 
 interface ConversationAssistantWorkRenderOptions {

@@ -28,7 +28,7 @@ Bash 与 JSVM/Sandbox 是并列的执行工具：两者都参与本 spec 的连�
 - **行序**严格按原始行序铺开；文件查阅与网页查阅只按行各自标注，不合并、不排序、不跨越中间行。未知工具和旧记录缺乏可信身份时使用可解释的中性回退，不根据 title 猜网页。
 - **错误、时序与回放边界**：分类只读已有 runtime tool record，不改状态所有权、工具事件顺序、错误/取消/拒绝语义，亦不扩展协议、持久化或 Desktop continuous / mobile replayable 机制。Desktop/Web/手机共用 UI 投影；历史记录缺字段时中性兼容，无迁移。
 - **折叠单位是「连续过程行」**。判定与既有 `buildAssistantWorkRenderItems()` 的工作项输出同源，不重新解析工具输入：
-  - 每条查阅工具行独立参与分类与计数，不先合成中间分组。
+  - 每条查阅工具行独立参与分类与计数，不先合成中间分组；分类计数完成后，`file-read` / `directory-list` / `changes` 行才按「同文件 + 同动作 + 同终态」合并成 `fileActivity`，合并不改变原始行序与计数口径。
   - `row` 且 `row.kind === "reasoning"` → 思考
   - `row` 且 `row.kind === "toolCall"` → 复用 `isExploreToolCall` / `isExecuteToolCall` / 文件写入家族（`file-write`）判定，分别归入查阅 / 终端 / 编辑；沙盒工具（现役 `JSVM` 与历史别名 `Sandbox`）归入独立的「沙盒」桶
     - 「查阅」细分桶复用 `classifyToolCallActivity`：文件与网页独立计数；工具身份无法可信细分的旧记录不参加查阅计数，且不能根据 title 或 URL 反推。
@@ -37,13 +37,14 @@ Bash 与 JSVM/Sandbox 是并列的执行工具：两者都参与本 spec 的连�
     - `Bash → JSVM/Sandbox → Bash` 属于同一段连续过程行，必须折进同一个过程行；沙盒不能把两侧终端切成两段。展开后仍是 Bash 行 → 沙盒卡 → Bash 行的原始行序。
     - 命令还没到的 shell 行（`isShellToolCallAwaitingCommand`）两个桶都不进，保留为独立行。
   - 其余（不属于上述查阅 / 终端 / 沙盒 / 编辑 / 思考的工具行、`assistantText`、`artifact`、`subagent`、`hookInvocation`、`timelineMarker`、`agentToolCall`、`cuaGroup`）**不参与折叠**，照旧铺开：正文、待办、子智能体、CUA、产物、hook 明细都不能被折进去。Todo 工具卡片始终参与消息流渲染，不再提供“显示待办”开关；待办作为可见独立行隔开前后过程段，详见 [`todo-display-always-on.md`](./todo-display-always-on.md)。
-- **计数口径**：每条过程行计 1（总计为 `rows.length`），不按分组聚合。查阅计数按 `file-search`、`file-find`、`directory-list`、`file-read`、`web-search`、`web-read` 分列，终端、沙盒、编辑、思考各自单列；未知类别不猜测、不并入上述计数。计数为 0 的桶不出现在文案里。沙盒计数只统计 `JSVM` / `Sandbox` 身份的行，不把 shell 命令或 node_repl `js` 行算进去。
-- **查阅行不分组**：每条查阅工具单独成行，按原始行序铺开；文件查阅与网页查阅只是同一批行的活动标注，不合并成可折叠容器，也不跨越或重排原始行序。外层过程行仍可包含查阅、终端、沙盒、编辑和思考行，并使用细分计数。
+- **计数口径**：每条过程行计 1（总计为 `rows.length`），不按分组聚合。文件活动合并行（`fileActivity`）按组内真实调用条数计入所属桶，不把 N 条调用计成 1；同文件连续编辑合并后，外层仍显示「编辑 8 次」，而展开后的明细是「编辑 demo.ts … ×8」一条摘要。查阅计数按 `file-search`、`file-find`、`directory-list`、`file-read`、`web-search`、`web-read` 分列，终端、沙盒、编辑、思考各自单列；未知类别不猜测、不并入上述计数。计数为 0 的桶不出现在文案里。沙盒计数只统计 `JSVM` / `Sandbox` 身份的行，不把 shell 命令或 node_repl `js` 行算进去。
+- **同文件同动作合并（fileActivity）**：过程段内部，连续、同文件、同动作、同终态的读取/列目录/编辑行合并成一条摘要行；读取组显示文件名与调用条数，编辑组显示聚合 `+A/-R` 与调用条数。摘要行默认收起，点击后按原始行序还原组内每一行，每条仍保留自己的展开态、错误与 `data-row-id`。合并只发生在过程段内部，不跨越思考、终端、正文、不同文件、不同动作或不同终态；单条不生成合并行。外层过程行计数仍按真实调用条数统计。
+- **查阅行只按同文件同动作合并**：不同文件、不同活动（读取与列目录）之间不合并，也不跨越或重排原始行序。文件查阅与网页查阅仍只是同一批行的活动标注；网页搜索/网页读取不参与文件活动合并。外层过程行仍可包含查阅、终端、沙盒、编辑和思考行，并使用细分计数。
 - **动作状态**：仅实际执行状态（v4 `running` 或旧记录 `in_progress`）展示进行态动作，中文统一“中”尾缀；输入生成、等待审批和排队不得显示执行中的动作。完成时用中性动作。失败、拒绝、取消仍显示原状态提示，不能映射为成功动作；此规则同样适用于只读分享摘要。
 - **终端桶只有一条形态**：终端行永远逐条铺开，展开过程行后每条各自可展开看命令与输出，这一桶只存在**一层**折叠。曾经有过的终端分组（「终端 · N 个命令」容器）已整体删除，连同它的设置项 `toolGroupingTerminalEnabled` / 「分组终端命令」一起：在会话里那一层只可能出现在过程行内部，等于给同一批命令叠第二道折叠 —— 用户展开过程行本来就是要看命令行，却还要再点开一次容器。因此它不再是「终端这一桶可以配置的形态」，也不要再按聚合容器的样式把它加回来；两个渲染入口（会话消息流 `ConversationTurnGroup`、分享只读页 `ConversationShareReadonlyTimeline`）都走同一条逐条渲染路径。
 - **沙盒桶只有一条形态，且不伪装成终端**：沙盒行（`JSVM` / 历史 `Sandbox`）永远逐条铺开，使用沙盒卡自己的名字、图标、说明、源码与输出展开逻辑；过程行只提供外层两段式折叠，不能把沙盒行改画成终端行，也不能在沙盒卡上再叠一层「运行中 / 已完成」状态。沙盒卡已有自己的 `ToolLayout`，过程行只负责它外层的那一行计数与 `forceOpen` 默认态。运行中展开、段结束收起、用户手动收起持久化的规则与其它过程行完全一致；沙盒不参与终端计数，摘要显示「沙盒 N 次」。
-- **编辑桶只有一条形态**：文件写入家族（`Write` / `Edit` 等）归入「编辑」桶，行永远单行铺开（文件名 + diff 计数），展开过程行后每条各自可展开看 diff，这一桶只存在**一层**折叠。曾经有过的编辑分组（「更改 · 文件名」容器）已整体删除，连同它的设置项 `toolGroupingChangesEnabled` / 「分组文件更改」一起：在会话里那一层只可能出现在过程行内部，等于给同一批编辑叠第二道折叠 —— 用户展开过程行本来就是要看改了哪里，却还要再点开一次容器；同一文件被连续编辑时它收起摘要只报得出「+1」这类自指计数，也失去存在的意义。因此它不再是「编辑这一桶可以配置的形态」，也不要再按聚合容器的样式把它加回来；两个渲染入口（会话消息流 `ConversationTurnGroup`、分享只读页 `ConversationShareReadonlyTimeline`）都走同一条逐条渲染路径。
-- **查阅桶只有一条形态**：查阅工具（Grep / Glob / 列目录 / Read / WebSearch / WebFetch）永远逐条铺开，展开过程行后每条各自可展开看明细，这一桶只存在**一层**折叠；过程行自身的计数折叠保留，连续查阅行仍会折成一行计数，六种活动桶（`file-search` / `file-find` / `directory-list` / `file-read` / `web-search` / `web-read`）细分计数不变。曾经有过的 Explore 聚合分组（「文件查阅 · N 次文件读取」「网页查阅 · N 次网页读取」容器）已整体删除，连同它的设置项 `toolGroupingExploreEnabled` / 「分组探索工具」一起：在会话里那一层只可能出现在过程行内部，等于给同一批查阅操作叠第二道折叠 —— 用户展开过程行本来就是要看具体读取了什么，却还要再点开一次容器。因此它不再是「查阅这一桶可以配置的形态」，也不要再按聚合容器的样式把它加回来；两个渲染入口（会话消息流 `ConversationTurnGroup`、分享只读页 `ConversationShareReadonlyTimeline`）都走同一条逐条渲染路径。`ExploreToolCallBlock` 只作为历史会话中 `kind === "explore"` 旧记录的兜底渲染路径保留，不再有新的产生来源。
+- **编辑桶：同文件连续编辑合并为一条文件活动行**：文件写入家族（`Write` / `Edit` 等）归入「编辑」桶。过程段内连续、同文件、同终态的写入行合并成一条摘要行（文件名 + 聚合 `+A/-R` + `×N`），点击后按原序还原每条写入行，每条各自可展开看 diff；失败、取消、拒绝不与成功行合并，单独成一条并保留状态。这一桶只存在**两层**折叠：过程行一层，文件活动行一层；合并只发生在过程段内部，不跨文件、不跨动作、不跨终态，单条不生成合并行。曾经有过的编辑分组（「更改 · 文件名」容器）及其设置项 `toolGroupingChangesEnabled` / 「分组文件更改」仍保持删除：本次合并行以文件名为标题、显示聚合统计和真实调用条数，不是旧容器那种收起后只报 `+1` 自指计数的二级分组。两个渲染入口（会话消息流 `ConversationTurnGroup`、分享只读页 `ConversationShareReadonlyTimeline`）仍共用逐条 renderer；分享页关闭过程折叠，因此不出现文件活动行。
+- **查阅桶：只有读取/列目录按同文件同动作合并**：Read 与列目录在过程段内连续、同文件、同动作、同终态时合并成一条文件活动行（文件名 + `×N`），点击后按原序还原每条读取行，每条各自可展开看明细；不同文件、读取与列目录之间不合并，运行中/等待审批的行不参与合并。Grep / Glob / WebSearch / WebFetch 保持逐条铺开。过程行自身的计数折叠保留，连续查阅行仍会折成一行计数，六种活动桶（`file-search` / `file-find` / `directory-list` / `file-read` / `web-search` / `web-read`）细分计数不变，且外层计数仍按真实调用条数统计。曾经有过的 Explore 聚合分组（「文件查阅 · N 次文件读取」「网页查阅 · N 次网页读取」容器）已整体删除，连同它的设置项 `toolGroupingExploreEnabled` / 「分组探索工具」一起：那类容器会把不同文件的查阅混成一组，只报自指计数；本次文件活动行只合并同文件同动作，不恢复旧容器语义。`ExploreToolCallBlock` 只作为历史会话中 `kind === "explore"` 旧记录的兜底渲染路径保留，不再有新的产生来源。
 - **长度不设门槛**：连续过程行即使只有 1 条也折叠成一行过程行（与 ZCode 侧既有行为一致），保证「过程永远只有一行」的可预期性。
 - **运行中默认展开、可手动收起**：过程行位于当前工作段尾部且该段仍在运行时，默认展开，过程对用户实时可见；用户若在此时点它收起，就尊重这个选择——本段运行内不再自动弹开（流式追加的新过程行也不能把它顶开），且这个收起**持久化到展开态表**，跨重挂载 / 冷恢复仍然有效，段结束或页面重载后也保持收起。
   - `running` 只是**默认态**，不是**约束**：它决定「用户从未手动操作过的那一行」初始是展开还是收起，一旦用户在 forceOpen 期间显式收起（表里记 `false`），后续任何使 `running` 重新成立的渲染都不再把它顶开；用户重新展开（表里记 `true`）同样被记住。语义即「用户的显式选择优先于 running 默认」。
@@ -67,9 +68,12 @@ Bash 与 JSVM/Sandbox 是并列的执行工具：两者都参与本 spec 的连�
   - 行的分桶判定收敛为单一纯函数 `classifyProcessRow(row)`（`conversationProcessFold.ts` 导出）：`resolveProcessBucket(item)` 与虚拟滚动的高度估算（`timelineTurnHeightEstimate.ts`）都必须调用它，禁止各自复刻一组谓词。否则「高度按两段算、渲染按一段算」会让滚动比例与实际渲染漂移。
   - 新增常量 `ENABLE_TURN_PROCESS = true`；`ConversationAssistantWorkRenderOptions` 新增可选 `enableProcess`（缺省取常量）。
   - `buildAssistantWorkRenderItems()` 在既有分组之后做一次折叠，输出 `kind: "process"` 项：`{ key, rowId, nodes, counts, running }`。
+  - 过程节点的文件活动合并由 `packages/ui/src/v4/conversationFileActivity.ts` 的纯函数完成：`resolveFileActivityMergeKey(node)` 返回 `{ bucket, path, statusClass }` 或 null，`mergeFileActivityNodes(nodes)` 把连续同键节点替换成 `kind: "fileActivity"` 项 `{ key, rowId, bucket, stat, rows }`。合并键只认 `file-read` / `directory-list` / `changes` 三个桶；读取路径复用 `getToolCallActivityTarget`，写入路径走轻量字段提取，不构建 diff。`inputStreaming` / `pendingApproval` / `running` 不参与合并，组内至少 2 条才生成合并项。
+  - `ConversationProcessRenderItem.nodes` 类型扩为 `ConversationProcessChildItem = ConversationAssistantWorkChildItem | ConversationFileActivityRenderItem`；`resolveProcessBucket` 对 `fileActivity` 返回其 `bucket`，`countProcessBuckets` 按 `rows.length` 计入，保持外层计数为真实调用条数。
 - 渲染：`packages/ui/src/v4/ConversationTurnGroup.tsx`
   - 新增 `ConversationProcessRow`：`ToolLayout` 外壳（`forceOpen={running}` + `forceOpenDismissible`、`isRunning={running}`、`kindLabel={null}`、不传 `summaryContentSeparator`），`primaryText` 为过程行文案，内容为子项按原有 kind 分发渲染。
-  - `persistOpenKey` 由 `packages/ui/src/v4/conversationProcessOpenKey.ts` 的纯函数生成，格式固定为 `zc-turn-process:{sessionId}:{logEpoch}:{processKey}`；`processKey` 继续锚定首个子项，`sessionId` 与 `logEpoch` 负责隔离不同会话和不同物化纪元。
+  - 新增 `ConversationFileActivityRow`：`ToolLayout` 外壳，默认收起，摘要行显示文件芯片、路径、聚合 `+A/-R`（仅编辑组）与 `×N`，状态组显示现有失败/停止/拒绝状态词；内容按原序渲染组内每一行，复用 `ConversationWorkRenderItem`，因此每条仍带自己的 `data-row-id` 与展开态。摘要行本身不挂 `data-row-id`。
+  - `persistOpenKey` 由 `packages/ui/src/v4/conversationProcessOpenKey.ts` 的纯函数生成，格式固定为 `zc-turn-process:{sessionId}:{logEpoch}:{processKey}`；`processKey` 继续锚定首个子项，`sessionId` 与 `logEpoch` 负责隔离不同会话和不同物化纪元。文件活动行使用同一模块的 `buildFileActivityPersistOpenKey`，前缀固定为 `zc-file-activity:{sessionId}:{logEpoch}:{fileActivityKey}`，键锚定组内首行。
   - 抽出共享的 `ConversationWorkRenderItem`（kind 分发），供顶层列表与过程行内容共用，避免两处分发漂移。
   - `ConversationAssistantWorkItems` 的工作项容器不设统一 gap，纵向间距挂在每一项自己身上（`workItemGapClass`）：间距按**相邻两项的类型**给——边界任一侧是**带边框外壳的块**（渲染出来是独立盒子的那一类）就沿用收紧前的 16px，块上下两侧因此对称；两侧都不是带边框外壳的块（过程行、正文行、思考行、平铺工具行）才贴紧到 2px，把连续过程连成一片；首项不加间距。容器 gap 无法区分项类型，而这两种间距需要并存，故间距放到项上。父级 flow 容器（`gap-5`）、history 折叠外壳（`pt-5`）不受影响。分享只读页不共享该容器，保持原间距。
   - 过程行展开后的子行同样贴紧到 2px（`TURN_PROCESS_CONTENT_GAP_CLASS`，与外层贴紧态同一个值，只是换成 `space-y` 作用域）：收起态与展开态是同一批过程行的两种呈现，疏密必须一致。
@@ -86,10 +90,11 @@ Bash 与 JSVM/Sandbox 是并列的执行工具：两者都参与本 spec 的连�
 ```
 CLI rows ──▶ buildAssistantWorkRenderItems()
               ├─ 既有分组：cuaGroup
-              └─ 折叠：process{ nodes:[连续过程项], counts, running: stageTailIsRunning && 是末段 }
+              └─ 折叠：process{ nodes:[连续过程项经 mergeFileActivityNodes 合并], counts, running: stageTailIsRunning && 是末段 }
                           │
 ConversationTurnGroup ─────┴─▶ ConversationWorkRenderItem(kind 分发)
                                  ├─ row / agentToolCall / cuaGroup
+                                 ├─ fileActivity ──ToolLayout(默认收起)──▶ 组内 row 按原序逐条渲染
                                  └─ process ──forceOpenDismissible(running)──▶ ToolLayout ──▶ 同一套 kind 分发渲染 children
 ```
 
@@ -100,7 +105,7 @@ ConversationTurnGroup ─────┴─▶ ConversationWorkRenderItem(kind �
 
 1. 一个回合里连续 1 条 Grep + 1 条 Read + 1 条终端 + 1 条思考 → 渲染一行「1 次内容搜索 · 1 次文件读取 · 终端 1 次 · 思考 1 次」（没有前导类别词或分隔符）；展开后按原序保留查阅行、终端和思考。
 2. 回合中夹着 `assistantText` 正文 → 正文不被折进过程行，过程行在正文两侧各成一段。
-3. 文件写入工具（`Write` / `Edit`）→ 计入「编辑」，行保持单行；同一步内连续多次编辑也不再折出「更改」容器，计数仍按条数计。
+3. 文件写入工具（`Write` / `Edit`）→ 计入「编辑」；连续、同文件、同终态的写入调用合并成一条摘要行，显示聚合 diff 与 `×N`，点击后按原序还原每条写入行；不同文件或不同终态不合并，计数仍按调用条数计，且不恢复旧的「更改 · 文件名」容器或 `toolGroupingChangesEnabled` 设置。
 4. 只有 1 条过程行 → 同样折叠为一行过程行。
 5. 该段仍在运行（`stageTailIsRunning`）→ 过程行默认展开；此时点它 → 立即收起，后续流式追加的过程行不再把它顶开；再点一次可恢复展开。收起在整段运行内保持有效（即使中途 `running` 短暂翻转），段结束后仍是收起态，刷新 / 冷恢复后也仍是收起态。
 6. 展开过程行后，终端行逐条展示、每条各自可展开看命令与输出；连续多条终端也只多出这几行，不出现第二层「终端 · N 个命令」容器。
@@ -115,7 +120,7 @@ ConversationTurnGroup ─────┴─▶ ConversationWorkRenderItem(kind �
 15. 助手侧内容与带边框外壳的块相邻时（过程块末尾的计划卡后面接正文段、正文段后面接以卡片开头的过程块）按 16px，与工作项列表内卡片的间距同值，块上下仍对称。
 16. 两个并行 Subagent 的过程行首项恰好具有相同 `rowId`：在其中一个会话展开历史过程行，不改变另一个会话的展开态；另一个会话仍只默认展开当前运行段末尾。
 17. 同一会话重新绑定、`logEpoch` 变化后不继承旧物化纪元的展开态，历史过程行按默认收起渲染。
-18. Grep/Glob/Read → WebSearch/WebFetch → Grep/Read 依次逐条铺开，不合成任何查阅分组容器；展开后各行不重排，过程计数分别累计六种活动。
+18. Grep/Glob/Read → WebSearch/WebFetch → Grep/Read 按原始行序铺开；不同文件、不同活动、网页工具之间不合并，同文件连续读取只在同一过程段内合并成一条文件活动行；不合成跨文件的查阅分组容器，过程计数分别累计六种活动。
 19. WebFetch 读取 Bing 搜索结果页显示「读取网页」和 URL；Grep 搜索 URL 显示「搜索文件内容」和查询文本。中文执行态使用“中”，英文使用自然进行时。
 20. Read 的目录类型只出现在 rawOutput/content/output 中，路径只在 input.file_path 中：普通行、过程计数和只读分享均识别为目录，并保留目标路径。
 21. 运行中的 WebSearch / WebFetch 单行显示「搜索网页中 {query}」或「读取网页中 {url}」；完成后动作恢复中性；目标未到达时动作不重复。
@@ -124,21 +129,32 @@ ConversationTurnGroup ─────┴─▶ ConversationWorkRenderItem(kind �
 24. 连续两次沙盒调用（现役 `JSVM`、历史 `Sandbox` 各一）折成一行「沙盒 2 次」，不是「终端」也不是「查阅」；展开后两张卡各自保留沙盒名称、图标、说明和源码/输出展开态，不出现重复的运行状态外壳。
 25. 沙盒位于运行段尾部时过程行默认展开；段结束或用户手动收起后收起，行为与终端所在的过程行一致。
 26. 历史会话里未迁移的 `Sandbox` 行按别名直接归入沙盒桶，不要求改写持久化记录，也不改变工具卡的渲染分流。
+27. 连续 8 次成功编辑同一文件 → 过程行展开后只出现 1 条「编辑 demo.ts +8 ×8」；点开后按原序出现 8 条原编辑行，每条可单独展开看 diff。
+28. 连续 8 次「执行失败」编辑同一文件、随后 7 次成功编辑 → 出现 2 条：失败组显示「执行失败 ×8」，成功组显示「+7 ×7」；失败组展开后每条错误仍在，不与成功组合并。
+29. 连续 3 次读取同一文件 → 1 条「读取文件 config.ts ×3」；点开是 3 条原读取行。读取 A、读取 B、读取 A → 3 条，不跨文件合并；读取 A、编辑 A → 2 条，不跨动作合并。
+30. 同文件连续编辑之间夹一条思考或终端 → 前后各自合并，思考/终端位置不变。
+31. 运行中、输入生成或等待审批的调用不并入已完成的组，保持逐条显示。
+32. 多文件 patch、缺路径或只有相对路径无法与绝对路径归一的写入不合并。
+33. 外层过程行计数仍是真实调用条数（如「编辑 15 次」），即使展开后只有两条文件活动摘要；分享只读页仍逐行呈现，不出现合并行。
+34. 合并行展开态与过程行一样按 `sessionId` / `logEpoch` 隔离；同一会话重新绑定后不继承旧的展开态。
 
 ## 验证
 
 - 使用 `mise.toml` 指定的 Node 运行 `pnpm typecheck`、`pnpm lint` 和 `pnpm architecture:check --changed`。`max-lines` 是 error 级，投影文件因此拆出了折叠模块。
-- 单测：`TSX_TSCONFIG_PATH=packages/ui/tsconfig.json node --import tsx --test packages/ui/test/processFold.test.ts packages/ui/test/processOpenKey.test.ts`
-  - `processFold.test.ts` 覆盖：六种查阅活动计数、查阅行逐条计数、shell（含只读命令）归终端、写入工具计编辑、相邻终端行各自成行、正文切段、单条折叠、末段 running、关闭过程折叠后逐行铺开、文案跳过零值桶，以及中英文 renderer 与单行查阅动作标签；并覆盖 `JSVM` / `Sandbox` 别名归沙盒、`Bash → JSVM → Bash` 保持单段、沙盒不计入终端/查阅/编辑。
+- 单测：`TSX_TSCONFIG_PATH=packages/ui/tsconfig.json node --import tsx --import ./packages/ui/test/helpers/registerAssetStubs.mjs --test packages/ui/test/processFold.test.ts packages/ui/test/processOpenKey.test.ts packages/ui/test/fileActivityFold.test.ts`
+  - `processFold.test.ts` 覆盖：六种查阅活动计数、查阅行逐条计数、shell（含只读命令）归终端、写入工具计编辑、相邻终端行各自成行、正文切段、单条折叠、末段 running、关闭过程折叠后逐行铺开、文案跳过零值桶，以及中英文 renderer 与单行查阅动作标签；并覆盖 `JSVM` / `Sandbox` 别名归沙盒、`Bash → JSVM → Bash` 保持单段、沙盒不计入终端/查阅/编辑，以及同文件连续读取/编辑合并、跨文件/跨动作/跨终态不合并、运行中不合并、计数仍按调用条数。
+  - `fileActivityFold.test.ts` 覆盖：合并键的路径归一与状态分组、单条不合并、聚合 diff 统计、多文件/缺路径不合并、非连续调用不跨节点合并，以及非候选行原样保留。
   - `timelineTurnHeightEstimate.test.ts` 覆盖：`Bash → JSVM → Bash` 与单段折叠同高、沙盒行不会被当成不可折叠行重复计高，证明高度分段与 `classifyProcessRow` 同源。
   - `toolActivityRender.test.ts` 覆盖：目录元数据合并、跨平台目标路径、文件与网页交替时保持原始行序并逐条渲染、WebFetch URL 优先、无目标不重复动作、输入生成和审批不显示执行态，以及只读分享的目标与失败/拒绝/停止状态。两份 renderer 测试需带 `--import ./packages/ui/test/helpers/registerAssetStubs.mjs`。
-  - `processOpenKey.test.ts` 覆盖：相同作用域生成相同键、不同 `sessionId` / `logEpoch` 隔离相同 `processKey`、缺失作用域时稳定回退。
+  - `processOpenKey.test.ts` 覆盖：相同作用域生成相同键、不同 `sessionId` / `logEpoch` 隔离相同 `processKey`、缺失作用域时稳定回退；文件活动行的持久键同样覆盖作用域隔离。
   - 间距判定另有一份 `packages/ui/test/conversationWorkItemGap.test.ts`：计划卡 / 自动化卡两侧都 16px、待办行与过程行 / 正文行同贴紧 2px、无 markdown 的 `ExitPlanMode` 不算卡、首项不加间距、四个常量取值；flow 层用真实 `buildConversationFlowItems` 输出覆盖「过程块 → 正文段 → 过程块 = 2px、用户气泡 / 表头之后仍是默认 20px、卡片边缘 16px」与 `mt-*` → `pt-*` 的映射。
-  - 隔离浏览器交互回归另有 `packages/ui/test/conversationProcessInteractionBrowser.test.ts`（`node:test` + 仓库 `chromiumFixture`，只启动测试自己的 Chromium，不连接运行中的 YCode）：真实挂载 `ConversationRow[] → buildConversationTurnRenderUnitFrame → ConversationTurnGroup`，用真实点击验证「终端 2 次 · 沙盒 1 次」摘要、展开后 Bash 行 → 沙盒卡 → Bash 行的原始行序、沙盒卡二次展开的源码与输出，以及桌面 1000px 与手机 375px 视口下的可展开与无横向溢出；同一 fixture 还锁定 `EnterPlanMode` 成功 / 失败 / 拒绝三态都是普通工具行、`CreatePlan` 仍是唯一计划卡（验收场景 6a、23、24）。
+  - 隔离浏览器交互回归另有 `packages/ui/test/conversationProcessInteractionBrowser.test.ts`（`node:test` + 仓库 `chromiumFixture`，只启动测试自己的 Chromium，不连接运行中的 YCode）：真实挂载 `ConversationRow[] → buildConversationTurnRenderUnitFrame → ConversationTurnGroup`，用真实点击验证「终端 2 次 · 沙盒 1 次」摘要、展开后 Bash 行 → 沙盒卡 → Bash 行的原始行序、沙盒卡二次展开的源码与输出，以及桌面 1000px 与手机 375px 视口下的可展开与无横向溢出；同一 fixture 还锁定 `EnterPlanMode` 成功 / 失败 / 拒绝三态都是普通工具行、`CreatePlan` 仍是唯一计划卡（验收场景 6a、23、24），并新增同文件连续编辑的 `×N` 摘要与聚合增删、失败组独立标注、读取组合并、展开后逐条原序且每条仍可独立展开，以及 375px 下文件活动行无横向溢出（验收场景 27、28、33）。
   - 仓库既有测试依赖 tsx（`.js` 说明符指向 `.ts` 源文件）；UI 包带 `@/*` 路径别名，使用 `TSX_TSCONFIG_PATH` 或 `tsx --tsconfig packages/ui/tsconfig.json`。React 静态渲染测试覆盖摘要和展开配置，真实点击与展开行为由上面的隔离浏览器用例覆盖；所有浏览器用例都未操作正在运行的 YCode。
 
 ## 未覆盖 / 已知取舍
 
 - 收起态下过程行不挂载到 DOM（`ToolLayout` 的卸载延迟 300ms 后卸载）。此时按 rowId 定位的行锚点不存在：find 高亮 / 跳到行对一个被收起的过程行会找不到落点。展开后恢复正常。
-- 过程行折叠本身没有设置开关，默认开启（与 ZCode 侧补丁一致）；`ENABLE_TURN_PROCESS` 常量与逐调用点的 `enableProcess` 选项是保留的关闭闸门。
+- 文件活动摘要行收起时同样不挂 `data-row-id`（避免与组内子行重复）；按组内某条 rowId 做 find/跳转要先展开过程行和该摘要行才能定位。这是「摘要行 + 逐条明细」两层展开的已知代价。
+- 文件活动合并只做分隔符与首尾空白归一，不把绝对路径与相对路径换算成同一文件；这类调用保持逐条，不做猜测性合并。
+- 过程行折叠本身没有设置开关，默认开启（与 ZCode 侧补丁一致）；`ENABLE_TURN_PROCESS` 常量与逐调用点的 `enableProcess` 选项是保留的关闭闸门，文件活动合并随过程折叠一起关闭。
 - Explore 聚合容器与设置项 `toolGroupingExploreEnabled` / 「分组探索工具」已整体删除，删除后不可再按旧样式加回来。`ExploreToolCallBlock` 仅作为历史会话中 `kind === "explore"` 旧记录的兜底渲染路径保留，不再有新的产生来源。

@@ -1,7 +1,7 @@
 /* eslint-disable max-lines -- turn group 需要在同一处维护普通 assistant 与后台结果的严格行序，拆分会重复 actions/preview/tail 协议。 */
 import { useIsOfficeMode } from "@/hooks/useInterfaceMode.js";
 import { Fragment, memo, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { BoxesIcon, ChevronRightIcon, NotepadTextIcon } from "lucide-react";
+import { BoxesIcon, ChevronRightIcon, NotepadTextIcon, PencilIcon, SearchIcon } from "lucide-react";
 import {
   TID_CHAT_ASSISTANT_HISTORY_CONTENT,
   TID_CHAT_ASSISTANT_HISTORY_TRIGGER,
@@ -66,11 +66,18 @@ import {
   buildAgentTitleByIdentity,
   ENABLE_CUA_TOOL_CALL_GROUPING,
   ENABLE_TURN_PROCESS,
-  type ConversationAssistantWorkChildItem,
   type ConversationAssistantWorkRenderItem,
 } from "@/v4/conversationAssistantWorkItems.js";
 import { formatProcessText } from "@/v4/conversationProcess.js";
-import { buildProcessPersistOpenKey } from "@/v4/conversationProcessOpenKey.js";
+import {
+  summarizeFileActivityChanges,
+  type ConversationFileActivityRenderItem,
+  type ConversationProcessChildItem,
+} from "@/v4/conversationFileActivity.js";
+import {
+  buildFileActivityPersistOpenKey,
+  buildProcessPersistOpenKey,
+} from "@/v4/conversationProcessOpenKey.js";
 import {
   conversationFlowGapSides,
   flowGapPaddingClass,
@@ -81,6 +88,13 @@ import {
   workItemGapClass,
 } from "@/v4/conversationWorkItemGap.js";
 import { ToolLayout } from "@/ToolCallBlocks/ToolLayout.js";
+import {
+  getEditKindLabelMessageId,
+  renderDiffCount,
+  renderFileChip,
+  renderFilePath,
+} from "@/ToolCallBlocks/renderers.js";
+import { resolveFileDisplayDescriptor } from "@/lib/fileDisplay.js";
 import { extractPlanToolCallContent, getPlanDirectoryTitle } from "@/lib/planToolCall.js";
 import { resolveToolCallIdentity } from "@/lib/toolIdentity.js";
 import type { ConversationCuaGroupEvent } from "@/v4/conversationCuaGroups.js";
@@ -296,7 +310,7 @@ function ConversationWorkRenderItem({
   context,
   assistantCodeCommentProjectionEnabled = false,
 }: {
-  item: ConversationAssistantWorkChildItem;
+  item: ConversationProcessChildItem;
   context: ConversationRowRenderContext;
   assistantCodeCommentProjectionEnabled?: boolean;
 }) {
@@ -312,6 +326,9 @@ function ConversationWorkRenderItem({
   }
   if (item.kind === "agentToolCall") {
     return <ConversationAgentToolCallRow item={item} context={context} />;
+  }
+  if (item.kind === "fileActivity") {
+    return <ConversationFileActivityRow item={item} context={context} />;
   }
   return <ConversationToolGroupRow item={item} context={context} />;
 }
@@ -365,6 +382,155 @@ function ConversationProcessRow({
       expandedPrimaryText={summaryText}
       animateSummaryContent
       summaryContentKey={`${item.key}:${nodes.length}:${item.running ? "running" : "done"}`}
+      renderContent={renderContent}
+    />
+  );
+}
+
+const FILE_ACTIVITY_READ_ICON = (
+  <SearchIcon className="size-4 shrink-0 text-foreground-subtle" aria-hidden="true" />
+);
+const FILE_ACTIVITY_EDIT_ICON = (
+  <PencilIcon className="size-4 shrink-0 text-foreground-subtle" aria-hidden="true" />
+);
+
+/**
+ * 文件活动行：过程段内部连续、同文件、同动作、同终态的读取/编辑合成一条摘要。
+ * 摘要行默认收起；展开后按原序渲染组内每一行，复用现有 row 分发，因此每条仍带自己的
+ * data-row-id、展开态与错误详情。摘要行本身不挂 data-row-id，避免同一 rowId 出现两个锚点。
+ */
+function ConversationFileActivityRow({
+  item,
+  context,
+}: {
+  item: ConversationFileActivityRenderItem;
+  context: ConversationRowRenderContext;
+}) {
+  const { intl } = useZCodeIntl();
+  const descriptor = useMemo(
+    () => resolveFileDisplayDescriptor(item.path, { basePath: context.workspacePath }),
+    [context.workspacePath, item.path],
+  );
+  // diff 聚合只在摘要行真正渲染时算；流式期间未展开的组不反复解析 patch。
+  const changeSummary = useMemo(
+    () => (item.bucket === "changes" ? summarizeFileActivityChanges(item.rows, item.path) : null),
+    [item.bucket, item.path, item.rows],
+  );
+
+  const kindLabel = useMemo(() => {
+    if (item.bucket !== "changes") {
+      return intl.formatMessage({ id: `chat.toolCall.activity.${item.bucket}` });
+    }
+    const lastRow = item.rows[item.rows.length - 1];
+    const source = lastRow ? toolCallRowToLegacyNode(lastRow).toolCall : undefined;
+    return intl.formatMessage({
+      id: getEditKindLabelMessageId(
+        changeSummary?.operationKinds ?? [],
+        changeSummary?.actionLabels ?? [],
+        false,
+        source,
+      ),
+    });
+  }, [changeSummary, intl, item.bucket, item.rows]);
+
+  const openFile = useCallback(() => {
+    context.onOpenCodeViewer?.({
+      type: "file",
+      title: descriptor.fileName,
+      path: item.path,
+    });
+  }, [context.onOpenCodeViewer, descriptor.fileName, item.path]);
+
+  const primaryText = useMemo(
+    () =>
+      renderFileChip({
+        summary: {
+          path: item.path,
+          actionLabel: "Edited",
+          operationKind: "edit",
+          fileName: descriptor.fileName,
+          filePath: descriptor.filePath,
+          fileIconSrc: descriptor.fileIconSrc,
+        },
+        clickable: Boolean(context.onOpenCodeViewer),
+        onClick: openFile,
+        basePath: context.workspacePath,
+      }),
+    [context.onOpenCodeViewer, context.workspacePath, descriptor, item.path, openFile],
+  );
+
+  const countLabel = intl.formatMessage(
+    { id: "chat.toolCall.fileActivity.calls" },
+    { count: item.rows.length },
+  );
+  const diffCount = useMemo(() => {
+    const countNode = (
+      <span
+        className="inline-flex shrink-0 items-center whitespace-nowrap font-mono text-foreground-subtle tabular-nums"
+        title={countLabel}
+        aria-label={countLabel}
+      >
+        ×{item.rows.length}
+      </span>
+    );
+    if (item.bucket !== "changes") {
+      return countNode;
+    }
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        {renderDiffCount(changeSummary?.changeStat ?? undefined)}
+        {countNode}
+      </span>
+    );
+  }, [changeSummary, countLabel, item.bucket, item.rows.length]);
+
+  const statusLabel = useMemo(() => {
+    switch (item.status) {
+      case "error":
+        return intl.formatMessage({ id: "chat.toolCall.status.failed" });
+      case "cancelled":
+        return intl.formatMessage({ id: "chat.toolCall.status.stopped" });
+      case "denied":
+        return intl.formatMessage({ id: "chat.toolCall.status.denied" });
+      default:
+        return undefined;
+    }
+  }, [intl, item.status]);
+
+  const renderContent = useCallback(
+    () => (
+      <div className={cn("ml-2 border-border border-l pl-3.5", TURN_PROCESS_CONTENT_GAP_CLASS)}>
+        {item.rows.map((row) => (
+          <ConversationWorkRenderItem
+            key={`row:${row.rowId}`}
+            item={{ kind: "row", key: `row:${row.rowId}`, row }}
+            context={context}
+          />
+        ))}
+      </div>
+    ),
+    [context, item.rows],
+  );
+
+  return (
+    <ToolLayout
+      toolId={item.key}
+      persistOpenKey={buildFileActivityPersistOpenKey(
+        context.sessionId,
+        context.logEpoch,
+        item.key,
+      )}
+      icon={item.bucket === "changes" ? FILE_ACTIVITY_EDIT_ICON : FILE_ACTIVITY_READ_ICON}
+      canToggle
+      kindLabel={kindLabel}
+      primaryText={primaryText}
+      secondaryText={renderFilePath(descriptor.filePath, context.workspacePath)}
+      diffCount={diffCount}
+      statusLabel={statusLabel}
+      statusTooltip={statusLabel}
+      showFailureStatus={item.status === "error" || item.status === "denied"}
+      showStatusLabel={item.status === "cancelled" || item.status === "denied"}
+      title={descriptor.normalizedPath}
       renderContent={renderContent}
     />
   );

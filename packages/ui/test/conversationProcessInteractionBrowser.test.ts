@@ -112,6 +112,40 @@ const SCENARIOS = {
       output: { text: "test ok" },
     }),
   ],
+  files: () => {
+    const path = "/workspace/src/weaponTables.ts";
+    const edit = (rowId, additions, status = "success") => toolRow(rowId, "Edit", {
+      status,
+      inputText: JSON.stringify({ file_path: path, old_string: "before", new_string: "after" }),
+      input: { file_path: path, old_string: "before", new_string: "after" },
+      output: {
+        text: "",
+        display: {
+          kind: "file_diff",
+          filePath: path,
+          additions,
+          deletions: 0,
+          structuredPatch: [],
+        },
+      },
+    });
+    const read = (rowId) => toolRow(rowId, "Read", {
+      inputText: JSON.stringify({ file_path: path }),
+      input: { file_path: path },
+      output: { text: "export const WEAPONS = [];" },
+    });
+    return [
+      headerRow("completedSuccess"),
+      USER_ROW,
+      edit(3, 1),
+      edit(4, 2),
+      edit(5, 3),
+      edit(6, 1, "error"),
+      edit(7, 1, "error"),
+      read(8),
+      read(9),
+    ];
+  },
 };
 
 const CONTEXT = {
@@ -148,6 +182,7 @@ function Fixture() {
             <main className="mx-auto w-full max-w-3xl p-4">
               <button data-testid="scenario-enter" onClick={() => setScenario("enter")}>enter</button>
               <button data-testid="scenario-fold" onClick={() => setScenario("fold")}>fold</button>
+              <button data-testid="scenario-files" onClick={() => setScenario("files")}>files</button>
               {unit ? <ConversationTurnGroup unit={unit} context={CONTEXT} /> : null}
             </main>
           </PlatformProvider>
@@ -387,6 +422,114 @@ test(
           );
           assert.ok(overflow <= 1, `${width}px 下时间线出现横向溢出: ${overflow}`);
         }
+
+        // === 场景 3：同文件连续编辑/读取合成一条文件活动行 ===
+        await page.setViewportSize({ width: 1000, height: 900 });
+        await page.getByTestId("scenario-files").click();
+        if ((await historyTrigger.getAttribute("data-history-open")) === "false") {
+          await historyTrigger.click();
+        }
+        await processTrigger.waitFor({ state: "visible" });
+        // 计数仍按真实调用条数：5 条编辑（3 成功 + 2 失败）+ 2 次读取。
+        assert.equal(
+          (await processTrigger.innerText()).trim(),
+          "2 次文件读取 · 编辑 5 次",
+          "过程摘要按真实调用条数计数",
+        );
+        // 展开态按 sessionId/key 持久，切场景后可能沿用上一段的展开状态；先收敛到收起态。
+        if ((await processTrigger.getAttribute("aria-expanded")) === "true") {
+          await processTrigger.click();
+          await processTrigger
+            .and(page.locator('[aria-expanded="false"]'))
+            .waitFor({ state: "visible" });
+        }
+        const fileTrigger = (toolId: string) =>
+          page.locator(`[data-testid="tool-summary-trigger-${toolId}"]`);
+        // 内容卸载有 300ms 延迟动画：等折叠真正卸载后再断言，避免读到退场中的旧节点。
+        await page.waitForFunction(
+          () =>
+            document.querySelectorAll('[data-testid^="tool-summary-trigger-fileActivity:"]')
+              .length === 0,
+        );
+        await processTrigger.click();
+        await processTrigger
+          .and(page.locator('[aria-expanded="true"]'))
+          .waitFor({ state: "visible" });
+        const successGroup = fileTrigger("fileActivity:3");
+        const failedGroup = fileTrigger("fileActivity:6");
+        const readGroup = fileTrigger("fileActivity:8");
+        for (const group of [successGroup, failedGroup, readGroup]) {
+          await group.waitFor({ state: "visible" });
+        }
+        for (const rowId of [3, 4, 5, 6, 7, 8, 9]) {
+          assert.equal(await row(rowId).count(), 0, `文件活动行收起时不挂载第 ${rowId} 行`);
+        }
+
+        const successText = await successGroup.innerText();
+        assert.match(successText, /weaponTables\.ts/);
+        assert.match(successText, /×3/);
+        assert.match(successText.replace(/\s+/g, ""), /\+6/, "合并行聚合三次编辑的新增行数");
+        const failedText = await failedGroup.innerText();
+        assert.match(failedText, /×2/);
+        assert.match(failedText, /执行失败/);
+        const readText = await readGroup.innerText();
+        assert.match(readText, /读取文件/);
+        assert.match(readText, /×2/);
+
+        // 展开成功组：按原序还原每条编辑，并保留各自的行锚点与工具摘要。
+        await successGroup.click();
+        await successGroup
+          .and(page.locator('[aria-expanded="true"]'))
+          .waitFor({ state: "visible" });
+        for (const rowId of [3, 4, 5]) {
+          await row(rowId).waitFor({ state: "visible" });
+          assert.equal(
+            await row(rowId)
+              .locator(`[data-testid="tool-summary-trigger-call-${rowId}"]`)
+              .count(),
+            1,
+            `第 ${rowId} 行仍是可独立展开的编辑行`,
+          );
+        }
+        const successBoxes = await Promise.all([3, 4, 5].map((rowId) => row(rowId).boundingBox()));
+        assert.ok(successBoxes[0] && successBoxes[1] && successBoxes[2]);
+        assert.ok(
+          successBoxes[0].y < successBoxes[1].y && successBoxes[1].y < successBoxes[2].y,
+          "展开后保持原始行序",
+        );
+        assert.equal(await row(6).count(), 0, "展开成功组不影响失败组");
+
+        // 失败组单独合并并保留失败状态；展开后能看到每条失败编辑。
+        await failedGroup.click();
+        await failedGroup
+          .and(page.locator('[aria-expanded="true"]'))
+          .waitFor({ state: "visible" });
+        for (const rowId of [6, 7]) {
+          await row(rowId).waitFor({ state: "visible" });
+          assert.match(await rowText(rowId), /执行失败/);
+        }
+
+        // 读取组展开后按原序还原两次读取。
+        await readGroup.click();
+        await readGroup
+          .and(page.locator('[aria-expanded="true"]'))
+          .waitFor({ state: "visible" });
+        for (const rowId of [8, 9]) {
+          await row(rowId).waitFor({ state: "visible" });
+        }
+        const readBoxes = await Promise.all([8, 9].map((rowId) => row(rowId).boundingBox()));
+        assert.ok(readBoxes[0] && readBoxes[1]);
+        assert.ok(readBoxes[0].y < readBoxes[1].y, "读取组展开后保持原始行序");
+
+        // 手机宽度下文件活动行仍可见且不横向溢出。
+        await page.setViewportSize({ width: 375, height: 900 });
+        await successGroup.scrollIntoViewIfNeeded();
+        assert.equal(await successGroup.isVisible(), true);
+        const filesOverflow = await turn.evaluate(
+          (element) => element.scrollWidth - element.clientWidth,
+        );
+        assert.ok(filesOverflow <= 1, `375px 下文件活动行出现横向溢出: ${filesOverflow}`);
+
         assert.deepEqual(errors, []);
       } finally {
         await context.close();

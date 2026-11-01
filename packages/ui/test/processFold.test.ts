@@ -21,6 +21,7 @@ function toolRow(options: {
   input?: unknown;
   status?: ToolCallRow["status"];
   permissionDenial?: ToolCallRow["permissionDenial"];
+  output?: ToolCallRow["output"];
 }): ToolCallRow {
   return {
     kind: "toolCall",
@@ -33,8 +34,34 @@ function toolRow(options: {
     status: options.status ?? "success",
     inputText: "",
     input: options.input ?? {},
+    ...(options.output ? { output: options.output } : {}),
     ...(options.permissionDenial ? { permissionDenial: options.permissionDenial } : {}),
   };
+}
+
+function editRow(options: {
+  rowId: number;
+  path: string;
+  status?: ToolCallRow["status"];
+  additions?: number;
+  deletions?: number;
+}): ToolCallRow {
+  return toolRow({
+    rowId: options.rowId,
+    toolName: "Edit",
+    input: { file_path: options.path, old_string: "before", new_string: "after" },
+    status: options.status,
+    output: {
+      text: "",
+      display: {
+        kind: "file_diff",
+        filePath: options.path,
+        additions: options.additions ?? 1,
+        deletions: options.deletions ?? 0,
+        structuredPatch: [],
+      },
+    },
+  });
 }
 
 function toolRenderContext(options: {
@@ -745,4 +772,119 @@ test("关闭过程折叠时，多条思考行仍逐条输出", () => {
     items.map((item) => item.kind),
     ["row", "row"],
   );
+});
+
+test("同文件连续编辑合并成一条文件活动行，计数仍按调用条数", () => {
+  const { processRow } = processRowOf([
+    editRow({ rowId: 1, path: "/tmp/a.ts" }),
+    editRow({ rowId: 2, path: "/tmp/a.ts", additions: 2 }),
+    // Windows 分隔符归一到同一个文件。
+    editRow({ rowId: 3, path: String.raw`\tmp\a.ts`, additions: 3 }),
+  ]);
+
+  assert.equal(processRow.counts.changes, 3);
+  assert.equal(processRow.nodes.length, 1);
+  const node = processRow.nodes[0];
+  assert.ok(node && node.kind === "fileActivity");
+  assert.equal(node.bucket, "changes");
+  assert.equal(node.path, "/tmp/a.ts");
+  assert.equal(node.status, "success");
+  assert.deepEqual(
+    node.rows.map((row) => row.rowId),
+    [1, 2, 3],
+  );
+});
+
+test("失败编辑单独合并，不与成功编辑混组", () => {
+  const { processRow } = processRowOf([
+    editRow({ rowId: 1, path: "/tmp/a.ts", status: "error" }),
+    editRow({ rowId: 2, path: "/tmp/a.ts", status: "error" }),
+    editRow({ rowId: 3, path: "/tmp/a.ts" }),
+    editRow({ rowId: 4, path: "/tmp/a.ts" }),
+  ]);
+
+  assert.equal(processRow.counts.changes, 4);
+  assert.equal(processRow.nodes.length, 2);
+  const [failed, succeeded] = processRow.nodes;
+  assert.ok(failed && failed.kind === "fileActivity");
+  assert.ok(succeeded && succeeded.kind === "fileActivity");
+  assert.equal(failed.status, "error");
+  assert.deepEqual(
+    failed.rows.map((row) => row.rowId),
+    [1, 2],
+  );
+  assert.equal(succeeded.status, "success");
+  assert.deepEqual(
+    succeeded.rows.map((row) => row.rowId),
+    [3, 4],
+  );
+});
+
+test("不同文件的编辑不合并，行序保持原样", () => {
+  const { processRow } = processRowOf([
+    editRow({ rowId: 1, path: "/tmp/a.ts" }),
+    editRow({ rowId: 2, path: "/tmp/b.ts" }),
+    editRow({ rowId: 3, path: "/tmp/a.ts" }),
+  ]);
+
+  assert.equal(processRow.nodes.length, 3);
+  assert.deepEqual(
+    processRow.nodes.map((node) => node.kind),
+    ["row", "row", "row"],
+  );
+});
+
+test("同文件连续读取合并，读取与编辑不跨动作合并", () => {
+  const readRow = (rowId: number, path: string) =>
+    toolRow({ rowId, toolName: "Read", input: { file_path: path } });
+
+  const merged = processRowOf([
+    readRow(1, "/tmp/a.ts"),
+    readRow(2, "/tmp/a.ts"),
+    readRow(3, "/tmp/a.ts"),
+  ]).processRow;
+  assert.equal(merged.counts["file-read"], 3);
+  assert.equal(merged.nodes.length, 1);
+  const node = merged.nodes[0];
+  assert.ok(node && node.kind === "fileActivity");
+  assert.equal(node.bucket, "file-read");
+
+  const mixed = processRowOf([
+    readRow(4, "/tmp/a.ts"),
+    editRow({ rowId: 5, path: "/tmp/a.ts" }),
+  ]).processRow;
+  assert.equal(mixed.nodes.length, 2);
+  assert.equal(mixed.counts["file-read"], 1);
+  assert.equal(mixed.counts.changes, 1);
+});
+
+test("运行中的同文件编辑不参与合并", () => {
+  const { processRow } = processRowOf([
+    editRow({ rowId: 1, path: "/tmp/a.ts", status: "running" }),
+    editRow({ rowId: 2, path: "/tmp/a.ts", status: "running" }),
+  ]);
+
+  assert.equal(processRow.counts.changes, 2);
+  assert.deepEqual(
+    processRow.nodes.map((node) => node.kind),
+    ["row", "row"],
+  );
+});
+
+test("单条同文件编辑不生成合并行", () => {
+  const { processRow } = processRowOf([editRow({ rowId: 1, path: "/tmp/a.ts" })]);
+  assert.equal(processRow.nodes.length, 1);
+  assert.equal(processRow.nodes[0]?.kind, "row");
+});
+
+test("合并行按组内真实调用条数计入过程计数", () => {
+  const { processRow } = processRowOf([
+    editRow({ rowId: 1, path: "/tmp/a.ts" }),
+    editRow({ rowId: 2, path: "/tmp/a.ts" }),
+    editRow({ rowId: 3, path: "/tmp/b.ts" }),
+    editRow({ rowId: 4, path: "/tmp/b.ts" }),
+  ]);
+
+  assert.equal(processRow.counts.changes, 4);
+  assert.equal(processRow.nodes.length, 2);
 });

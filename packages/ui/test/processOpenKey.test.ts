@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildProcessPersistOpenKey } from "../src/v4/conversationProcessOpenKey.js";
+import {
+  buildFileActivityPersistOpenKey,
+  buildProcessPersistOpenKey,
+} from "../src/v4/conversationProcessOpenKey.js";
 
 const SUMMARY_KEY = "process:row:4";
+const FILE_ACTIVITY_KEY = "fileActivity:7";
 
 test("过程行展开键同时携带 sessionId、logEpoch 与首项身份", () => {
   const key = buildProcessPersistOpenKey("sess-child", "epoch-1", SUMMARY_KEY);
@@ -33,5 +37,29 @@ test("作用域缺失时使用稳定回退，不会抛错", () => {
   assert.equal(
     buildProcessPersistOpenKey(" sess-child ", " epoch-1 ", SUMMARY_KEY),
     buildProcessPersistOpenKey("sess-child", "epoch-1", SUMMARY_KEY),
+  );
+});
+
+test("文件活动行展开键与过程行同作用域但前缀独立", () => {
+  const key = buildFileActivityPersistOpenKey("sess-child", "epoch-1", FILE_ACTIVITY_KEY);
+
+  assert.equal(key, "zc-file-activity:sess-child:epoch-1:fileActivity:7");
+  assert.notEqual(key, buildProcessPersistOpenKey("sess-child", "epoch-1", FILE_ACTIVITY_KEY));
+});
+
+test("文件活动行展开键按 sessionId / logEpoch 隔离相同首行", () => {
+  const base = buildFileActivityPersistOpenKey("sess-child-a", "epoch-1", FILE_ACTIVITY_KEY);
+
+  assert.notEqual(
+    base,
+    buildFileActivityPersistOpenKey("sess-child-b", "epoch-1", FILE_ACTIVITY_KEY),
+  );
+  assert.notEqual(
+    base,
+    buildFileActivityPersistOpenKey("sess-child-a", "epoch-2", FILE_ACTIVITY_KEY),
+  );
+  assert.equal(
+    buildFileActivityPersistOpenKey(undefined, null, FILE_ACTIVITY_KEY),
+    "zc-file-activity:::fileActivity:7",
   );
 });

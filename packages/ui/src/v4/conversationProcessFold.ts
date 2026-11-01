@@ -15,6 +15,10 @@ import {
   type ProcessBucket,
   type ProcessCounts,
 } from "@/v4/conversationProcess.js";
+import {
+  mergeFileActivityNodes,
+  type ConversationProcessChildItem,
+} from "@/v4/conversationFileActivity.js";
 import { classifyToolCallActivity } from "@/lib/toolCallActivity.js";
 import { normalizeZCodeToolName } from "@zcode/shared";
 import type { AssistantWorkRow } from "@/v4/conversationTurnRenderUnits.js";
@@ -55,27 +59,26 @@ export function classifyProcessRow(row: AssistantWorkRow): ProcessBucket | null 
   return null;
 }
 
-export function resolveProcessBucket(
-  item: ConversationAssistantWorkChildItem,
-): ProcessBucket | null {
+export function resolveProcessBucket(item: ConversationProcessChildItem): ProcessBucket | null {
+  if (item.kind === "fileActivity") return item.bucket;
   if (item.kind !== "row") return null;
   return classifyProcessRow(item.row);
 }
 
-function resolveRenderItemRowId(item: ConversationAssistantWorkChildItem): number {
+function resolveRenderItemRowId(item: ConversationProcessChildItem): number {
   if (item.kind === "row" || item.kind === "agentToolCall") return item.row.rowId;
   return item.rowId;
 }
 
-function countProcessBuckets(nodes: readonly ConversationAssistantWorkChildItem[]): ProcessCounts {
+function countProcessBuckets(nodes: readonly ConversationProcessChildItem[]): ProcessCounts {
   const counts = Object.fromEntries(
     TURN_PROCESS_BUCKETS.map((bucket) => [bucket, 0]),
   ) as ProcessCounts;
   for (const node of nodes) {
     const bucket = resolveProcessBucket(node);
     if (!bucket) continue;
-    // 查阅工具已逐条铺开，每一项恰好计 1 次。
-    counts[bucket] += 1;
+    // 文件活动合并行仍按组内真实调用条数计，合并只影响明细展示，不改变计数口径。
+    counts[bucket] += node.kind === "fileActivity" ? node.rows.length : 1;
   }
   return counts;
 }
@@ -105,12 +108,14 @@ export function foldProcessRows(
       index += 1;
     }
     const first = nodes[0]!;
+    // 合并只发生在过程段内部：分段边界、行序与计数都以原始过程行为准。
+    const processNodes = mergeFileActivityNodes(nodes, resolveProcessBucket);
     folded.push({
       kind: "process",
       key: `process:${first.key}`,
       rowId: resolveRenderItemRowId(first),
-      nodes,
-      counts: countProcessBuckets(nodes),
+      nodes: processNodes,
+      counts: countProcessBuckets(processNodes),
       // 只有真正位于可见工作段末尾的那一段才算运行中：后面已经出现别的行时，
       // 这一段的过程已经结束，不该继续强制展开。
       running: stageTailIsRunning && index === items.length,

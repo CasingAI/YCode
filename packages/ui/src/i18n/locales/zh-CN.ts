@@ -4828,6 +4828,7 @@ const zhCN: Record<string, string> = {
   "chat.toolCall.process.changes.other": "编辑 {count} 次",
   "chat.toolCall.process.reasoning.one": "思考 {count} 次",
   "chat.toolCall.process.reasoning.other": "思考 {count} 次",
+  "chat.toolCall.fileActivity.calls": "共 {count} 次调用",
   "chat.toolCall.nodeRepl.processing": "正在执行代码",
   "chat.toolCall.nodeRepl.completed": "已完成",
   "chat.toolCall.nodeRepl.finished": "操作已完成",
