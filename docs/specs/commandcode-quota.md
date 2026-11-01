@@ -69,8 +69,8 @@ commandcode provider 配置里的 access.apiKey（provider 域既有事实，非
 1. 额度卡片与其它用量/余额卡片在同一插槽内互斥出现（commandcode 只出现本卡）。
 2. 两个窗口卡片：5 小时窗口（five-hour）与 7 天窗口（weekly），每窗口显示
    **已用百分比**（used/cap）与重置时间；展示件复用 `PlanUsageMetricCard` /
-   `ChatCodingPlanUsageMeter`。`detail` 行显示「已用 $X / 上限 $Y」（金额两位小数，
-   0 显示 $0）。
+   `ChatCodingPlanUsageMeter`。`detail` 行显示「剩余 $X / 上限 $Y」，剩余金额为
+   `max(cap - used, 0)`（金额两位小数，0 显示 $0），让用户可直接读取可用额度。
 3. `exceeded === true` 的窗口不渲染进度条，显示「已用尽，等待重置」。
 4. 余额行：卡片窗口下方一行「套餐余额 $X」（monthly + purchased + free 三项之和，
    只加已上报项；三项全部未上报时不渲染该行）。

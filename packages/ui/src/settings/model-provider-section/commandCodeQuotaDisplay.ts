@@ -40,9 +40,10 @@ export function formatCommandCodeMoney(value: number, locale: string): string {
   }).format(value);
 }
 
-/** 窗口明细：已用 $X / 上限 $Y。 */
+/** 窗口明细：剩余 $X / 上限 $Y。 */
 export function formatCommandCodeWindowDetail(line: CommandCodeQuotaLine, locale: string): string {
-  return `${formatCommandCodeMoney(line.used, locale)} / ${formatCommandCodeMoney(line.cap, locale)}`;
+  const remaining = Math.max(line.cap - line.used, 0);
+  return `${formatCommandCodeMoney(remaining, locale)} / ${formatCommandCodeMoney(line.cap, locale)}`;
 }
 
 /**

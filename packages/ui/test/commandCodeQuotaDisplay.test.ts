@@ -34,7 +34,11 @@ test("toCommandCodeQuotaLines 原样透传窗口字段", () => {
 test("金额展示固定两位小数美元", () => {
   assert.equal(formatCommandCodeMoney(6.4, "en-US"), "$6.40");
   assert.equal(formatCommandCodeMoney(0, "en-US"), "$0.00");
-  assert.equal(formatCommandCodeWindowDetail(windowEntry(), "en-US"), "$6.40 / $20.00");
+  assert.equal(formatCommandCodeWindowDetail(windowEntry(), "en-US"), "$13.60 / $20.00");
+  assert.equal(
+    formatCommandCodeWindowDetail(windowEntry({ used: 25, cap: 20 }), "en-US"),
+    "$0.00 / $20.00",
+  );
 });
 
 test("余额合计只加已上报项；三项全缺或整体未上报返回 null", () => {
