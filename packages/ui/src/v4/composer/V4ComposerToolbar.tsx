@@ -17,13 +17,6 @@
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  isCliProxyProviderTemplateId,
-  isCommandCodeProviderTemplateId,
-  isDeepSeekProviderTemplateId,
-  isMiniMaxTokenPlanProviderTemplateId,
-  isOpenCodeGoProviderTemplateId,
-  isOpenCodeZenProviderTemplateId,
-  isOpenRouterProviderTemplateId,
   TID_V4_MODEL_CONFIG,
   TID_V4_COMPOSER_INPUT,
   ZCODE_AGENT_PROVIDER,
@@ -37,19 +30,8 @@ import type {
 } from "@zcode/shared/zcode-protocol-v4";
 import { ModelConfigSelect, type ModelSelectGroup } from "@/ModelConfigSelect.js";
 import { Button } from "@/components/ui/button.js";
-import type { ChatCliProxyQuotaConfig } from "@/chat-input-toolbar/CliProxyContextUsage.js";
 import { ChatContextUsage } from "@/chat-input-toolbar/display.js";
-import {
-  hasChatZhipuQuota,
-  type ChatZhipuQuotaConfig,
-} from "@/chat-input-toolbar/ZhipuContextQuota.js";
-import { isZhipuTemplateId } from "@/settings/model-provider-section/ZhipuTemplateQuotaSection.js";
-import type { ChatDeepSeekBalanceConfig } from "@/chat-input-toolbar/DeepSeekContextUsage.js";
-import type { ChatOpenCodeUsageConfig } from "@/chat-input-toolbar/OpenCodeContextUsage.js";
-import type { ChatMiniMaxQuotaConfig } from "@/chat-input-toolbar/MiniMaxContextUsage.js";
-import type { ChatCommandCodeQuotaConfig } from "@/chat-input-toolbar/CommandCodeContextUsage.js";
-import type { ChatOpenRouterBalanceConfig } from "@/chat-input-toolbar/OpenRouterContextUsage.js";
-import type { ChatOpenCodeZenBalanceConfig } from "@/chat-input-toolbar/OpenCodeZenContextUsage.js";
+import { buildProviderQuotaConfigs, resolveProviderQuotaSource } from "@/v4/providerQuotaSource.js";
 
 import { ThoughtLevelCycleControl } from "@/chat-input-toolbar/ThoughtLevelCycleControl.js";
 import type { ThoughtTriggerVariant } from "@/chat-input-toolbar/thoughtLevelOptions.js";
@@ -317,156 +299,26 @@ function V4ComposerModelControlsImpl({
     id: "chat.toolbar.model.manageModels",
   });
 
-  // OpenCode Go provider（opencode-go-* 模板）没有官方 entitlement 链路，composer 额度入口
-  // 改走 OpenCode 用量服务；按选中 provider 实例的 templateId 判定是否展示。
-  // Zen（opencode-zen-*）按量付费没有套餐窗口，不走本配置，改走 openCodeZenBalanceConfig。
-  const openCodeUsageConfig = useMemo<ChatOpenCodeUsageConfig | undefined>(() => {
-    const selectedProviderId = effectiveConfig?.provider?.trim();
-    if (!selectedProviderId) {
-      return undefined;
-    }
-    const selected = modelSelectionView?.providers.find(
-      (candidate) => candidate.providerId === selectedProviderId,
-    );
-    if (!isOpenCodeGoProviderTemplateId(selected?.templateId)) {
-      return undefined;
-    }
-    return {
-      providerId: selectedProviderId,
-      configRevision: modelSelectionView?.revision,
-      onManage: handleOpenModelProviderSettings,
-    };
-  }, [effectiveConfig?.provider, handleOpenModelProviderSettings, modelSelectionView]);
-
-  // CLI Proxy provider（cliproxy-* 模板，首批 Codex）：composer 额度环走 CLI Proxy
-  // 额度服务（被动观测，浮层展开才拉取）；按选中 provider 实例的 templateId 判定是否展示。
-  const cliProxyQuotaConfig = useMemo<ChatCliProxyQuotaConfig | undefined>(() => {
-    const selectedProviderId = effectiveConfig?.provider?.trim();
-    if (!selectedProviderId) {
-      return undefined;
-    }
-    const selected = modelSelectionView?.providers.find(
-      (candidate) => candidate.providerId === selectedProviderId,
-    );
-    if (!isCliProxyProviderTemplateId(selected?.templateId)) {
-      return undefined;
-    }
-    return {
-      providerId: selectedProviderId,
-      onManage: handleOpenModelProviderSettings,
-    };
-  }, [effectiveConfig?.provider, handleOpenModelProviderSettings, modelSelectionView]);
-
-  // DeepSeek provider（deepseek 模板）没有套餐额度，composer 额度入口展示官方账户余额；
-  // 同样按选中 provider 实例的 templateId 判定是否展示。
-  const deepSeekBalanceConfig = useMemo<ChatDeepSeekBalanceConfig | undefined>(() => {
-    const selectedProviderId = effectiveConfig?.provider?.trim();
-    if (!selectedProviderId) {
-      return undefined;
-    }
-    const selected = modelSelectionView?.providers.find(
-      (candidate) => candidate.providerId === selectedProviderId,
-    );
-    if (!isDeepSeekProviderTemplateId(selected?.templateId)) {
-      return undefined;
-    }
-    return {
-      providerId: selectedProviderId,
-      onManage: handleOpenModelProviderSettings,
-    };
-  }, [effectiveConfig?.provider, handleOpenModelProviderSettings, modelSelectionView]);
-
-  // MiniMax Token Plan（minimax-token-plan 模板）composer 额度入口：查双窗口剩余额度。
-  const minimaxQuotaConfig = useMemo<ChatMiniMaxQuotaConfig | undefined>(() => {
-    const selectedProviderId = effectiveConfig?.provider?.trim();
-    if (!selectedProviderId) {
-      return undefined;
-    }
-    const selected = modelSelectionView?.providers.find(
-      (candidate) => candidate.providerId === selectedProviderId,
-    );
-    if (!isMiniMaxTokenPlanProviderTemplateId(selected?.templateId)) {
-      return undefined;
-    }
-    return {
-      providerId: selectedProviderId,
-      onManage: handleOpenModelProviderSettings,
-    };
-  }, [effectiveConfig?.provider, handleOpenModelProviderSettings, modelSelectionView]);
-
-  // OpenRouter（openrouter 模板）composer 额度入口：查账户积分余额。
-  const openRouterBalanceConfig = useMemo<ChatOpenRouterBalanceConfig | undefined>(() => {
-    const selectedProviderId = effectiveConfig?.provider?.trim();
-    if (!selectedProviderId) {
-      return undefined;
-    }
-    const selected = modelSelectionView?.providers.find(
-      (candidate) => candidate.providerId === selectedProviderId,
-    );
-    if (!isOpenRouterProviderTemplateId(selected?.templateId)) {
-      return undefined;
-    }
-    return {
-      providerId: selectedProviderId,
-      onManage: handleOpenModelProviderSettings,
-    };
-  }, [effectiveConfig?.provider, handleOpenModelProviderSettings, modelSelectionView]);
-
-  // Command Code（commandcode 模板）composer 额度入口：查套餐双窗口额度与余额。
-  const commandCodeQuotaConfig = useMemo<ChatCommandCodeQuotaConfig | undefined>(() => {
-    const selectedProviderId = effectiveConfig?.provider?.trim();
-    if (!selectedProviderId) {
-      return undefined;
-    }
-    const selected = modelSelectionView?.providers.find(
-      (candidate) => candidate.providerId === selectedProviderId,
-    );
-    if (!isCommandCodeProviderTemplateId(selected?.templateId)) {
-      return undefined;
-    }
-    return {
-      providerId: selectedProviderId,
-      onManage: handleOpenModelProviderSettings,
-    };
-  }, [effectiveConfig?.provider, handleOpenModelProviderSettings, modelSelectionView]);
-
-  // OpenCode Zen（opencode-zen-* 模板）composer 额度入口：查 billing 余额。
-  const openCodeZenBalanceConfig = useMemo<ChatOpenCodeZenBalanceConfig | undefined>(() => {
-    const selectedProviderId = effectiveConfig?.provider?.trim();
-    if (!selectedProviderId) {
-      return undefined;
-    }
-    const selected = modelSelectionView?.providers.find(
-      (candidate) => candidate.providerId === selectedProviderId,
-    );
-    if (!isOpenCodeZenProviderTemplateId(selected?.templateId)) {
-      return undefined;
-    }
-    return {
-      providerId: selectedProviderId,
-      configRevision: modelSelectionView?.revision,
-      onManage: handleOpenModelProviderSettings,
-    };
-  }, [effectiveConfig?.provider, handleOpenModelProviderSettings, modelSelectionView]);
-
-  // 智谱模板自建 provider（zai-api/bigmodel-api/zai-standard-api/bigmodel-standard-api）
-  // composer 额度入口：用自存 Coding Plan Key 直查 quota/limit 剩余额度。
-  const zhipuQuotaConfig = useMemo<ChatZhipuQuotaConfig | undefined>(() => {
-    const selectedProviderId = effectiveConfig?.provider?.trim();
-    if (!selectedProviderId) {
-      return undefined;
-    }
-    const selected = modelSelectionView?.providers.find(
-      (candidate) => candidate.providerId === selectedProviderId,
-    );
-    if (!isZhipuTemplateId(selected?.templateId)) {
-      return undefined;
-    }
-    return {
-      providerId: selectedProviderId,
-      onManage: handleOpenModelProviderSettings,
-    };
-  }, [effectiveConfig?.provider, handleOpenModelProviderSettings, modelSelectionView]);
+  // 额度段来源只由选中 provider 的 templateId 判定（OpenCode Go / CLI Proxy / DeepSeek /
+  // MiniMax / OpenRouter / Command Code / OpenCode Zen / 智谱模板）；匹配规则与子代理
+  // footer 共用 resolveProviderQuotaSource，避免两条 UI 路径各维护一份判定顺序。
+  const providerQuotaSource = useMemo(
+    () =>
+      resolveProviderQuotaSource({
+        providerId: effectiveConfig?.provider,
+        modelSelectionView,
+      }),
+    [effectiveConfig?.provider, modelSelectionView],
+  );
+  const providerQuotaConfigs = useMemo(
+    () =>
+      buildProviderQuotaConfigs({
+        source: providerQuotaSource,
+        onManage: handleOpenModelProviderSettings,
+        configRevision: modelSelectionView?.revision,
+      }),
+    [handleOpenModelProviderSettings, modelSelectionView?.revision, providerQuotaSource],
+  );
 
   // 当前投影模型的编码值：provider 命中目录则按自定义模型编码，否则回落裸 model id。
   const rawModelValue = useMemo(() => {
@@ -775,14 +627,7 @@ function V4ComposerModelControlsImpl({
       )}
       <ChatContextUsage
         taskUsage={taskUsage}
-        zhipuQuota={zhipuQuotaConfig}
-        openCodeUsage={openCodeUsageConfig}
-        cliProxyQuota={cliProxyQuotaConfig}
-        deepSeekBalance={deepSeekBalanceConfig}
-        minimaxQuota={minimaxQuotaConfig}
-        commandCodeQuota={commandCodeQuotaConfig}
-        openRouterBalance={openRouterBalanceConfig}
-        openCodeZenBalance={openCodeZenBalanceConfig}
+        {...providerQuotaConfigs}
         selectedProvider={displayProvider}
         intl={intl}
         locale={locale}

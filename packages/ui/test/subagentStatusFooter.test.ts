@@ -1,12 +1,17 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { createElement, type ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import type { ModelSelectionView } from "@zcode/services";
 import { ZCodeIntlProvider } from "../src/i18n/IntlProvider.js";
 import { ContextUsageDetails } from "../src/chat-input-toolbar/ContextUsageDisplay.js";
+import { SUBAGENT_PROVIDER_QUOTA_TEST_ID } from "../src/v4/SubagentProviderQuotaSection.js";
 import {
   SUBAGENT_FOOTER_CONTAINER,
   SUBAGENT_FOOTER_TEST_IDS,
+  SubagentContextUsageBody,
   SubagentContextUsageEmptyState,
   SubagentStatusFooter,
 } from "../src/v4/SubagentStatusFooter.js";
@@ -228,6 +233,130 @@ test("footer 仅上下文用量使用按钮触发详情", () => {
   assert.ok(!/<input[\s>]/.test(markup), "footer 不应渲染 input");
   assert.ok(!/<a[\s>]/.test(markup), "footer 不应渲染 a");
   assert.ok(markup.includes("hover:bg-hover"), "上下文按钮应保留交互反馈");
+});
+
+// ---- 弹层正文接线：详情/空态 + provider 额度段 ----
+// HoverCard 关闭时正文不挂载，SSR 直接渲染弹层正文组件，保证验证的是 footer
+// 实际使用的同一条渲染实现，而不是另写一份测试专用结构。
+
+function makeModelSelectionView(
+  providers: ReadonlyArray<{ providerId: string; templateId: string }>,
+): ModelSelectionView {
+  return {
+    revision: 7,
+    providers: providers.map((provider) => ({
+      ...provider,
+      providerName: provider.providerId,
+      config: {},
+      models: [],
+    })),
+  } as unknown as ModelSelectionView;
+}
+
+const intlStub = {
+  formatMessage: ({ id }: { id: string }) => `#${id}`,
+} as never;
+
+function renderUsageBody({
+  usedTokens = 20_000,
+  maxTokens = 200_000,
+  providerId = "",
+  modelSelectionView = null,
+}: {
+  usedTokens?: number;
+  maxTokens?: number;
+  providerId?: string;
+  modelSelectionView?: ModelSelectionView | null;
+} = {}): string {
+  const taskUsage = usedTokens > 0 && maxTokens > 0 ? { used: usedTokens, size: maxTokens } : null;
+  return renderToStaticMarkup(
+    createElement(
+      ZCodeIntlProvider,
+      { initialLocale: "zh-CN" },
+      createElement(SubagentContextUsageBody, {
+        taskUsage,
+        contextWindow: taskUsage
+          ? { breakdown: [{ source: "messages", chars: 500 }], cache: { hitRate: 0.5 } }
+          : null,
+        providerId,
+        modelSelectionView,
+        intl: intlStub,
+        locale: "zh-CN",
+      }),
+    ),
+  );
+}
+
+test("有效用量时弹层正文同时渲染上下文详情与 provider 额度段", () => {
+  const markup = renderUsageBody({
+    providerId: "child-cliproxy",
+    modelSelectionView: makeModelSelectionView([
+      { providerId: "child-cliproxy", templateId: "cliproxy-codex" },
+    ]),
+  });
+  assert.ok(markup.includes("缓存命中率"), "应保留共享上下文详情");
+  assert.ok(markup.includes(`data-testid="${SUBAGENT_PROVIDER_QUOTA_TEST_ID}"`));
+  assert.ok(markup.includes("#chat.cliproxyQuota.title"));
+  assert.ok(!markup.includes("#chat.cliproxyQuota.manage"), "只读正文不渲染管理入口");
+  assert.ok(!/<button[\s>]/.test(markup));
+});
+
+test("无用量时弹层正文同时保留空态说明与 provider 额度段", () => {
+  const markup = renderUsageBody({
+    usedTokens: 0,
+    providerId: "child-cliproxy",
+    modelSelectionView: makeModelSelectionView([
+      { providerId: "child-cliproxy", templateId: "cliproxy-codex" },
+    ]),
+  });
+  assert.ok(markup.includes(`data-testid="subagent-status-footer-usage-empty-state"`));
+  assert.ok(markup.includes(`data-testid="${SUBAGENT_PROVIDER_QUOTA_TEST_ID}"`));
+  assert.ok(markup.includes("#chat.cliproxyQuota.title"));
+});
+
+test("无额度源时详情与空态保持原有行为，不渲染额度段", () => {
+  const view = makeModelSelectionView([{ providerId: "plain", templateId: "openai-api" }]);
+  const details = renderUsageBody({ providerId: "plain", modelSelectionView: view });
+  assert.ok(details.includes("缓存命中率"));
+  assert.ok(!details.includes(`data-testid="${SUBAGENT_PROVIDER_QUOTA_TEST_ID}"`));
+
+  const empty = renderUsageBody({
+    usedTokens: 0,
+    providerId: "plain",
+    modelSelectionView: view,
+  });
+  assert.ok(empty.includes(`data-testid="subagent-status-footer-usage-empty-state"`));
+  assert.ok(!empty.includes(`data-testid="${SUBAGENT_PROVIDER_QUOTA_TEST_ID}"`));
+});
+
+test("额度按子会话 provider 匹配，不借用父会话 provider", () => {
+  const view = makeModelSelectionView([
+    { providerId: "parent-deepseek", templateId: "deepseek" },
+    { providerId: "child-cliproxy", templateId: "cliproxy-codex" },
+  ]);
+  const childSnapshot = makeSnapshot({ provider: "child-cliproxy" });
+  const footerMarkup = renderFooter(childSnapshot, "child_1");
+  assert.equal(getDataAttr(footerMarkup, "subagent-footer-provider"), "child-cliproxy");
+
+  const bodyMarkup = renderUsageBody({ providerId: "child-cliproxy", modelSelectionView: view });
+  assert.ok(bodyMarkup.includes("#chat.cliproxyQuota.title"));
+  assert.ok(!bodyMarkup.includes("#settings.modelProvider.deepseekBalance.title"));
+});
+
+// 接线断言：HoverCard 关闭态不会渲染正文，通过源码确认 footer 把子会话 provider
+// 与 workspace 目录传进正文，SessionPane 也已提供目录。
+test("footer 正文接线使用子会话 provider 与 workspace 目录", () => {
+  const read = (relativePath: string) =>
+    readFileSync(fileURLToPath(new URL(relativePath, import.meta.url)), "utf8");
+  const footer = read("../src/v4/SubagentStatusFooter.tsx");
+  assert.ok(footer.includes("const providerId = config?.provider?.trim()"));
+  assert.ok(footer.includes("providerId={providerId}"));
+  assert.ok(footer.includes("modelSelectionView={modelSelectionView}"));
+  const pane = read("../src/v4/SessionPane.tsx");
+  assert.ok(
+    /<SubagentStatusFooter[\s\S]*?modelSelectionView=\{modelSelectionView\}/.test(pane),
+    "SessionPane 应把 workspace 级 modelSelectionView 传给 footer",
+  );
 });
 
 // 分级降级：container 声明落在 footer 根元素上；模型格挂 ≤320px 隐藏、

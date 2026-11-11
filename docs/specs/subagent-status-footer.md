@@ -9,6 +9,11 @@
 工作模式（Plan / Ask / Agent / Team）、当前模型与思考深度（只读）、
 上下文用量（与输入框 Input 上的上下文组件同一口径）。
 
+上下文圆环的弹层与主输入框保持一致：除了子会话自己的上下文详情，还要展示
+**子会话实际 provider** 对应的账户额度段（例如 CLI Proxy/Codex 的五小时与每周额度条）。
+主会话和子代理可能使用不同 provider，额度必须按子代理 `snapshot.config.provider`
+匹配，不能复用父会话或主 composer 的 provider 结论。
+
 模板与深度标准参照 `docs/specs/subagent-directory-side-pane.md`（子智能体目录）。
 与目录面板的关系：目录是启动器与列表面，本状态条是详情面板
 （`subagent-session` tab）底部的常驻信息行，两者并存，互不改动。
@@ -16,10 +21,18 @@
 ## 状态所有者与数据流
 
 ```text
-CLI V4 projection snapshot（子会话自己，sessionId = tab.childSessionId，唯一权威）
+上下文用量（唯一权威：子会话快照）
+CLI V4 projection snapshot（子会话自己，sessionId = tab.childSessionId）
   → SessionPane 经 useConversationProjection(lease) 读取 snapshot
   → SubagentStatusFooter 只读消费 snapshot.config / snapshot.usage
   → 底部常驻行（纯展示，不持有状态）
+
+provider 额度（唯一权威：既有 provider 额度服务；footer 不缓存）
+子会话 snapshot.config.provider
+  + SessionPane 的 workspace 级 modelSelectionView（providerId → templateId）
+  → resolveProviderQuotaSource（纯函数，与主 composer 共用匹配规则）
+  → 弹层展开时挂载既有额度面板
+  → 面板内既有 hook 拉取 / 观测 / 刷新额度（useCliProxyQuota 等）
 ```
 
 - 数据唯一来源是**子会话自己的快照**：`snapshot.config.{mode,provider,model,thought}`
@@ -52,21 +65,29 @@ CLI V4 projection snapshot（子会话自己，sessionId = tab.childSessionId，
   为 null）时，快照 `usage.contextWindow` 保持 `null`，Footer 显示空圆环，
   hover 说明暂无子会话用量；不得伪造默认窗口、不得回退父会话分母。
 - **用量尚未产生或无效时仍显示入口**：Footer 的上下文圆环始终显示并可 hover/点击；
-  `used<=0` 或 `size<=0` 时显示空圆环和本地化的无用量说明，不显示百分比、分解明细、
-  套餐额度或虚构的 0/总量。有效用量才显示容量摘要、进度、可用来源明细与缓存命中率。
-- 状态条是纯消费叶子：不持有状态、不写 composer draft、不发起额度或网络请求；
-  hover 明细只读快照里的 `breakdown`，不触发 access 刷新。
-  子会话没有独立账户额度数据，因此无用量空态不复用 Input 的账户额度区。
+  `used<=0` 或 `size<=0` 时显示空圆环和本地化的无用量说明，不显示百分比、分解明细或
+  虚构的 0/总量。有效用量才显示容量摘要、进度、可用来源明细与缓存命中率。
+- **provider 额度与上下文用量相互独立**：额度段由子会话 provider 决定，不依赖上下文
+  `usedTokens` 是否有效。上下文用量无效时弹层先显示既有“暂无子会话用量”说明；若
+  provider 有受支持的额度来源，仍在下方展示对应额度段。provider 为空、目录中不存在
+  或模板不受支持时，不渲染任何额度段，弹层保持原有的上下文详情/空态行为。
+- **额度数据与刷新只有一个所有者**：footer 不新增缓存、service 或轮询。额度段只在
+  弹层打开、面板挂载时通过既有面板 hook 拉取；关闭弹层即卸载并沿用各 hook 自己的
+  可见性/状态变化刷新语义，与主输入框排序后的额度段一致。
+- 状态条不持有额度状态、不写 composer draft；上下文明细只读快照里的 `breakdown`，
+  hover 不触发官方 Coding Plan 的 access 刷新。子代理额度段只覆盖主 composer 已接入的
+  provider 模板额度来源，不为官方 Coding Plan/Start Plan 新增请求路径。
+- **只读面板不提供额度管理入口**：额度面板复用展示、加载/错误/刷新反馈与 meter，
+  但不传 `onManage`，因此不渲染“配置/管理”跳转按钮；footer 仍不出现会离开当前面板的控件。
 
-空态展示决策：Input 在尚未发送消息时仍可展示账户额度，是因为 Composer 拥有额度查询配置；
-Subagent Footer 只持有子会话快照，不能安全地展示父级账户额度。故无数据时保留相同的
-圆环入口和浮层交互，但浮层明确说明尚无子会话用量，不伪造数据，也不请求账户额度。
-
-事件顺序（无新增异步状态）：
+事件顺序（无新增异步状态所有者）：
 
 ```text
 子会话 snapshot → Footer 按 sessionId 验证身份 → 有效用量显示详情 / 无效或缺失显示空态
-                                                   ↘ 圆环 hover/点击打开只读 HoverCard
+  ↘ 圆环 hover/点击打开只读 HoverCard
+      → 按子会话 provider + modelSelectionView 解析额度来源
+      → 有受支持来源：挂载既有额度面板，由其 hook 发起/订阅额度读取
+      → 无来源：只渲染上下文详情或空态，与改动前一致
 ```
 
 - 模式由**子 runtime 自己**拥有，底栏只读其会话投影，不读取父会话 mode，也不按代理类型推断档位。有独立 bootstrap record 时，`getSessionConfigSeed` 从该会话 runtime 读取；没有独立 record 的 detached child 由 hydration 读取自己的持久化状态。持久化模式种子的读取顺序为：
@@ -102,10 +123,14 @@ Subagent Footer 只持有子会话快照，不能安全地展示父级账户额�
   来源明细、缓存命中率），不允许维护两套视觉实现。输入框额度刷新/运营提示等交互仍由
   `ChatContextUsage` 自己拥有。
 - 模式与模型信息不可交互；上下文圆环使用 Input 同款按钮触发器，点击或触摸打开只读详情，
-  不修改 draft、不触发额度或 access 请求。有效用量显示容量标题、摘要、进度和已有来源明细；
-  无有效用量时只显示本地化的"暂无子会话用量"说明，不显示账户额度或伪造的容量数字。
+  不修改 draft、不触发官方 Coding Plan 的 access 刷新。有效用量显示容量标题、摘要、进度和
+  已有来源明细；无有效用量时只显示本地化的"暂无子会话用量"说明，不伪造容量数字。
   有用量时，来源明细与平均缓存命中率必须出现（数据缺失时显示的是数据缺口，
   不是"子代理没有明细"）；显示项、顺序、格式与输入框浮层逐项一致。
+- 弹层在上下文详情/空态之后展示子会话 provider 的额度段，与主输入框的额度段使用同一批
+  面板组件；额度段标题、窗口名、剩余百分比、重置时间、加载/错误/刷新文案全部复用既有
+  国际化 key，不新增额度文案。额度段自身带 `border-t` 与上下文详情分隔。
+  官方 Coding Plan 和 Start Plan 不在 V4 composer 的额度来源内，footer 同样不接入。
 - 模式名映射 `plan→Plan、readonly→Ask、yolo→Agent、team→Team`
   （旧值 `bare` 先经 `normalizeLegacyExecutionMode` 归一为 `team`；
   与 `normalizeAvailableZCodeMode` 的归一口径一致，未知值回退 Agent）；
@@ -145,9 +170,20 @@ Subagent Footer 只持有子会话快照，不能安全地展示父级账户额�
   生效门是 `SubagentSessionSidePane` 显式下发（`SubagentSessionSidePane.tsx:47`），
   不按 `readOnly` 或 `openTrigger` 字符串隐式判断。
 - 状态条组件 `packages/ui/src/v4/SubagentStatusFooter.tsx` 的导出：
-  `SubagentStatusFooter`（`{ snapshot, sessionId }`）、
+  `SubagentStatusFooter`（`{ snapshot, sessionId, modelSelectionView? }`）、
   `SUBAGENT_FOOTER_CONTAINER = "subagent-footer"`、
   `SUBAGENT_FOOTER_TEST_IDS`。
+  `modelSelectionView` 由 `SessionPane` 传入其已有的 workspace 级读取结果，只用于
+  `providerId → templateId` 匹配；footer 仍只从子会话快照取 `providerId`。
+- 额度来源解析共用纯函数
+  `packages/ui/src/v4/providerQuotaSource.ts` 的
+  `resolveProviderQuotaSource({ providerId, modelSelectionView })`：
+  返回 `opencode-go`、`cliproxy`、`deepseek`、`minimax`、`commandcode`、
+  `openrouter`、`opencode-zen`、`zhipu` 之一或 `null`。主 composer 与子代理 footer
+  都必须经它匹配模板，避免两处判定顺序漂移。额度段渲染组件为
+  `packages/ui/src/v4/SubagentProviderQuotaSection.tsx`，只按 source 选择既有面板。
+- 既有额度面板 config 的 `onManage` 改为可选：主 composer 继续传入；
+  子代理只读面板不传，标题行不渲染管理入口。其余字段与面板行为不变。
 - 容器查询契约：根 `@container/subagent-footer`，模型格
   `@max-[320px]/subagent-footer:hidden`，模式格
   `@max-[220px]/subagent-footer:hidden`。三处 class 刻意保留完整字面量、
@@ -162,15 +198,18 @@ Subagent Footer 只持有子会话快照，不能安全地展示父级账户额�
   `resolveModeOptionToneClass`（档位色）、`formatModelDisplayName`（模型名）、
   `thoughtLevelLabelId`（思考档词表）。
 - **不在 footer 复用 `ChatContextUsage` 本体**：它内部挂 `useOptionalTabStore`、
-  `useCodingPlanQuotaResetUi`（含 entitlement / access 刷新副作用）与额度面板 props，
-  在只读 footer 里挂它会把额度请求带进只读场景。两处改为共用无副作用的
-  `ContextUsageTrigger` 与 `ContextUsageDetails`；`ChatContextUsage` 继续独占额度刷新、
-  运营提示和额度面板编排。
+  `useCodingPlanQuotaResetUi`（含官方 entitlement / access 刷新副作用）和官方
+  Coding Plan/Start Plan 编排，在只读 footer 里挂它会把这些副作用带进子代理面板。
+  两处共用无副作用的 `ContextUsageTrigger` 与 `ContextUsageDetails`；provider 额度段
+  单独由 `SubagentProviderQuotaSection` 复用既有 provider 面板组件与 hook。
+  `ChatContextUsage` 继续独占官方额度刷新、运营提示和官方额度面板编排。
 - **详情渲染只有一份实现**：输入框 `ChatContextUsage` 与状态条 Footer 都渲染
   同一个 `ContextUsageDetails`（`packages/ui/src/chat-input-toolbar/ContextUsageDisplay.tsx`），
   容量标题、摘要、分段进度条、来源明细、缓存命中率全部由它产出。
   输入框不得再保留第二份手工渲染（否则两边的明细顺序、颜色分段和文案会各自漂移）。
-  输入框的账户额度面板仍然只属于 `ChatContextUsage`，不属于上下文详情，两边都不共享。
+  provider 额度段的展示件与数据 hook 也只有一套：主 composer 由 `ChatContextUsage`
+  编排既有面板，子代理由 `SubagentProviderQuotaSection` 选择同一批面板，不按 provider
+  另写 meter。
 - **排序只有一份实现**：明细展示顺序（chars 降序，tie 按来源固定序）住在
   `packages/ui/src/lib/contextUsageBreakdown.ts` 的
   `sortContextUsageBreakdownSegments`；输入框与状态条均经 `ContextUsageDetails`
@@ -208,8 +247,11 @@ Subagent Footer 只持有子会话快照，不能安全地展示父级账户额�
 ## 负面边界（不做什么）
 
 - 不改父会话 composer、不改协议契约、不改滚动跟随语义。
-- 不为 footer 触发额度请求或引入新的网络/hover 刷新副作用。
-- 不动 `ChatContextUsage` 的额度面板行为；排序收敛时不改变
+- 不为 footer 新增额度缓存、额度 service、轮询定时器或官方 Coding Plan/Start Plan
+  请求路径；额度读取只发生在既有 provider 额度面板挂载时。
+- 不用父会话 provider、主 composer 当前选择或 `workspacePath` 猜测子代理 provider；
+  只按子会话 `snapshot.config.provider` 与 provider 目录匹配。
+- 不动 `ChatContextUsage` 的官方额度面板行为；排序收敛时不改变
   `buildContextUsageBreakdownSegments` 本体的返回顺序
   （其既有单测依赖 Map 首次出现顺序，排序是展示层职责）。
 - 不动另外两个只读调用方（WorkflowActor、Selection）的面板行为。
@@ -219,9 +261,14 @@ Subagent Footer 只持有子会话快照，不能安全地展示父级账户额�
 
 ## 验收场景
 
-SSR 单测已覆盖（`packages/ui/test/subagentStatusFooter.test.ts`，
-覆盖下列断言场景，其中"分级降级"一个用例承载场景 4 与 5；
-`packages/ui/test/contextUsageBreakdown.test.ts` 的排序与分段行为继续由共享组件复用）：
+本轮自动化覆盖分两层，均为 SSR / 纯函数与源码接线断言，**未执行浏览器 E2E**：
+
+- `packages/ui/test/subagentStatusFooter.test.ts`：场景 1-7 的既有 SSR 断言；
+  场景 8-10 的弹层正文接线（详情态、空态、无额度源、子会话 provider 优先）。
+- `packages/ui/test/providerQuotaSource.test.ts`：场景 8-10 的来源解析、8 种面板
+  首帧渲染、只读 config 与主 composer config 一一对应。
+- `packages/ui/test/contextUsageBreakdown.test.ts`：排序与分段继续由共享组件复用。
+- 其中"分级降级"一个用例承载场景 4 与 5。
 
 1. 子快照取值正确：mode/model/thought/usage 四个锚点都落在子快照的值上
    （plan→Plan 显示名、`high`→"· 高"裸档位后缀）。
@@ -237,6 +284,23 @@ SSR 单测已覆盖（`packages/ui/test/subagentStatusFooter.test.ts`，
 7. Footer 通过自身 HoverCard 展示共享的只读详情组件；SSR 验证触发器仅含圆环且不含百分比，
    明细来源与缓存命中率按当前 locale 展示。排序由共享组件调用
    `sortContextUsageBreakdownSegments`，与输入框保持一致。
+8. 额度来源按子会话 provider 匹配。已自动覆盖：同一份 `modelSelectionView` 下，
+   传入 `provider=child-cliproxy` 解析为 CLI Proxy；同目录的 `main-deepseek`
+   单独解析为 DeepSeek，二者互不影响；父会话 provider 不在目录时解析为 `null`。
+   Footer 触发器锚点确认 provider 取自子快照，正文接线断言确认该 provider 与
+   workspace 目录一起传入额度段。无 provider、provider 不在目录、模板不受支持时
+   渲染为空。主 composer 与 footer 共用 `resolveProviderQuotaSource`，
+   `V4ComposerToolbar` 已无旧的逐模板判定。**未覆盖**：真实窗口中切换主/子会话
+   provider 后的重渲染与弹层刷新。
+9. `SubagentProviderQuotaSection` 复用既有面板。已自动覆盖：8 种来源逐一渲染
+   对应面板标题；`onManage` 缺省时无管理入口（智谱面板首帧的“刷新”按钮属于
+   数据刷新，不是管理入口）；无 source 时空输出。面板由 `ServiceProvider`
+   契约替身承载，只验证首帧结构。**未覆盖**：加载/成功/错误数据态、真实服务
+   拉取与刷新结果。
+10. 上下文用量无效但 provider 有额度源时，弹层正文同时保留“暂无子会话用量”
+    说明与额度段；有效用量时详情与额度段并存；provider 无额度源时只保留既有
+    详情/空态。已用 footer 实际使用的 `SubagentContextUsageBody` 直接 SSR 验证。
+    **未覆盖**：真实 Chromium 中打开弹层、hover 交互与额度数据渲染。
 
 投影回归（`apps/zcode-cli/packages/bootstrap/test/`，走 `ProductProjection.applyEvent`）：
 
@@ -295,3 +359,5 @@ UI 一致性回归（`packages/ui/test/`）：
     正文末行不再被渐隐裁掉；圆钮仍浮在正文之上、可点中。
 14. 主会话滚离底部：composer 上方的遮挡带与改动前一致，正文仍在 dock 上方渐隐，
     不透出 dock 的透明留白。
+15. 打开子代理上下文弹层：额度段按子会话实际 provider 展示；主/子会话 provider
+    不同时各显示各的；无额度来源时不出现空段。本轮未执行浏览器自动化，需人工确认。

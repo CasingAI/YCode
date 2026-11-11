@@ -11,8 +11,9 @@ import {
 
 export interface ChatDeepSeekBalanceConfig {
   providerId: string;
-  /** 头部「设置」入口：跳设置页 DeepSeek provider 卡片填写 API Key。 */
-  onManage: () => void;
+  /** 头部「设置」入口：跳设置页 DeepSeek provider 卡片填写 API Key。
+   *  只读面板（子代理 footer）不传，标题行不渲染管理入口。 */
+  onManage?: () => void;
 }
 
 export function hasChatDeepSeekBalance(config: ChatDeepSeekBalanceConfig | undefined): boolean {

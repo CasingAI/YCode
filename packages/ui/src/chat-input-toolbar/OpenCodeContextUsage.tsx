@@ -14,8 +14,9 @@ export interface ChatOpenCodeUsageConfig {
   providerId: string;
   /** Provider Registry revision；Key 保存后让已打开的 Composer 浮层刷新额度。 */
   configRevision?: number;
-  /** 头部「配置」入口：跳设置页 OpenCode Go provider 卡片管理其现有 API Key。 */
-  onManage: () => void;
+  /** 头部「配置」入口：跳设置页 OpenCode Go provider 卡片管理其现有 API Key。
+   *  只读面板（子代理 footer）不传，标题行不渲染管理入口。 */
+  onManage?: () => void;
 }
 
 export function hasChatOpenCodeUsage(config: ChatOpenCodeUsageConfig | undefined): boolean {

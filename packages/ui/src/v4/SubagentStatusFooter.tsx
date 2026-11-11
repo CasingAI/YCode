@@ -3,10 +3,13 @@
 // 不复用 ModelConfigSelect / ThoughtLevelCycleControl / V4ComposerModeControls，
 // 那些控件会写 draft；上下文按钮仅打开只读用量详情，不修改会话状态。
 //
-// 上下文格复用无副作用的 ContextUsageDisplay；不挂 ChatContextUsage，避免将额度刷新
-// 与 access 请求带入只读 footer。
+// 上下文格复用无副作用的 ContextUsageDisplay；不挂 ChatContextUsage，避免将官方
+// Coding Plan/Start Plan 的 access 刷新与运营提示带入只读 footer。
+// provider 额度段按子会话实际 provider 复用既有额度面板（见 SubagentProviderQuotaSection），
+// 只在弹层展开、面板挂载时读取，不新增缓存或 service。
 import { memo, useMemo, useState } from "react";
-import { getZCodeAgentAvailableModes } from "@zcode/shared";
+import type { ModelSelectionView } from "@zcode/services";
+import { getZCodeAgentAvailableModes, type ZCodeContextUsageBreakdownItem } from "@zcode/shared";
 import type { ConversationSnapshot } from "@zcode/shared/zcode-protocol-v4";
 import {
   CONTEXT_PANEL_TRIGGER_GAP_PX,
@@ -20,6 +23,7 @@ import { ContextUsageDetails } from "@/chat-input-toolbar/ContextUsageDisplay.js
 import { getRenderableTaskUsage } from "@/chat-input-toolbar/contextUsage.js";
 import { thoughtLevelLabelId } from "@/chat-input-toolbar/thoughtLevelLabelIds.js";
 import { formatModelDisplayName } from "@/lib/modelDisplayName.js";
+import { SubagentProviderQuotaSection } from "@/v4/SubagentProviderQuotaSection.js";
 import { resolveModeOptionToneClass } from "@/v4/composer/composerModeTone.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 
@@ -45,13 +49,10 @@ export const SUBAGENT_FOOTER_TEST_IDS = {
 export const SUBAGENT_FOOTER_CONTAINER = "subagent-footer";
 const FOOTER_MODEL_CELL_CLASS =
   "flex min-w-0 flex-1 items-center gap-1 @max-[320px]/subagent-footer:hidden";
-const FOOTER_MODE_CELL_CLASS =
-  "flex min-w-0 shrink-0 @max-[220px]/subagent-footer:hidden";
+const FOOTER_MODE_CELL_CLASS = "flex min-w-0 shrink-0 @max-[220px]/subagent-footer:hidden";
 
 // ChatContextUsage 的门控口径：used<=0 或 size<=0 时隐藏该格，不渲染 0% 假数据。
-function resolveFooterTaskUsage(
-  snapshot: ConversationSnapshot | null | undefined,
-) {
+function resolveFooterTaskUsage(snapshot: ConversationSnapshot | null | undefined) {
   const contextWindow = snapshot?.usage?.contextWindow;
   if (!contextWindow) return null;
   return getRenderableTaskUsage({
@@ -62,9 +63,7 @@ function resolveFooterTaskUsage(
 
 function resolveModeLabel(mode: string | undefined): string {
   const normalized = (mode ?? "yolo").trim().toLowerCase();
-  const entry = getZCodeAgentAvailableModes().find(
-    (item) => item.id === normalized,
-  );
+  const entry = getZCodeAgentAvailableModes().find((item) => item.id === normalized);
   // 未知值回退 Agent：与 normalizeAvailableZCodeMode 的归一口径一致（非四档一律 yolo）。
   // 显示名中英文一致为 Plan / Ask / Agent / Team（见 mode.label.glm.* 两份 locale）。
   return entry?.name ?? "Agent";
@@ -73,13 +72,11 @@ function resolveModeLabel(mode: string | undefined): string {
 interface SubagentStatusFooterProps {
   snapshot: ConversationSnapshot | null | undefined;
   sessionId: string | null;
+  /** workspace 级 provider 目录；只用于把子会话 provider 匹配到额度模板。 */
+  modelSelectionView?: ModelSelectionView | null;
 }
 
-export function SubagentContextUsageEmptyState({
-  message,
-}: {
-  message: string;
-}) {
+export function SubagentContextUsageEmptyState({ message }: { message: string }) {
   return (
     <p
       data-testid="subagent-status-footer-usage-empty-state"
@@ -90,10 +87,59 @@ export function SubagentContextUsageEmptyState({
   );
 }
 
-/** 子代理只读面板底部常驻行：shrink-0，不参与滚动、不写 draft、不发网络请求。 */
+/** 弹层正文：上下文详情/空态与 provider 额度段共用的唯一渲染入口。 */
+export function SubagentContextUsageBody({
+  taskUsage,
+  contextWindow,
+  providerId,
+  modelSelectionView,
+  intl,
+  locale,
+}: {
+  taskUsage: { used: number; size: number } | null;
+  contextWindow:
+    | {
+        breakdown?: readonly ZCodeContextUsageBreakdownItem[];
+        cache?: { hitRate?: number | null } | null;
+      }
+    | null
+    | undefined;
+  providerId: string;
+  modelSelectionView: ModelSelectionView | null | undefined;
+  intl: ReturnType<typeof useZCodeIntl>["intl"];
+  locale: string;
+}) {
+  const usageUnavailableLabel = intl.formatMessage({
+    id: "subagentStatusFooter.contextUsageUnavailable",
+  });
+  return (
+    <ContextContentBody className="space-y-3">
+      {taskUsage ? (
+        <ContextUsageDetails
+          usedTokens={taskUsage.used}
+          maxTokens={taskUsage.size}
+          breakdown={contextWindow?.breakdown}
+          cacheHitRate={contextWindow?.cache?.hitRate}
+        />
+      ) : (
+        <SubagentContextUsageEmptyState message={usageUnavailableLabel} />
+      )}
+      <SubagentProviderQuotaSection
+        providerId={providerId}
+        modelSelectionView={modelSelectionView}
+        intl={intl}
+        locale={locale}
+        separated
+      />
+    </ContextContentBody>
+  );
+}
+
+/** 子代理只读面板底部常驻行：shrink-0，不参与滚动、不写会话配置；额度仅弹层展开时按需读取。 */
 export const SubagentStatusFooter = memo(function SubagentStatusFooter({
   snapshot,
   sessionId,
+  modelSelectionView,
 }: SubagentStatusFooterProps) {
   const { intl, locale } = useZCodeIntl();
 
@@ -111,13 +157,9 @@ export const SubagentStatusFooter = memo(function SubagentStatusFooter({
   const providerId = config?.provider?.trim() ?? "";
   const thoughtValue = config?.thought?.trim() ?? "";
   const modelLabel = modelId ? formatModelDisplayName(modelId) : "";
-  const thoughtLabelId = thoughtValue
-    ? thoughtLevelLabelId(thoughtValue)
-    : undefined;
+  const thoughtLabelId = thoughtValue ? thoughtLevelLabelId(thoughtValue) : undefined;
   const thoughtLabel =
-    thoughtLabelId !== undefined
-      ? intl.formatMessage({ id: thoughtLabelId })
-      : thoughtValue;
+    thoughtLabelId !== undefined ? intl.formatMessage({ id: thoughtLabelId }) : thoughtValue;
 
   const renderableTaskUsage = useMemo(
     () => resolveFooterTaskUsage(ownSnapshot),
@@ -156,20 +198,14 @@ export const SubagentStatusFooter = memo(function SubagentStatusFooter({
     >
       <span
         data-testid={SUBAGENT_FOOTER_TEST_IDS.mode}
-        title={intl.formatMessage(
-          { id: "subagentStatusFooter.mode" },
-          { mode: modeLabel },
-        )}
+        title={intl.formatMessage({ id: "subagentStatusFooter.mode" }, { mode: modeLabel })}
         className={cn(
           "items-center gap-1 font-medium whitespace-nowrap",
           FOOTER_MODE_CELL_CLASS,
           modeToneClass,
         )}
       >
-        <span
-          aria-hidden="true"
-          className="size-1.5 shrink-0 rounded-full bg-current"
-        />
+        <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-current" />
         <span className="truncate">{modeLabel}</span>
       </span>
       {modelLabel ? (
@@ -177,23 +213,14 @@ export const SubagentStatusFooter = memo(function SubagentStatusFooter({
           title={`${providerId ? `${providerId}/` : ""}${modelId}`}
           className={cn("text-foreground-subtle", FOOTER_MODEL_CELL_CLASS)}
         >
-          <span
-            data-testid={SUBAGENT_FOOTER_TEST_IDS.provider}
-            className="hidden"
-          >
+          <span data-testid={SUBAGENT_FOOTER_TEST_IDS.provider} className="hidden">
             {providerId}
           </span>
-          <span
-            data-testid={SUBAGENT_FOOTER_TEST_IDS.model}
-            className="truncate font-mono"
-          >
+          <span data-testid={SUBAGENT_FOOTER_TEST_IDS.model} className="truncate font-mono">
             {modelLabel}
           </span>
           {thoughtLabel ? (
-            <span
-              data-testid={SUBAGENT_FOOTER_TEST_IDS.thought}
-              className="shrink-0 truncate"
-            >
+            <span data-testid={SUBAGENT_FOOTER_TEST_IDS.thought} className="shrink-0 truncate">
               {intl.formatMessage(
                 { id: "subagentStatusFooter.thoughtSuffix" },
                 { level: thoughtLabel },
@@ -233,33 +260,21 @@ export const SubagentStatusFooter = memo(function SubagentStatusFooter({
             // 规则见 docs/specs/hover-card-trigger-gap.md。
             sideOffset={CONTEXT_PANEL_TRIGGER_GAP_PX}
           >
-            <ContextContentBody>
-              {renderableTaskUsage ? (
-                <ContextUsageDetails
-                  usedTokens={renderableTaskUsage.used}
-                  maxTokens={renderableTaskUsage.size}
-                  breakdown={usageContextWindow?.breakdown ?? undefined}
-                  cacheHitRate={usageContextWindow?.cache?.hitRate}
-                />
-              ) : (
-                <SubagentContextUsageEmptyState
-                  message={usageUnavailableLabel}
-                />
-              )}
-            </ContextContentBody>
+            <SubagentContextUsageBody
+              taskUsage={renderableTaskUsage}
+              contextWindow={usageContextWindow}
+              providerId={providerId}
+              modelSelectionView={modelSelectionView}
+              intl={intl}
+              locale={locale}
+            />
           </ContextContent>
           {renderableTaskUsage ? (
             <>
-              <span
-                data-testid={SUBAGENT_FOOTER_TEST_IDS.usageUsed}
-                className="hidden"
-              >
+              <span data-testid={SUBAGENT_FOOTER_TEST_IDS.usageUsed} className="hidden">
                 {renderableTaskUsage.used}
               </span>
-              <span
-                data-testid={SUBAGENT_FOOTER_TEST_IDS.usageMax}
-                className="hidden"
-              >
+              <span data-testid={SUBAGENT_FOOTER_TEST_IDS.usageMax} className="hidden">
                 {renderableTaskUsage.size}
               </span>
             </>

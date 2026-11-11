@@ -5864,7 +5864,11 @@ export function SessionPane({
           滚动到底部按钮挂在 timeline 根的 absolute bottom-3，天然落在 footer 之上，
           不重叠、不改滚动跟随语义。 */}
       {readOnlyStatusFooter ? (
-        <SubagentStatusFooter snapshot={snapshot} sessionId={sessionId} />
+        <SubagentStatusFooter
+          snapshot={snapshot}
+          sessionId={sessionId}
+          modelSelectionView={modelSelectionView}
+        />
       ) : null}
     </div>
   );

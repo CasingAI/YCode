@@ -17,8 +17,9 @@ import { formatQuotaResetTime } from "@/lib/codingPlanQuotaPresentation.js";
  */
 export interface ChatCliProxyQuotaConfig {
   providerId: string;
-  /** 头部「配置」入口：跳设置页 CLI Proxy provider 卡片（重新登录/切换账号等）。 */
-  onManage: () => void;
+  /** 头部「配置」入口：跳设置页 CLI Proxy provider 卡片（重新登录/切换账号等）。
+   *  只读面板（子代理 footer）不传，标题行不渲染管理入口。 */
+  onManage?: () => void;
 }
 
 export function hasChatCliProxyQuota(config: ChatCliProxyQuotaConfig | undefined): boolean {

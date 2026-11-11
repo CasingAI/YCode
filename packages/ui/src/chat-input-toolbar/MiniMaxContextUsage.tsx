@@ -15,8 +15,9 @@ import {
 
 export interface ChatMiniMaxQuotaConfig {
   providerId: string;
-  /** 头部「设置」入口：跳设置页 MiniMax Token Plan 卡片填写订阅 Key。 */
-  onManage: () => void;
+  /** 头部「设置」入口：跳设置页 MiniMax Token Plan 卡片填写订阅 Key。
+   *  只读面板（子代理 footer）不传，标题行不渲染管理入口。 */
+  onManage?: () => void;
 }
 
 export function hasChatMiniMaxQuota(config: ChatMiniMaxQuotaConfig | undefined): boolean {
