@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { SessionEventType, type SessionEvent } from "@zcode/contracts";
-import type { TurnHeaderRow, WorkSegmentUsage } from "@zcode/shared/zcode-protocol-v4";
+import type {
+  ToolCallRow,
+  TurnHeaderRow,
+  WorkSegmentUsage,
+} from "@zcode/shared/zcode-protocol-v4";
 import { ProductProjection } from "../src/zcode-protocol-v4/product-projection.js";
 
 // spec（conversation-work-segment-usage.md）冷恢复收口不变量的等价性守卫：
@@ -94,7 +98,12 @@ function reasoningSpan(partId: string, startOffsetMs: number, endOffsetMs: numbe
   ];
 }
 
-function subagentSpawned(agentId: string, offsetMs: number, turnId: string) {
+function subagentSpawned(
+  agentId: string,
+  offsetMs: number,
+  turnId: string,
+  extra: Record<string, unknown> = {},
+) {
   return event(
     SessionEventType.SubagentSpawned,
     {
@@ -106,13 +115,19 @@ function subagentSpawned(agentId: string, offsetMs: number, turnId: string) {
       prompt: "去做",
       status: "running",
       background: false,
+      ...extra,
     },
     offsetMs,
     turnId,
   );
 }
 
-function subagentStopped(agentId: string, offsetMs: number, turnId: string) {
+function subagentStopped(
+  agentId: string,
+  offsetMs: number,
+  turnId: string,
+  extra: Record<string, unknown> = {},
+) {
   return event(
     SessionEventType.SubagentStopped,
     {
@@ -125,6 +140,26 @@ function subagentStopped(agentId: string, offsetMs: number, turnId: string) {
       totalDurationMs: 1_000,
       totalToolUseCount: 3,
       totalReasoningDurationMs: 20_000,
+      ...extra,
+    },
+    offsetMs,
+    turnId,
+  );
+}
+
+function subagentProgress(
+  agentId: string,
+  offsetMs: number,
+  turnId: string,
+  extra: Record<string, unknown> = {},
+) {
+  return event(
+    SessionEventType.SubagentProgress,
+    {
+      agentId,
+      childSessionId: `child-${agentId}`,
+      parentToolCallId: `call-${agentId}`,
+      ...extra,
     },
     offsetMs,
     turnId,
@@ -306,6 +341,57 @@ test("批量收口对没有工作段的投影是无操作", () => {
   projection.beginHydrationReplay();
   projection.completeHydrationReplay(T0);
   assert.equal(projection.getSnapshot().rows.window.length, 0);
+});
+
+// 单字段用量（断点 A 回归）：直播与冷恢复收口对缺字段形态必须逐字段一致——
+// 缺席对缺席、值对值，不得一方补 0。
+// 跨轮续跑（断点 B 回归）：续跑运行的增量为「累计 − 基线」，写在发送调用行的
+// delegatedUsage 上。冷恢复只能从最终行集合重算，因此这条归属必须落成行字段，
+// 不能只存在于直播内存。两条路径的 turnHeader usage 与发送行字段都必须一致。
+test("跨轮续跑用量归属在直播与冷恢复收口一致", () => {
+  const events = [
+    startTurn(TURN_1, "m-user-1", 1, 0),
+    toolScheduled("call-agent-c", "Agent", 1_000, TURN_1),
+    toolCompleted("call-agent-c", 2_000, TURN_1),
+    subagentSpawned("agent-c", 3_000, TURN_1),
+    subagentStopped("agent-c", 4_000, TURN_1),
+    turnComplete(5_000, TURN_1),
+    startTurn(TURN_2, "m-user-2", 2, 6_000),
+    toolScheduled("call-send-c", "RelayToSubagent", 7_000, TURN_2),
+    toolCompleted("call-send-c", 8_000, TURN_2),
+    // 续跑事件携带的是发送调用 id，子代理行的锚点仍是首次 Agent 调用。
+    subagentSpawned("agent-c", 9_000, TURN_2, {
+      resumed: true,
+      parentToolCallId: "call-send-c",
+    }),
+    subagentProgress("agent-c", 10_000, TURN_2, {
+      totalToolUseCount: 5,
+      totalReasoningDurationMs: 21_000,
+    }),
+    subagentStopped("agent-c", 11_000, TURN_2, {
+      resumed: true,
+      parentToolCallId: "call-send-c",
+      totalToolUseCount: 7,
+      totalReasoningDurationMs: 24_000,
+    }),
+  ];
+  const live = replayLive(events);
+  const batch = replayBatch(events);
+  assert.deepEqual(headerUsages(batch), headerUsages(live));
+
+  const headers = [...headerUsages(batch).values()];
+  assert.equal(headers.length, 2);
+  // 派发轮：launcher 1 + 首个运行 3 = 4，思考 20000ms。
+  assert.deepEqual(headers[0]?.segmentUsages[0], { toolCallCount: 4, reasoningDurationMs: 20_000 });
+  // 发送轮：SendMessage 1 + 续跑增量（7 − 3 = 4），思考 24000 − 20000 = 4000ms。
+  assert.deepEqual(headers[1]?.segmentUsages[0], { toolCallCount: 5, reasoningDurationMs: 4_000 });
+
+  const sendRow = batch
+    .getSnapshot()
+    .rows.window.find(
+      (row): row is ToolCallRow => row.kind === "toolCall" && row.toolCallId === "call-send-c",
+    );
+  assert.deepEqual(sendRow?.delegatedUsage, { toolCallCount: 4, reasoningDurationMs: 4_000 });
 });
 
 // 单字段用量（断点 A 回归）：直播与冷恢复收口对缺字段形态必须逐字段一致——

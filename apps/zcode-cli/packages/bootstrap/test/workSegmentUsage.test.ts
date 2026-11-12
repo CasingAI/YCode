@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { SessionEventType, type SessionEvent } from "@zcode/contracts";
-import type { SubagentRow, TurnHeaderRow, WorkSegmentUsage } from "@zcode/shared/zcode-protocol-v4";
+import type {
+  SubagentRow,
+  ToolCallRow,
+  TurnHeaderRow,
+  WorkSegmentUsage,
+} from "@zcode/shared/zcode-protocol-v4";
 import { ProductProjection } from "../src/zcode-protocol-v4/product-projection.js";
 
 // 工作段 usage 的唯一 owner 是 CLI ProductProjection：
@@ -13,12 +18,17 @@ const SESSION_ID = "session-work-segment-usage";
 const TURN_ID = "turn-work-segment-usage";
 
 let sequenceNumber = 0;
-function event(type: SessionEventType, payload: unknown, offsetMs: number): SessionEvent {
+function eventIn(
+  turnId: string,
+  type: SessionEventType,
+  payload: unknown,
+  offsetMs: number,
+): SessionEvent {
   sequenceNumber += 1;
   return {
     id: `event-${sequenceNumber}`,
     sessionId: SESSION_ID,
-    turnId: TURN_ID,
+    turnId,
     type,
     timestamp: new Date(T0 + offsetMs),
     traceId: "trace-work-segment-usage",
@@ -27,20 +37,31 @@ function event(type: SessionEventType, payload: unknown, offsetMs: number): Sess
   } as unknown as SessionEvent;
 }
 
+function event(type: SessionEventType, payload: unknown, offsetMs: number): SessionEvent {
+  return eventIn(TURN_ID, type, payload, offsetMs);
+}
+
 function applyAll(projection: ProductProjection, events: SessionEvent[]): void {
   for (const item of events) projection.applyEvent(item);
 }
 
-function startTurn(offsetMs = 0): SessionEvent {
-  return event(
+function startTurn(offsetMs = 0, turnId = TURN_ID, turnNumber = 1): SessionEvent {
+  return eventIn(
+    turnId,
     SessionEventType.TurnStarted,
-    { turnNumber: 1, input: "做点事", executionKind: "agent" },
+    { turnNumber, input: "做点事", executionKind: "agent" },
     offsetMs,
   );
 }
 
-function toolScheduled(callId: string, toolName: string, offsetMs: number): SessionEvent {
-  return event(
+function toolScheduled(
+  callId: string,
+  toolName: string,
+  offsetMs: number,
+  turnId = TURN_ID,
+): SessionEvent {
+  return eventIn(
+    turnId,
     SessionEventType.ToolCallScheduled,
     {
       toolCallId: callId,
@@ -53,8 +74,9 @@ function toolScheduled(callId: string, toolName: string, offsetMs: number): Sess
   );
 }
 
-function toolCompleted(callId: string, offsetMs: number): SessionEvent {
-  return event(
+function toolCompleted(callId: string, offsetMs: number, turnId = TURN_ID): SessionEvent {
+  return eventIn(
+    turnId,
     SessionEventType.ToolCallResult,
     {
       toolCallId: callId,
@@ -86,8 +108,14 @@ function reasoningSpan(partId: string, startOffsetMs: number, endOffsetMs: numbe
   ];
 }
 
-function subagentSpawned(agentId: string, offsetMs: number): SessionEvent {
-  return event(
+function subagentSpawned(
+  agentId: string,
+  offsetMs: number,
+  extra: Record<string, unknown> = {},
+  turnId = TURN_ID,
+): SessionEvent {
+  return eventIn(
+    turnId,
     SessionEventType.SubagentSpawned,
     {
       agentId,
@@ -98,6 +126,7 @@ function subagentSpawned(agentId: string, offsetMs: number): SessionEvent {
       prompt: "去做",
       status: "running",
       background: false,
+      ...extra,
     },
     offsetMs,
   );
@@ -107,8 +136,10 @@ function subagentStopped(
   agentId: string,
   offsetMs: number,
   extra: Record<string, unknown> = {},
+  turnId = TURN_ID,
 ): SessionEvent {
-  return event(
+  return eventIn(
+    turnId,
     SessionEventType.SubagentStopped,
     {
       agentId,
@@ -128,8 +159,10 @@ function subagentProgress(
   agentId: string,
   offsetMs: number,
   extra: Record<string, unknown> = {},
+  turnId = TURN_ID,
 ): SessionEvent {
-  return event(
+  return eventIn(
+    turnId,
     SessionEventType.SubagentProgress,
     {
       agentId,
@@ -669,4 +702,198 @@ test("单轮只调 SendMessage 时表头出现工具项且数字正确", () => {
 
   // 1（SendMessage 本身）+ 2（子代理新增）= 3。
   assert.equal(usageOf(projection)?.toolCallCount, 3);
+});
+
+const DISPATCH_TURN = "turn-x-dispatch";
+const FOLLOWUP_TURN = "turn-x-followup";
+const SECOND_FOLLOWUP_TURN = "turn-x-followup-2";
+
+function usageOfTurn(
+  projection: ProductProjection,
+  turnId: string,
+): WorkSegmentUsage | undefined {
+  return projection
+    .getSnapshot()
+    .rows.window.find(
+      (row): row is TurnHeaderRow => row.kind === "turnHeader" && row.turnId === turnId,
+    )
+    ?.workSegments?.[0]?.usage;
+}
+
+function toolRowOf(projection: ProductProjection, toolCallId: string): ToolCallRow | undefined {
+  return projection
+    .getSnapshot()
+    .rows.window.find(
+      (row): row is ToolCallRow => row.kind === "toolCall" && row.toolCallId === toolCallId,
+    );
+}
+
+function applyDispatchTurn(projection: ProductProjection): void {
+  applyAll(projection, [
+    startTurn(0, DISPATCH_TURN, 1),
+    toolScheduled("call-agent-x", "Agent", 1_000, DISPATCH_TURN),
+    toolCompleted("call-agent-x", 2_000, DISPATCH_TURN),
+    subagentSpawned("agent-x", 3_000, {}, DISPATCH_TURN),
+    subagentStopped(
+      "agent-x",
+      4_000,
+      { totalToolUseCount: 5, totalReasoningDurationMs: 1_000 },
+      DISPATCH_TURN,
+    ),
+  ]);
+}
+
+function applyFollowUpTurn(
+  projection: ProductProjection,
+  offsetMs: number,
+  turnId = FOLLOWUP_TURN,
+  turnNumber = 2,
+  sendCallId = "call-send",
+): void {
+  applyAll(projection, [
+    startTurn(offsetMs, turnId, turnNumber),
+    toolScheduled(sendCallId, "RelayToSubagent", offsetMs + 1_000, turnId),
+    toolCompleted(sendCallId, offsetMs + 2_000, turnId),
+    subagentSpawned(
+      "agent-x",
+      offsetMs + 3_000,
+      { resumed: true, parentToolCallId: sendCallId },
+      turnId,
+    ),
+  ]);
+}
+
+test("跨轮 SendMessage 续跑把本次运行增量计入发送轮，派发轮保持首个运行用量", () => {
+  const projection = new ProductProjection(SESSION_ID, "epoch-1");
+  applyDispatchTurn(projection);
+  // 派发轮：launcher 1 次 + 子代理首个运行 5 次 = 6；思考 1000ms。
+  assert.deepEqual(usageOfTurn(projection, DISPATCH_TURN), {
+    toolCallCount: 6,
+    reasoningDurationMs: 1_000,
+  });
+
+  applyFollowUpTurn(projection, 10_000);
+  // 发送轮此刻只有 SendMessage 自身这一次调用。
+  assert.deepEqual(usageOfTurn(projection, FOLLOWUP_TURN), {
+    toolCallCount: 1,
+    reasoningDurationMs: 0,
+  });
+
+  // 续跑运行上报的是子会话累计值：9 − 基线 5 = 4 次，3000 − 1000 = 2000ms。
+  applyAll(projection, [
+    subagentProgress(
+      "agent-x",
+      14_000,
+      { totalToolUseCount: 9, totalReasoningDurationMs: 3_000 },
+      FOLLOWUP_TURN,
+    ),
+  ]);
+  assert.deepEqual(usageOfTurn(projection, FOLLOWUP_TURN), {
+    toolCallCount: 5,
+    reasoningDurationMs: 2_000,
+  });
+  // 派发轮与子代理行都不因续跑而变化。
+  assert.deepEqual(usageOfTurn(projection, DISPATCH_TURN), {
+    toolCallCount: 6,
+    reasoningDurationMs: 1_000,
+  });
+  assert.deepEqual(subagentRowOf(projection, "agent-x")?.usage, {
+    toolCallCount: 5,
+    reasoningDurationMs: 1_000,
+  });
+
+  applyAll(projection, [
+    subagentStopped(
+      "agent-x",
+      15_000,
+      { resumed: true, parentToolCallId: "call-send", totalToolUseCount: 11 },
+      FOLLOWUP_TURN,
+    ),
+  ]);
+  // 累计 11 − 基线 5 = 6 → 发送轮 1 + 6 = 7。两轮合计 6 + 7 = 13
+  // = launcher 1 + SendMessage 1 + 子代理累计 11。
+  assert.deepEqual(usageOfTurn(projection, FOLLOWUP_TURN), {
+    toolCallCount: 7,
+    reasoningDurationMs: 2_000,
+  });
+  // 终态事件没带思考耗时，逐字段 max 保留进度读数里的 2000ms。
+  assert.deepEqual(toolRowOf(projection, "call-send")?.delegatedUsage, {
+    toolCallCount: 6,
+    reasoningDurationMs: 2_000,
+  });
+});
+
+test("续跑终态后迟到的进度事件不重复计入", () => {
+  const projection = new ProductProjection(SESSION_ID, "epoch-1");
+  applyDispatchTurn(projection);
+  applyFollowUpTurn(projection, 10_000);
+  applyAll(projection, [
+    subagentStopped(
+      "agent-x",
+      15_000,
+      { resumed: true, parentToolCallId: "call-send", totalToolUseCount: 11 },
+      FOLLOWUP_TURN,
+    ),
+    // 迟到的旧读数：终态已把基线推进到 11，增量恒为 0。
+    subagentProgress("agent-x", 16_000, { totalToolUseCount: 9 }, FOLLOWUP_TURN),
+  ]);
+  assert.deepEqual(usageOfTurn(projection, FOLLOWUP_TURN), {
+    toolCallCount: 7,
+    reasoningDurationMs: 0,
+  });
+});
+
+test("第二次续跑以新的基线起算，不重复计入上一次续跑", () => {
+  const projection = new ProductProjection(SESSION_ID, "epoch-1");
+  applyDispatchTurn(projection);
+  applyFollowUpTurn(projection, 10_000);
+  applyAll(projection, [
+    subagentStopped(
+      "agent-x",
+      15_000,
+      { resumed: true, parentToolCallId: "call-send", totalToolUseCount: 11 },
+      FOLLOWUP_TURN,
+    ),
+  ]);
+
+  applyFollowUpTurn(projection, 20_000, SECOND_FOLLOWUP_TURN, 3, "call-send-2");
+  applyAll(projection, [
+    subagentProgress("agent-x", 24_000, { totalToolUseCount: 15 }, SECOND_FOLLOWUP_TURN),
+  ]);
+  // 15 − 基线 11 = 4 → 1 + 4 = 5；前两轮的数字保持不变。
+  assert.deepEqual(usageOfTurn(projection, SECOND_FOLLOWUP_TURN), {
+    toolCallCount: 5,
+    reasoningDurationMs: 0,
+  });
+  assert.deepEqual(usageOfTurn(projection, FOLLOWUP_TURN), {
+    toolCallCount: 7,
+    reasoningDurationMs: 0,
+  });
+  assert.deepEqual(usageOfTurn(projection, DISPATCH_TURN), {
+    toolCallCount: 6,
+    reasoningDurationMs: 1_000,
+  });
+});
+
+test("前序运行用量未知时不写续跑增量字段", () => {
+  const projection = new ProductProjection(SESSION_ID, "epoch-1");
+  applyAll(projection, [
+    startTurn(0, DISPATCH_TURN, 1),
+    toolScheduled("call-agent-x", "Agent", 1_000, DISPATCH_TURN),
+    toolCompleted("call-agent-x", 2_000, DISPATCH_TURN),
+    subagentSpawned("agent-x", 3_000, {}, DISPATCH_TURN),
+    // 首个运行没有可证明的用量：未知不能拿 0 当基线。
+    subagentStopped("agent-x", 4_000, {}, DISPATCH_TURN),
+  ]);
+
+  applyFollowUpTurn(projection, 10_000);
+  applyAll(projection, [
+    subagentProgress("agent-x", 14_000, { totalToolUseCount: 3 }, FOLLOWUP_TURN),
+  ]);
+
+  assert.equal(toolRowOf(projection, "call-send")?.delegatedUsage, undefined);
+  assert.deepEqual(usageOfTurn(projection, FOLLOWUP_TURN), {
+    toolCallCount: 1,
+    reasoningDurationMs: 0,
+  });
 });

@@ -130,6 +130,39 @@ test("成功路径递归合并嵌套子代理的工具次数与思考耗时", as
   assert.equal(payload?.childSessionId, childSessionId);
 });
 
+// 成功路径与进度、失败/取消同口径：上报整个 child session 的累计值。续跑运行复用
+// 同一个 child session，只报本次运行的值会让投影侧「累计 − 基线」吞掉新增部分。
+test("成功路径上报 child session 累计值，而不是本次运行的事件", async () => {
+  const events: SessionEvent[] = [];
+  const port = createExploreSubagentPort({
+    runExploreAgent: async (child) => ({
+      response: "done",
+      traceId: child.traceContext.traceId,
+      // 本次运行只看得到 2 次工具；同一会话的前序运行不在 childResult.events 里。
+      events: [
+        childEvent(
+          SessionEventType.TurnComplete,
+          { response: "", tokenCount: 0, toolCallCount: 2, duration: 9_000, resultType: "success" },
+          11_000,
+          child.sessionId,
+        ),
+      ],
+    }),
+    emitParentEvent: async (event) => {
+      events.push(event);
+    },
+    readChildSessionEvents: async (childSessionId) => childEvents(childSessionId),
+  });
+
+  const output = await port.run(request());
+
+  assert.equal(output.status, "completed");
+  assert.equal(output.totalToolUseCount, EXPECTED_TOOL_CALL_COUNT);
+  const stopped = events.find((item) => item.type === SessionEventType.SubagentStopped);
+  const payload = stopped?.payload as Record<string, unknown> | undefined;
+  assert.equal(payload?.totalToolUseCount, EXPECTED_TOOL_CALL_COUNT);
+});
+
 test("失败路径回读子会话事件，终态前发生的用量不丢", async () => {
   const events: SessionEvent[] = [];
   const port = createExploreSubagentPort({

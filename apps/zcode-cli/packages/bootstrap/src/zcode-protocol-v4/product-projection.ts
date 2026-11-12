@@ -468,15 +468,56 @@ function resolveSubagentRowUsage(
   payload: Record<string, unknown>,
   existing: SubagentRow | undefined,
 ): WorkSegmentUsage | undefined {
-  const toolCallCount = maxOptionalNonNegativeNumber(
-    payload.totalToolUseCount,
-    existing?.usage?.toolCallCount,
-  );
+  return maxWorkSegmentUsage(existing?.usage, reportedUsageFromPayload(payload)) ?? existing?.usage;
+}
+
+/** 只读载荷里出现的用量字段；缺席字段保持缺席（未知 ≠ 0）。 */
+function reportedUsageFromPayload(payload: Record<string, unknown>): WorkSegmentUsage | undefined {
+  const toolCallCount = optionalNonNegativeNumber(payload.totalToolUseCount);
+  const reasoningDurationMs = optionalNonNegativeNumber(payload.totalReasoningDurationMs);
+  if (toolCallCount === undefined && reasoningDurationMs === undefined) return undefined;
+  return {
+    ...(toolCallCount === undefined ? {} : { toolCallCount }),
+    ...(reasoningDurationMs === undefined ? {} : { reasoningDurationMs }),
+  };
+}
+
+/** 两份用量逐字段取 max；缺席字段沿用另一份的值。 */
+function maxWorkSegmentUsage(
+  left: WorkSegmentUsage | undefined,
+  right: WorkSegmentUsage | undefined,
+): WorkSegmentUsage | undefined {
+  const toolCallCount = maxOptionalNonNegativeNumber(right?.toolCallCount, left?.toolCallCount);
   const reasoningDurationMs = maxOptionalNonNegativeNumber(
-    payload.totalReasoningDurationMs,
-    existing?.usage?.reasoningDurationMs,
+    right?.reasoningDurationMs,
+    left?.reasoningDurationMs,
   );
-  if (toolCallCount === undefined && reasoningDurationMs === undefined) return existing?.usage;
+  if (toolCallCount === undefined && reasoningDurationMs === undefined) return undefined;
+  return {
+    ...(toolCallCount === undefined ? {} : { toolCallCount }),
+    ...(reasoningDurationMs === undefined ? {} : { reasoningDurationMs }),
+  };
+}
+
+/**
+ * 续跑运行的增量 = 本次累计 − 基线。任一字段缺基线就保持缺席：未知不等于 0，
+ * 拿 0 起算会把前序运行的用量重复计到本轮（见
+ * docs/specs/conversation-work-segment-usage.md）。
+ */
+function usageIncrementSinceBaseline(
+  reported: WorkSegmentUsage | undefined,
+  baseline: WorkSegmentUsage,
+): WorkSegmentUsage | undefined {
+  if (!reported) return undefined;
+  const toolCallCount =
+    reported.toolCallCount === undefined || baseline.toolCallCount === undefined
+      ? undefined
+      : Math.max(0, reported.toolCallCount - baseline.toolCallCount);
+  const reasoningDurationMs =
+    reported.reasoningDurationMs === undefined || baseline.reasoningDurationMs === undefined
+      ? undefined
+      : Math.max(0, reported.reasoningDurationMs - baseline.reasoningDurationMs);
+  if (toolCallCount === undefined && reasoningDurationMs === undefined) return undefined;
   return {
     ...(toolCallCount === undefined ? {} : { toolCallCount }),
     ...(reasoningDurationMs === undefined ? {} : { reasoningDurationMs }),
@@ -608,6 +649,15 @@ export class ProductProjection {
   private openForegroundToolCallIds = new Set<string>();
   private fileToolInputPreviewByCallId = new Map<string, FileToolInputPreviewState>();
   private subagentRowIdByAgentId = new Map<string, number>();
+  // 子代理上报的是整个 child session 的累计用量。续跑运行（SendMessage）按「累计 − 基线」
+  // 得到本次运行增量并写到发起调用的工具行；`SubagentRow.usage` 只承载首个运行的用量，
+  // 所以续跑期间要单独记住最近一次上报的累计值（见
+  // docs/specs/conversation-work-segment-usage.md）。
+  private subagentReportedUsageByAgentId = new Map<string, WorkSegmentUsage>();
+  private subagentContinuationRunByAgentId = new Map<
+    string,
+    { anchorToolCallId: string; baseline: WorkSegmentUsage }
+  >();
   private hookRowIdByInvocationId = new Map<string, number>();
   // resume SessionStart 没有 turnId；先保留在 CLI projection，下一条真实 user-intent
   // TurnStarted 到达后再分配 rowId/turnId。不得构造 session-hooks:* synthetic turn。
@@ -1482,6 +1532,15 @@ export class ProductProjection {
       ]),
     );
     clone.subagentRowIdByAgentId = new Map(this.subagentRowIdByAgentId);
+    clone.subagentReportedUsageByAgentId = new Map(
+      [...this.subagentReportedUsageByAgentId].map(([agentId, usage]) => [agentId, { ...usage }]),
+    );
+    clone.subagentContinuationRunByAgentId = new Map(
+      [...this.subagentContinuationRunByAgentId].map(([agentId, run]) => [
+        agentId,
+        { anchorToolCallId: run.anchorToolCallId, baseline: { ...run.baseline } },
+      ]),
+    );
     clone.hookRowIdByInvocationId = new Map(this.hookRowIdByInvocationId);
     clone.pendingSessionHookInvocations = new Map(
       [...this.pendingSessionHookInvocations].map(([invocationId, pending]) => [
@@ -1542,6 +1601,8 @@ export class ProductProjection {
     this.openForegroundToolCallIds = candidate.openForegroundToolCallIds;
     this.fileToolInputPreviewByCallId = candidate.fileToolInputPreviewByCallId;
     this.subagentRowIdByAgentId = candidate.subagentRowIdByAgentId;
+    this.subagentReportedUsageByAgentId = candidate.subagentReportedUsageByAgentId;
+    this.subagentContinuationRunByAgentId = candidate.subagentContinuationRunByAgentId;
     this.hookRowIdByInvocationId = candidate.hookRowIdByInvocationId;
     this.pendingSessionHookInvocations = candidate.pendingSessionHookInvocations;
     this.rewoundHookInvocationIds = candidate.rewoundHookInvocationIds;
@@ -1634,7 +1695,11 @@ export class ProductProjection {
       if (row.kind === "toolCall") {
         // 求和侧只做运行时加法：缺席字段按 0 参与累加，不写回存储、
         // 不污染逐字段 max 单调守卫（见 docs/specs/conversation-work-segment-usage.md）。
-        usage.toolCallCount = (usage.toolCallCount ?? 0) + 1;
+        // 工具本身计 1 次；SendMessage 续跑发起的那次子代理运行以 delegatedUsage 叠加。
+        usage.toolCallCount =
+          (usage.toolCallCount ?? 0) + 1 + (row.delegatedUsage?.toolCallCount ?? 0);
+        usage.reasoningDurationMs =
+          (usage.reasoningDurationMs ?? 0) + (row.delegatedUsage?.reasoningDurationMs ?? 0);
       } else if (row.kind === "reasoning") {
         const durationMs =
           row.durationMs !== undefined
@@ -3634,6 +3699,8 @@ export class ProductProjection {
       // materialization 枚举。仅在 row.removed 已应用后按权威 snapshot 清理一次，
       // 避免长会话随已删除历史持续增长；普通事件不会扫描该索引。
       this.subagentRowIdByAgentId.delete(agentId);
+      this.subagentReportedUsageByAgentId.delete(agentId);
+      this.subagentContinuationRunByAgentId.delete(agentId);
     }
   }
 
@@ -5118,6 +5185,18 @@ export class ProductProjection {
       return resumedBackgroundWork ? [resumedBackgroundWork] : [];
     }
     if (existing) {
+      // 续跑运行从这一刻起按「累计 − 基线」归属到 SendMessage 调用行；基线取上一次
+      // 运行结束时的累计值（行上的 usage 在续跑期间不再更新，所以另记一份累计）。
+      if (payload.resumed === true && parentToolCallId) {
+        this.subagentContinuationRunByAgentId.set(agentId, {
+          anchorToolCallId: parentToolCallId,
+          baseline:
+            maxWorkSegmentUsage(
+              this.subagentReportedUsageByAgentId.get(agentId),
+              existing.usage,
+            ) ?? {},
+        });
+      }
       const row: SubagentRow = {
         ...existing,
         status: "running",
@@ -5231,15 +5310,49 @@ export class ProductProjection {
    */
   private onSubagentProgress(event: SessionEvent): ConversationDelta[] {
     const payload = event.payload as Record<string, unknown>;
-    const existing = this.findSubagentLifecycleRow(
-      this.subagentAgentId(payload, event),
-      payload,
-      event,
-    );
+    const agentId = this.subagentAgentId(payload, event);
+    const existing = this.findSubagentLifecycleRow(agentId, payload, event);
     if (!existing) return [];
+    const reported = reportedUsageFromPayload(payload);
+    this.recordSubagentReportedUsage(agentId, reported);
+    const continuationRun = this.subagentContinuationRunByAgentId.get(agentId);
+    if (continuationRun) return this.delegatedUsageDeltas(continuationRun, reported);
     const usage = resolveSubagentRowUsage(payload, existing);
     if (!usage || sameSubagentRowUsage(existing.usage, usage)) return [];
     return [{ op: "row.upserted", row: { ...existing, usage } }];
+  }
+
+  /**
+   * 续跑运行的上报落到发起它的 SendMessage 调用行：`delegatedUsage` 取该行已有值与
+   * 本次增量的逐字段 `max`。找不到锚点调用行（被 rewind/窗口裁掉）时放弃归属，
+   * 不回退到子代理行——那会把整个累计值重复计到发起轮。
+   */
+  private delegatedUsageDeltas(
+    run: { anchorToolCallId: string; baseline: WorkSegmentUsage },
+    reported: WorkSegmentUsage | undefined,
+  ): ConversationDelta[] {
+    const increment = usageIncrementSinceBaseline(reported, run.baseline);
+    if (!increment) return [];
+    const toolRow = this.findToolRow(run.anchorToolCallId);
+    if (!toolRow) return [];
+    const delegatedUsage = maxWorkSegmentUsage(toolRow.delegatedUsage, increment);
+    if (!delegatedUsage || sameSubagentRowUsage(toolRow.delegatedUsage, delegatedUsage)) {
+      return [];
+    }
+    return [{ op: "row.upserted", row: { ...toolRow, delegatedUsage } }];
+  }
+
+  /** 记住整个 child session 的累计读数；续跑基线以它为准。 */
+  private recordSubagentReportedUsage(
+    agentId: string,
+    reported: WorkSegmentUsage | undefined,
+  ): void {
+    if (!reported) return;
+    const merged = maxWorkSegmentUsage(
+      this.subagentReportedUsageByAgentId.get(agentId),
+      reported,
+    );
+    if (merged) this.subagentReportedUsageByAgentId.set(agentId, merged);
   }
 
   private onSubagentStopped(event: SessionEvent): ConversationDelta[] {
@@ -5255,8 +5368,21 @@ export class ProductProjection {
       this.stringPayload(payload, "description") ??
       existing?.summaryText ??
       "";
-    // child session 及其后代的合计用量；父侧 Agent launcher 由父工作段的 toolCall 行单独计。
-    const usage = resolveSubagentRowUsage(payload, existing);
+    const reported = reportedUsageFromPayload(payload);
+    this.recordSubagentReportedUsage(agentId, reported);
+    const continuationRun = this.subagentContinuationRunByAgentId.get(agentId);
+    // 续跑运行只把增量写到发送调用行；子代理行保留首个运行的用量，避免同一份工作计入两轮。
+    const usage = continuationRun ? undefined : resolveSubagentRowUsage(payload, existing);
+    const delegatedDeltas = continuationRun
+      ? this.delegatedUsageDeltas(continuationRun, reported)
+      : [];
+    if (continuationRun) {
+      // 基线推进到终态累计值：迟到的进度事件增量恒为 0，下一次续跑重新起算。
+      this.subagentContinuationRunByAgentId.set(agentId, {
+        anchorToolCallId: continuationRun.anchorToolCallId,
+        baseline: maxWorkSegmentUsage(reported, continuationRun.baseline) ?? continuationRun.baseline,
+      });
+    }
     const row: SubagentRow = existing
       ? {
           ...existing,
@@ -5291,7 +5417,10 @@ export class ProductProjection {
         };
 
     this.subagentRowIdByAgentId.set(agentId, row.rowId);
-    return [{ op: existing ? "row.upserted" : "row.appended", row }];
+    return [
+      ...delegatedDeltas,
+      { op: existing ? "row.upserted" : "row.appended", row },
+    ];
   }
 
   // cancelBackgroundWork：后台任务生命周期（BackgroundTaskStarted/Updated/Completed）

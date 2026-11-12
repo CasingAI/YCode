@@ -268,6 +268,10 @@ export const toolCallRowSchema = z.object({
   // 从未执行的行（被拒绝、超时未跑）没有 startedAt，因此不写此字段，界面也不显示耗时。
   // 旧快照缺该字段属正常，不做迁移。
   durationMs: z.number().optional(),
+  // 该调用发起的那次子代理运行（SendMessage 续跑）的用量增量。工具本身仍按 1 次
+  // 计入工作段，段用量 = 直接工具 + 1 + delegatedUsage（见
+  // docs/specs/conversation-work-segment-usage.md）。普通调用不带该字段。
+  delegatedUsage: workSegmentUsageSchema.optional(),
 });
 export type ToolCallRow = z.infer<typeof toolCallRowSchema>;
 

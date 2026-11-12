@@ -17,7 +17,10 @@ export function deriveDirectWorkSegmentUsage(rows: readonly AssistantWorkRow[]):
 
   for (const row of rows) {
     if (row.kind === "toolCall") {
-      toolCallCount += 1;
+      // 工具本身计 1 次；SendMessage 续跑发起的那次子代理运行以 delegatedUsage 叠加
+      // （见 docs/specs/conversation-work-segment-usage.md）。
+      toolCallCount += 1 + (row.delegatedUsage?.toolCallCount ?? 0);
+      reasoningDurationMs += row.delegatedUsage?.reasoningDurationMs ?? 0;
     } else if (row.kind === "reasoning") {
       if (row.durationMs !== undefined && Number.isFinite(row.durationMs)) {
         reasoningDurationMs += Math.max(0, row.durationMs);

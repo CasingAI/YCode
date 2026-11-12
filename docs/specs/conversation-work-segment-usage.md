@@ -29,23 +29,27 @@
 
 递归 usage 分两层归属，缺一不可：
 
-- **`core/subagent/runner.ts` 负责单个 child session 内部**的统计，并把嵌套子代理的合计（`SubagentStopped` 载荷里的 `totalToolUseCount` / `totalReasoningDurationMs`）递归进本 child 的合计。成功路径取自 `childResult.events`；失败/取消没有 TurnResult，通过 `readChildSessionEvents` 端口回读子会话已落库事件。
+- **`core/subagent/runner.ts` 负责单个 child session 内部**的统计，并把嵌套子代理的合计（`SubagentStopped` 载荷里的 `totalToolUseCount` / `totalReasoningDurationMs`）递归进本 child 的合计。成功、失败、取消与运行中进度统一上报**整个 child session 的累计值**：成功路径与失败/取消一样通过 `readChildSessionEvents` 端口回读子会话已落库事件，读不到时回退本次 `childResult.events` 的直接统计。已知边界：回退值是单次运行值，父侧按累计口径处理会少算，不回退不猜测。
 - **运行中进度也由 runner 负责**，口径与终态共用同一对 `resolveSubagentToolUseCount` / `resolveSubagentReasoningDurationMs`，因此直播数字与终态数字按构造一致。触发源是子代理自身的每条事件（`reportActivity`），经 1500ms 节流后由 `SubagentProgress` 事件上报父会话；累计值未变化时不发事件，空闲子代理不产生任何写入。projection 不轮询、不订阅 child session，进度事件与终态事件走同一条 `emitParentEvent` 通道。
 - **子代理的工具计数是 scheduled 语义，不是 completed 语义。** `TurnComplete.toolCallCount` 在工具进入执行器之前累加（`turn-model-step.ts` 的 `state.toolCallCount += executableToolCalls.length`），而 `ToolCallRow` 也正是由 `ToolCallScheduled` 创建。运行中读数走不到 `TurnComplete`，必须落到兜底分支，该分支同样按 scheduled 语义计数：把 `ToolCallScheduled` / `ToolCallStarted` / `ToolCallResult` / `ToolCallError` 四类事件的 `payload.toolCallId` 收进 `Set` 去重后取大小。四类都在，缺 `ToolCallScheduled` 的旧 transcript 形态靠其余三类兜住；缺 `toolCallId` 的事件跳过，不猜。**只数结果事件会让并行工具的数字等到最慢那个跑完才跳**——子代理界面早已出行，父状态行却不动，用户看到的是"外面不同步"。
 - 由此产生一条已知边界：有工具 `Scheduled` 了但没真正进执行器（被自动化上限截断、启动失败等），运行中会数它、终态 `TurnComplete` 不数。projection 的 `max` 单调守卫会让终态无法向下修正，偏高 1~2 会留着。权限拒绝的工具不受影响——它在两条路径里都算，因为 `executableToolCalls` 在权限闸门之前累加。这条边界不额外开分支修复。
-- **CLI `ProductProjection` 负责会话内合并**：把 child 上报的合计回写到对应 `SubagentRow.usage`，再将委派工具本身（父侧 `ToolCallRow`）和 child usage 合并到 `TurnWorkSegment.usage`。父 snapshot 不内嵌 child rows，projection 也不订阅 child session。进度事件与终态事件的合并口径必须一致：都经 `resolveSubagentRowUsage`，且逐字段取 `max` 做单调守卫——中途读数与终态读数来自不同事件序列，取 max 才能同时满足「不重复计数」与「不使数字回退」。进度事件不写 `endedAt`、不改 `status`。
-- **子代理用量记在派发轮，不按到达时刻拆分**：仓库不存在后台子代理路径，父轮发起 Agent 调用或 SendMessage 续跑后同步等待子代理跑完（子代理存活挂在发起轮的 abort 信号链上，父轮/会话中止则子代理一并中止）。因此「正在发生的那一轮」恒等于「发起轮」——`SubagentRow` 保持派生时的 `turnId`，用量跟行走，不做跨轮增量拆分、不设当前轮指针。发给运行中子代理的 SendMessage 只投递消息就返回、父轮随即收口，子代理在轮次空档继续产生的工作量归因果轮（发出 SendMessage 的那一轮），不归到空档之后新开的无关轮次。
+- **CLI `ProductProjection` 负责会话内归属与合并**：把 child 上报的合计按发起调用的行回写，再合并到 `TurnWorkSegment.usage`。父 snapshot 不内嵌 child rows，projection 也不订阅 child session。进度事件与终态事件的合并口径必须一致：都经同一份逐字段 `max` 单调守卫——中途读数与终态读数来自不同事件序列，取 max 才能同时满足「不重复计数」与「不使数字回退」。进度事件不写 `endedAt`、不改 `status`。
+- **用量按子代理运行归属到发起该运行的工作段**。一次运行由父侧工具调用发起；`SubagentRow` 始终保持派生时的 `turnId` 与 `parentToolCallId`（UI 关联不迁移），用量跟着发起调用的行走：
+  - **Agent 调用发起的首个运行**：累计值写入 `SubagentRow.usage`，计入 Agent 调用行所在工作段；该段的 `TurnWorkSegment.usage` 另含 launcher 这一次工具调用。
+  - **SendMessage 续跑（`SubagentSpawned.resumed === true`）**：projection 在该事件到达时记录该 agent 的累计基线（上一次运行结束时的累计值）与发送调用 id。此后该 agent 的上报按「累计值 − 基线」得到本次运行的增量，逐字段 `max` 写入该 SendMessage 的 `ToolCallRow.delegatedUsage`，计入发送工具行所在工作段。续跑运行期间**不再改写 `SubagentRow.usage`**，同一份工作不会同时计入两轮。
+  - **终态推进基线**：运行终态到达时把基线推进到终态累计值；迟到的进度事件增量恒为 0，既不回退也不重复计数。下一次续跑以新的基线重新起算。
+  - **基线未知不写增量**：读不到前序运行的累计值时，增量字段保持缺席，不按 0 起算。
+  - **投递给运行中子代理不发起新运行**：该运行仍按发起它的那次调用归属；SendMessage 自身仍计 1 次工具调用。
 
 ```text
-父 Turn N（派发轮）                    空档 / 父 Turn N+1（无关）
-─────────────────────                  ─────────────────────────
-Agent/SendMessage 工具行                子代理在空档继续跑（如有）
-  └─ SubagentSpawned（turnId=N）        progress 到达 → 仍记入 Turn N
-child 干活 → progress（累计 C）            （归因果轮，不拆分）
-  └─ SubagentRow.usage ← max 合并
-SubagentStopped（累计 C'）
-  └─ usage ← max(C, C')，行收口
-表头 N = 直接工具 + usage（全额）
+父 Turn N（派发轮）                          父 Turn N+1（SendMessage 续跑轮）
+─────────────────────                        ─────────────────────────────
+Agent 调用行（计 1 次）                          SendMessage 调用行（计 1 次）
+  └─ SubagentSpawned（turnId=N）                  └─ SubagentSpawned(resumed, turnId=N+1)
+child 运行 1 → 累计 C1                                projection 记基线 C1 + 发送调用 id
+  └─ SubagentRow.usage ← C1（之后不变）              child 运行 2 → 累计 C2
+                                                      └─ 增量 C2−C1 → ToolCallRow.delegatedUsage
+表头 N = 直接工具 + C1                               表头 N+1 = 直接工具 + 1 + (C2−C1)
 ```
 
 UI 只读取工作段摘要，不读取全局 store、不打开 child session、不重新累计。
@@ -77,7 +81,8 @@ child session 事件 → runner 递归合并（含嵌套子代理合计）→ te
 - `packages/shared/src/zcode-protocol-v4/rows.ts`
   - 新增 `WorkSegmentUsage` schema/type。
   - `turnWorkSegmentSchema.usage` 与 `subagentRowSchema.usage` 均为可选非负整数/毫秒字段。
-  - `SubagentRow.usage` 不包含父侧 launcher；`TurnWorkSegment.usage` 包含直接工具、launcher 和 descendant usage。
+  - `toolCallRowSchema.delegatedUsage` 为可选 `WorkSegmentUsage`：承载该调用（SendMessage 续跑）发起的那次子代理运行的用量增量；普通调用不带该字段。
+  - `SubagentRow.usage` 不包含父侧 launcher；`TurnWorkSegment.usage` 包含直接工具、launcher、`delegatedUsage` 和 descendant usage。
 - `apps/zcode-cli/packages/contracts/src/events/session.events.ts`
   - 新增 `SessionEventType.SubagentProgress`，载荷字段与 `SubagentStopped` 对齐（`agentId` / `childSessionId` / `totalToolUseCount` / `totalReasoningDurationMs`），使两者共用 `resolveSubagentRowUsage`。
   - 该类型不是瞬态事件：进度要进冷恢复，分类为 **memory-only 权威**（`cold-event-merge.ts` 的 `MEMORY_ONLY_EVENT_TYPES`）。durable transcript 只从 Agent tool output 合成终态 `SubagentStopped`，从不合成进度事件；归进 `TRANSCRIPT_DERIVED_EVENT_TYPES` 会被冷恢复压制，重启后运行中的数字退回「只有父侧 launcher 那一次」。
@@ -110,7 +115,7 @@ child session 事件 → runner 递归合并（含嵌套子代理合计）→ te
 13. 子代理只上报工具数、不产生任何思考事件时，父表头照常显示 `工具 N 次`，不出现思考项；反之只有思考耗时、工具数为未知时，照常显示 `思考 Y`，不出现工具项。缺席字段永不写 0。
 14. 子代理进度/终态载荷两个用量字段都没有时，不产生 `usage`，不改写已有统计，不落盘伪造的 0。
 15. 同一事件序列经直播逐事件收敛与冷恢复批量收口后，所有 turnHeader 的 `workSegments[].usage` 逐字段一致——含单字段缺席形态（缺席对缺席、值对值）。
-16. 单轮只调用了 SendMessage 时，表头出现工具项且数字正确：SendMessage 自身 `ToolCallRow` 计 1，叠加该轮子代理新增用量。
+16. 单轮只调用了 SendMessage 时，表头出现工具项且数字正确：SendMessage 自身 `ToolCallRow` 计 1，叠加该轮子代理新增用量。跨轮续跑同样成立：子代理在 Turn N 由 Agent 发起并在 N 内结束，Turn N+1 用 SendMessage 续跑同一子代理并等待其完成，则 N 的表头只含首个运行用量，N+1 的表头 = 1 + 本次运行增量，两段之和等于子代理累计用量；子代理行仍留在 Turn N，其 `usage` 在续跑期间不变。
 
 ## 负面边界
 
@@ -124,6 +129,8 @@ child session 事件 → runner 递归合并（含嵌套子代理合计）→ te
 - 不把 `SubagentProgress` 加进 TUI 子代理目录的 `DIRECTORY_EVENTS`：该集合触发目录重扫，秒级进度事件会让它持续抖动。
 - 不改终态口径：`SubagentStopped` 三态输出、`recoverSubagentUsage` 的失败/取消回读、`AgentFailedOutput` / `AgentCancelledOutput` 的 optional 用量字段全部保留。
 - `WorkSegmentUsage` 不扩字段：本次只有 `toolCallCount` 与 `reasoningDurationMs`，不引入 token 或 cost。
+- 不新增子代理行 kind，也不给 `SubagentRow` 增加第二个用量字段；续跑增量只落在发起调用的 `ToolCallRow.delegatedUsage` 上。
+- 不把 `delegatedUsage` 写进子代理镜像白名单或 child rows：父投影仍只消费生命周期事件与进度/终态载荷。
 
 ## 验证
 

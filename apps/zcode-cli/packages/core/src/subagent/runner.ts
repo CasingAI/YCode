@@ -1663,8 +1663,14 @@ async function runAgentToCompletion(
 
   const usage = aggregateModelUsage(childResult.events);
   const totalTokens = usage?.totalTokens;
-  const totalToolUseCount = resolveSubagentToolUseCount(childResult.events);
-  const totalReasoningDurationMs = resolveSubagentReasoningDurationMs(childResult.events);
+  // 父侧把上报值当作整个 child session 的累计值：进度、成功终态、失败/取消必须同口径，
+  // 续跑才能按「累计 − 基线」归属到发送调用行（见
+  // docs/specs/conversation-work-segment-usage.md）。回读失败时回退本次运行统计。
+  const recoveredUsage = await recoverSubagentUsage(options, lifecycle.childSessionId);
+  const totalToolUseCount =
+    recoveredUsage?.toolUseCount ?? resolveSubagentToolUseCount(childResult.events);
+  const totalReasoningDurationMs =
+    recoveredUsage?.reasoningDurationMs ?? resolveSubagentReasoningDurationMs(childResult.events);
   const totalDurationMs = Date.now() - lifecycle.startedAt;
 
   const output: AgentCompletedOutput = {

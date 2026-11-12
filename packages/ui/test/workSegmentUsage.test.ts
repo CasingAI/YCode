@@ -53,7 +53,7 @@ function intlFor(locale: Locale): IntlInstance {
 }
 
 let nextRowId = 0;
-function toolRow(durationMs?: number): ToolCallRow {
+function toolRow(durationMs?: number, delegatedUsage?: ToolCallRow["delegatedUsage"]): ToolCallRow {
   nextRowId += 1;
   return {
     kind: "toolCall",
@@ -67,6 +67,7 @@ function toolRow(durationMs?: number): ToolCallRow {
     inputText: "",
     input: {},
     ...(durationMs === undefined ? {} : { durationMs }),
+    ...(delegatedUsage === undefined ? {} : { delegatedUsage }),
   } as ToolCallRow;
 }
 
@@ -204,6 +205,20 @@ test("子代理行的 usage 合并进兜底统计", () => {
   const usage = deriveDirectWorkSegmentUsage(rows);
 
   assert.deepEqual(usage, { toolCallCount: 4, reasoningDurationMs: 20_000 });
+});
+
+// 跨轮续跑（断点 B 回归）：续跑运行的增量记在发送调用行上，旧快照兜底必须与 CLI
+// 同口径——工具本身 1 次 + delegatedUsage，而不是只算发送那一次。
+test("发送行的 delegatedUsage 并入兜底统计", () => {
+  const rows: AssistantWorkRow[] = [
+    toolRow(undefined, { toolCallCount: 4, reasoningDurationMs: 2_000 }),
+    reasoningRow(3_000),
+  ];
+
+  assert.deepEqual(deriveDirectWorkSegmentUsage(rows), {
+    toolCallCount: 5,
+    reasoningDurationMs: 5_000,
+  });
 });
 
 test("运行中的 reasoning 没有 durationMs 时不计入耗时", () => {
