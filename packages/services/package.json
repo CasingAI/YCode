@@ -23,6 +23,7 @@
     "@zcode/shared": "workspace:*",
     "@zcode/zcode-cua": "workspace:*",
     "croner": "^10.0.1",
+    "koffi": "2.15.6",
     "node-forge": "^1.4.0",
     "node-pty": "^1.0.0",
     "openid-client": "6.8.8",

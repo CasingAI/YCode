@@ -195,3 +195,54 @@ test("工具根与 MCP 根同 PID 时保留 MCP 归属和会话", () => {
   assert.equal(byPid.get(400)?.sessionId, "sess-mcp");
   assert.equal(byPid.get(400)?.sessionTitle, "MCP 会话");
 });
+
+test("统计 Job 成员补入 PPID 断链的存活孤儿树，且不覆盖已知归属", () => {
+  const samples = new Map<number, ProcessResourceSample>([
+    [HOST_PID, sample(HOST_PID, 1, "ycode-host")],
+    [200, sample(200, HOST_PID, "ycode-cli")],
+    // 300 是仍被 CLI 上报的工具根；400 是已退出的中间 shell，401/402 是它留下的后代。
+    [300, sample(300, 200, "bash")],
+    [401, sample(401, 400, "node")],
+    [402, sample(402, 401, "esbuild")],
+  ]);
+
+  const rows = attributeHostProcessTree({
+    samples,
+    hostPid: HOST_PID,
+    agents: [
+      agent({
+        toolProcesses: [{ pid: 300, sessionId: "sess-dev", sessionTitle: "开发服务器" }],
+      }),
+    ],
+    inclusionPids: new Set([300, 401, 402]),
+  });
+  const byPid = new Map(rows.map((row) => [row.pid, row]));
+  const pids = rows.map((row) => row.pid);
+
+  // 断链的 401 及其子进程 402 仍被纳入，且只出现一次。
+  assert.deepEqual(pids, [200, 300, 401, 402]);
+  assert.equal(byPid.get(401)?.category, "base");
+  assert.equal(byPid.get(401)?.groupKey, "host");
+  assert.equal(byPid.get(402)?.groupKey, "host");
+  // Job 只证明“由本 Host 派生”，不提供会话归属。
+  assert.equal(byPid.get(401)?.sessionId, undefined);
+  assert.equal(byPid.get(402)?.sessionId, undefined);
+  // 已知工具根不受匿名纳入影响。
+  assert.equal(byPid.get(300)?.sessionId, "sess-dev");
+  assert.equal(byPid.get(300)?.sessionTitle, "开发服务器");
+});
+
+test("统计 Job 成员列表里已退出的 PID 不会产生空行", () => {
+  const samples = new Map<number, ProcessResourceSample>([
+    [HOST_PID, sample(HOST_PID, 1, "ycode-host")],
+  ]);
+
+  const rows = attributeHostProcessTree({
+    samples,
+    hostPid: HOST_PID,
+    agents: [],
+    inclusionPids: new Set([999_999]),
+  });
+
+  assert.deepEqual(rows, []);
+});

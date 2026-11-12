@@ -33,6 +33,7 @@ import { reportHostSessionCreate } from "./hostSessionCreateTelemetry.js";
 import { createBrowserControlMainBridge } from "./browserControlMainBridge.js";
 import { createStorageMainBridge } from "./storageMainBridge.js";
 import { createStorageRpcScope } from "@zcode/services/node";
+import { createWindowsJobMembership, type WindowsJobMembership } from "@zcode/services/node";
 import { materializeBrowserRecordingArtifact } from "./browserRecordingArtifactMaterializer.js";
 import { createCliProxyCredentialMirror } from "./cliProxyCredentialMirror.js";
 import {
@@ -1605,9 +1606,15 @@ let activeServices: ServiceCollection | null = null;
 let activeHostApiNetworkTransport: HostApiNetworkTransport | null = null;
 /** 本地 host services 的资源遥测订阅；远端连接的订阅由各自的 connection handle 持有。 */
 let activeLocalResourceTelemetry: IDisposable | null = null;
+/**
+ * 统计用 Job 的成员身份。必须在任何 CLI/Bash 后代创建之前初始化，
+ * 否则它们的子孙不会继承成员身份，断链后又从资源管理器消失。
+ */
+let hostJobMembership: WindowsJobMembership | undefined;
 // 资源管理器采样只在 main 请求时执行一次，Host 不维护任何周期定时器。
 const hostResourceUsageResponder = createHostResourceUsageResponder({
   getAgentService: () => activeServices?.getOptional(IZCodeAgentService),
+  getInclusionPids: () => hostJobMembership?.listPids(),
   postMessage: (message) => parentPort?.postMessage(message),
 });
 let activeSessionRealtimePort: ReturnType<typeof createTaskRealtimeBridgeForHostInit> = null;
@@ -3121,6 +3128,8 @@ parentPort.on("message", async (e: Electron.MessageEvent) => {
         ),
       initializeServices: async () => {
         logger.info("initializing local services");
+        // 在创建任何 CLI/Bash 之前加入统计 Job，让整棵后代树继承成员身份。
+        hostJobMembership ??= await createWindowsJobMembership();
         activeSessionRealtimePort = createTaskRealtimeBridgeForHostInit(msg, parentPort);
         // 旧 Team 补组织必须与网络代理读取共用同一个 Setting 实例及写队列。
         // 只注入 service 会跳过默认装配分支，导致缺组织的升级用户永远无法恢复连接。

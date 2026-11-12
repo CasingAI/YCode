@@ -19,6 +19,8 @@ interface CreateHostResourceUsageResponderOptions {
   sampler?: ProcessResourceSampler;
   /** Host 直管的内置插件进程（如 Windows CUA Helper）：pid → 插件名 */
   getBuiltinPluginPids?: () => ReadonlyMap<number, string>;
+  /** 统计用 Job 的存活成员；缺失或查询失败时只按 PPID 树归属。 */
+  getInclusionPids?: () => readonly number[] | undefined;
   now?: () => number;
 }
 
@@ -77,12 +79,17 @@ export function createHostResourceUsageResponder(
         : Promise.resolve([]),
     ]);
     if (signal.aborted) return;
+    // 成员查询失败不能影响本轮：没有种子时归属退回 PPID 树。
+    const inclusionPids = options.getInclusionPids?.();
     const processes = samples
       ? attributeHostProcessTree({
           samples,
           hostPid,
           agents,
           builtinPluginPids: options.getBuiltinPluginPids?.(),
+          ...(inclusionPids && inclusionPids.length > 0
+            ? { inclusionPids: new Set(inclusionPids) }
+            : {}),
         })
       : [];
     // 采样失败、或进程表里根本没有 Host 自身时，不能把空表当成成功的完整结果。

@@ -30,6 +30,11 @@ interface AttributeHostProcessTreeOptions {
   agents: readonly HostResourceUsageAgent[];
   /** Host 直接管理的内置插件进程（如 Windows CUA Helper）：pid → 插件名 */
   builtinPluginPids?: ReadonlyMap<number, string>;
+  /**
+   * 统计用 Job 的存活成员 PID。成员身份说明“由本 Host 派生”，
+   * 用于补入 PPID 链已断开、但进程仍存活的孤儿根。
+   */
+  inclusionPids?: ReadonlySet<number>;
 }
 
 type Owner =
@@ -209,6 +214,18 @@ export function attributeHostProcessTree(
     const session = sessionRoots.get(pid);
     rows.push(ownerToRow(owner, sample, namedOwnerRootPids.has(pid), session));
     visit(pid, owner, session);
+  }
+
+  // 统计 Job 成员是成员身份证据：中间父进程退出后 PPID 链断开，
+  // 这些后代既不在 Host 子树下、也没有工具根登记，但仍属于本次 Host 的工作负载。
+  // 放在最后补入，已知 owner 与会话优先，不会被匿名行覆盖。
+  for (const pid of options.inclusionPids ?? []) {
+    if (visited.has(pid)) continue;
+    const sample = options.samples.get(pid);
+    if (!sample) continue;
+    visited.add(pid);
+    rows.push(ownerToRow(undefined, sample, false, undefined));
+    visit(pid, undefined, undefined);
   }
 
   return rows.sort((left, right) => left.pid - right.pid);

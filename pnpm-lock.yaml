@@ -988,6 +988,9 @@ importers:
       croner:
         specifier: ^10.0.1
         version: 10.0.1
+      koffi:
+        specifier: 2.15.6
+        version: 2.15.6
       node-forge:
         specifier: ^1.4.0
         version: 1.4.0

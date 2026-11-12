@@ -51,6 +51,10 @@ export {
   type HostResourceUsageAgent,
 } from "./process/hostProcessAttribution.js";
 export {
+  createWindowsJobMembership,
+  type WindowsJobMembership,
+} from "./process/windowsJobMembership.js";
+export {
   createResourceUsageService,
   type CreateResourceUsageServiceOptions,
   type ResourceUsageAgentSource,
