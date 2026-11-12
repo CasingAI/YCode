@@ -9,10 +9,11 @@ import type {
 } from "@zcode/shared/zcode-protocol-v4";
 import { buildConversationTurnRenderUnitFrame } from "../src/v4/conversationTurnRenderUnits.js";
 import { isPlanCardToolCallRow } from "../src/v4/conversationTurnFlowItems.js";
+import { isSuccessfulEnterPlanModeToolCallRow } from "../src/v4/toolCallRowAdapter.js";
 
-// EnterPlanMode 是正常工具调用，不是计划审批：成功、运行、失败/拒绝都要作为普通
-// 工具行留在时间线。过滤只能留在 UI 派生层，不能改写协议投影；CreatePlan 的计划卡
-// 不能替代这条调用记录。
+// EnterPlanMode 是正常工具调用，不是计划审批：成功、运行、失败/拒绝都要留在时间线。
+// 成功终态由渲染层收敛成「已进入计划模式」分隔线摘要；其余状态仍是普通工具行。
+// 过滤只能留在 UI 派生层，不能改写协议投影；CreatePlan 的计划卡不能替代这条调用记录。
 
 function headerRow(state: TurnHeaderRow["state"]): TurnHeaderRow {
   return {
@@ -101,7 +102,7 @@ function unitOf(rows: ConversationRow[]) {
   return unit;
 }
 
-test("完成态：成功、失败、拒绝的 EnterPlanMode 都作为普通工作行可见", () => {
+test("完成态：成功、失败、拒绝的 EnterPlanMode 调用都保留在可见工作行里", () => {
   const unit = unitOf([
     headerRow("completedSuccess"),
     userRow(),
@@ -152,6 +153,43 @@ test("运行中：EnterPlanMode 的 running 行本身构成可见轮", () => {
   assert.deepEqual(
     flowRow.rows.map((row) => row.rowId),
     [3],
+  );
+});
+
+test("只有成功终态收敛为「已进入计划模式」摘要", () => {
+  const success = enterPlanModeRow(3, "success");
+  assert.equal(isSuccessfulEnterPlanModeToolCallRow(success), true);
+  assert.equal(
+    isSuccessfulEnterPlanModeToolCallRow({ ...success, toolName: "enterplanmode" }),
+    true,
+    "工具名比较不区分大小写",
+  );
+
+  for (const status of [
+    "inputStreaming",
+    "pendingApproval",
+    "running",
+    "error",
+    "cancelled",
+  ] as const) {
+    assert.equal(
+      isSuccessfulEnterPlanModeToolCallRow({ ...success, status }),
+      false,
+      `${status} 不得被误显示为已进入计划模式`,
+    );
+  }
+  assert.equal(
+    isSuccessfulEnterPlanModeToolCallRow({ ...success, toolName: "CreatePlan" }),
+    false,
+    "其他工具的成功行不受影响",
+  );
+  assert.equal(
+    isSuccessfulEnterPlanModeToolCallRow({
+      ...success,
+      permissionDenial: { decision: "deny", reason: "Blocked" },
+    }),
+    false,
+    "显式拒绝优先于 success status，不得显示成已进入计划模式",
   );
 });
 

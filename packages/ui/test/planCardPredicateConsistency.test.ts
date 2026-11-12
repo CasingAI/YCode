@@ -244,8 +244,8 @@ function planFlowKinds(rows: readonly ConversationRow[]): string[] {
 test("renderUnitFrame 级：后续新 response 一开始就清除旧计划卡（含被过滤的占位行）", () => {
   // 计划响应里计划行后面还有同 response 的正文，旧实现只看过滤后的行：
   // 新 response 的空占位被裁掉后，锚点退回计划 response，计划卡被误当成
-  // 「最后一次响应」脱流到段末，而侧栏摘要已判无卡。EnterPlanMode 现在按普通
-  // 工具行保留，但它同样属于新 response，不能让旧计划卡继续脱流。
+  // 「最后一次响应」脱流到段末，而侧栏摘要已判无卡。EnterPlanMode 成功态虽在渲染
+  // 层收敛为「已进入计划模式」摘要行，但它同样属于新 response，不能让旧计划卡继续脱流。
   const planResponseTail = textRow(4, "resp-plan", "计划已提交");
   const cases: Array<{ label: string; followup: ConversationRow }> = [
     {

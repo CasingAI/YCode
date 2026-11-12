@@ -12,7 +12,8 @@ import { loadChromium, resolveSource, uiRoot } from "./helpers/chromiumFixture.j
 //   ConversationRow[] → buildConversationTurnRenderUnitFrame() → ConversationTurnGroup
 // 前者是时间线使用的同一份 turn 投影，后者是会话消息流真实渲染组件。
 // 场景覆盖本次 fix 的两条产品规则：
-//   1. EnterPlanMode 成功 / 失败 / 拒绝都是普通工具调用行，不渲染成计划审批卡；
+//   1. EnterPlanMode 成功态收敛为不可展开的「已进入计划模式」分隔线摘要，
+//      失败 / 拒绝仍是普通工具调用行，不渲染成计划审批卡；
 //      CreatePlan 仍独占计划卡。
 //   2. Bash → JSVM(Sandbox) → Bash 结束后属于同一个过程段，摘要为
 //      「终端 2 次 · 沙盒 1 次」，展开后按原行序看到 Bash 行、沙盒卡、Bash 行，
@@ -197,7 +198,7 @@ createRoot(document.getElementById("root")).render(<Fixture />);
 }
 
 test(
-  "独立浏览器验证 EnterPlanMode 普通工具行与 Bash→JSVM→Bash 过程折叠交互",
+  "独立浏览器验证 EnterPlanMode 成功摘要、失败行与 Bash→JSVM→Bash 过程折叠交互",
   { timeout: 120_000 },
   async (t) => {
     // 只使用测试自己的 Chromium；找不到就显式跳过，不连接运行中的应用。
@@ -321,11 +322,32 @@ test(
         }
         await row(3).waitFor({ state: "visible" });
 
-        // === 场景 1：EnterPlanMode 是普通工具调用行，不是计划审批卡 ===
-        for (const statusLabel of ["已执行", "执行失败", "已拒绝"]) {
+        // === 场景 1：EnterPlanMode 成功态是分隔线摘要，不是可展开工具卡 ===
+        const successRow = row(3);
+        assert.match(await successRow.innerText(), /已进入计划模式/);
+        assert.equal(
+          (await successRow.innerText()).includes("EnterPlanMode"),
+          false,
+          "成功行不得显示工具名",
+        );
+        assert.equal(
+          (await successRow.innerText()).includes("已执行"),
+          false,
+          "成功行不得显示工具状态",
+        );
+        assert.equal(
+          await successRow.locator('[data-testid^="tool-summary-trigger"]').count(),
+          0,
+          "成功行不提供展开按钮",
+        );
+        assert.equal(await successRow.getAttribute("data-row-kind"), "timelineMarker");
+        assert.equal(await successRow.getAttribute("data-marker-type"), "enterPlanMode");
+
+        // 失败 / 拒绝仍按普通工具行展示工具名、状态与展开入口。
+        for (const statusLabel of ["执行失败", "已拒绝"]) {
           await turn.getByText(statusLabel, { exact: false }).first().waitFor({ state: "visible" });
         }
-        for (const rowId of [3, 4, 5]) {
+        for (const rowId of [4, 5]) {
           const text = await row(rowId).innerText();
           assert.match(text, /EnterPlanMode/, `row ${rowId} 应显示工具名`);
           assert.equal(
@@ -341,14 +363,29 @@ test(
             `row ${rowId} 只能有一个工具摘要行`,
           );
         }
-        assert.match(await row(3).innerText(), /已执行/);
         assert.match(await row(4).innerText(), /执行失败/);
         assert.match(await row(5).innerText(), /已拒绝/);
-        for (const rowId of [3, 4, 5]) {
+        for (const rowId of [4, 5]) {
           const text = await row(rowId).innerText();
           assert.equal(text.includes("执行计划"), false, `row ${rowId} 不是计划卡`);
           assert.equal(text.includes("方案"), false, `row ${rowId} 不得吞入计划标题`);
         }
+        assert.equal(
+          (await successRow.innerText()).includes("执行计划"),
+          false,
+          "成功摘要不是计划卡",
+        );
+
+        // 桌面与手机视口都保持分隔线形态且无横向溢出。
+        for (const width of [1000, 375]) {
+          await page.setViewportSize({ width, height: 900 });
+          await successRow.waitFor({ state: "visible" });
+          const overflow = await page.evaluate(
+            () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          );
+          assert.ok(overflow <= 1, `${width}px 下计划模式摘要出现横向溢出`);
+        }
+        await page.setViewportSize({ width: 1000, height: 900 });
 
         // CreatePlan 仍然是唯一的计划卡：没有 ToolLayout 摘要触发器，标题与概述直接可见。
         const planRow = row(6);
@@ -484,9 +521,7 @@ test(
         for (const rowId of [3, 4, 5]) {
           await row(rowId).waitFor({ state: "visible" });
           assert.equal(
-            await row(rowId)
-              .locator(`[data-testid="tool-summary-trigger-call-${rowId}"]`)
-              .count(),
+            await row(rowId).locator(`[data-testid="tool-summary-trigger-call-${rowId}"]`).count(),
             1,
             `第 ${rowId} 行仍是可独立展开的编辑行`,
           );
@@ -501,9 +536,7 @@ test(
 
         // 失败组单独合并并保留失败状态；展开后能看到每条失败编辑。
         await failedGroup.click();
-        await failedGroup
-          .and(page.locator('[aria-expanded="true"]'))
-          .waitFor({ state: "visible" });
+        await failedGroup.and(page.locator('[aria-expanded="true"]')).waitFor({ state: "visible" });
         for (const rowId of [6, 7]) {
           await row(rowId).waitFor({ state: "visible" });
           assert.match(await rowText(rowId), /执行失败/);
@@ -511,9 +544,7 @@ test(
 
         // 读取组展开后按原序还原两次读取。
         await readGroup.click();
-        await readGroup
-          .and(page.locator('[aria-expanded="true"]'))
-          .waitFor({ state: "visible" });
+        await readGroup.and(page.locator('[aria-expanded="true"]')).waitFor({ state: "visible" });
         for (const rowId of [8, 9]) {
           await row(rowId).waitFor({ state: "visible" });
         }

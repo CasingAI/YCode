@@ -105,6 +105,18 @@ export function isPermissionDeniedToolCallRow(row: ToolCallRow): boolean {
   return row.permissionDenial !== undefined && !isPlanApprovalToolName(row.toolName);
 }
 
+/**
+ * 显式 permissionDenial 优先于 wire status：历史/异常快照可能 success + permissionDenial，
+ * 不能显示成已进入计划模式。其余非成功状态仍走通用工具卡。
+ */
+export function isSuccessfulEnterPlanModeToolCallRow(row: ToolCallRow): boolean {
+  return (
+    row.status === "success" &&
+    !isPermissionDeniedToolCallRow(row) &&
+    row.toolName.trim().toLowerCase() === "enterplanmode"
+  );
+}
+
 export function toolCallRowToLegacyNode(row: ToolCallRow): TaskChatToolCallTreeNode {
   // 计划批准拒绝的行不判失败，回落非失败终态，渲染层自然走计划卡分支。
   // 新拒绝行走 wire 映射（cancelled→stopped）；旧拒绝行无 wire cancelled 可回落，

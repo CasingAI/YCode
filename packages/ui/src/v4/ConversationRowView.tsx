@@ -20,6 +20,7 @@ import {
   GitBranchIcon,
   GoalIcon,
   InfoIcon,
+  NotepadTextIcon,
   PencilIcon,
   RotateCcwIcon,
   TrendingUpDownIcon,
@@ -151,7 +152,10 @@ import {
   isHiddenTimelineTurnNode,
 } from "@/v4/timelineStagedTurnDom.js";
 
-import { toolCallRowToLegacyNode } from "@/v4/toolCallRowAdapter.js";
+import {
+  isSuccessfulEnterPlanModeToolCallRow,
+  toolCallRowToLegacyNode,
+} from "@/v4/toolCallRowAdapter.js";
 import { CodeCommentAttachmentChip } from "@/v4/composer/CodeCommentAttachmentChip.js";
 import { modeRestrictsGoalCommands } from "@/v4/goalCommandSendGate.js";
 import {
@@ -2578,6 +2582,12 @@ const MARKER_MODEL_ICON = (
     className="size-3.5 shrink-0 text-[var(--color-foreground-subtle)]"
   />
 );
+const MARKER_PLAN_ICON = (
+  <NotepadTextIcon
+    aria-hidden="true"
+    className="size-3.5 shrink-0 text-[var(--color-foreground-subtle)]"
+  />
+);
 
 /**
  * 系统标记分隔线壳：两侧细横线 + 居中「图标 + 文案」pill，视觉对齐旧版
@@ -2596,7 +2606,8 @@ function MarkerDividerRow({
   onClick,
 }: {
   rowId: number;
-  markerType: TimelineMarkerRow["marker"]["type"];
+  /** enterPlanMode 是 UI 派生摘要，不是协议 timelineMarker；两者共用本组件呈现。 */
+  markerType: TimelineMarkerRow["marker"]["type"] | "enterPlanMode";
   markerStatus: string;
   markerOrigin?: string;
   markerSourceCommandId?: string;
@@ -2659,6 +2670,27 @@ function MarkerDividerRow({
     </div>
   );
 }
+
+/**
+ * 成功后行仍保留 toolCall 协议身份；通用工具卡可展开，不能承载成功状态摘要，
+ * 因此复用不可展开的分隔线。
+ */
+const EnterPlanModeSummaryRow = memo(function EnterPlanModeSummaryRow({
+  row,
+}: {
+  row: ToolCallRow;
+}) {
+  const { intl } = useZCodeIntl();
+  return (
+    <MarkerDividerRow
+      rowId={row.rowId}
+      markerType="enterPlanMode"
+      markerStatus="success"
+      icon={MARKER_PLAN_ICON}
+      label={intl.formatMessage({ id: "chat.toolCall.enterPlanMode.entered" })}
+    />
+  );
+});
 
 /**
  * timelineMarker 行渲染：系统边界使用分隔线；replyWithdrawn 仅显示一行弱提示。
@@ -3203,7 +3235,11 @@ function RowViewSwitch({
     case "timelineMarker":
       return <TimelineMarkerRowView row={row} context={context} />;
     case "toolCall":
-      return <ToolCallRowView row={row} context={context} />;
+      return isSuccessfulEnterPlanModeToolCallRow(row) ? (
+        <EnterPlanModeSummaryRow row={row} />
+      ) : (
+        <ToolCallRowView row={row} context={context} />
+      );
     case "subagent":
       return <SubagentRowView row={row} />;
     case "artifact":

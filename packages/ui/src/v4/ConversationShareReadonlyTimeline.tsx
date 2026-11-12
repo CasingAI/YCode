@@ -67,7 +67,10 @@ import {
   resolveWorkSegmentUsage,
 } from "@/v4/conversationWorkSegmentUsage.js";
 import { normalizeConversationShareMarkdown } from "@/v4/conversationShareMarkdown.js";
-import { isPermissionDeniedToolCallRow } from "@/v4/toolCallRowAdapter.js";
+import {
+  isPermissionDeniedToolCallRow,
+  isSuccessfulEnterPlanModeToolCallRow,
+} from "@/v4/toolCallRowAdapter.js";
 import { resolveToolCallIdentity } from "@/lib/toolIdentity.js";
 import {
   classifyToolCallActivity,
@@ -128,6 +131,7 @@ interface ReadonlyLabels {
   computerUse: string;
   artifactPreview: string;
   markerCompact: string;
+  markerEnterPlanMode: string;
   markerModelChange: string;
   markerReplyWithdrawn: string;
   unsupportedRows: string;
@@ -554,6 +558,29 @@ const ArtifactPresentation = memo(function ArtifactPresentation({
   );
 });
 
+/** 分享只读分隔线：协议 timelineMarker 与成功 EnterPlanMode 的 UI 摘要共用同一形态。 */
+function ReadonlyTimelineDivider({
+  rowKind,
+  markerType,
+  label,
+}: {
+  rowKind: "timelineMarker" | "toolCall";
+  markerType: string;
+  label: string;
+}) {
+  return (
+    <div
+      data-conversation-share-row-kind={rowKind}
+      data-marker-type={markerType}
+      className="flex w-full items-center gap-3 px-4 py-2 text-ui-base text-foreground-subtle"
+    >
+      <div aria-hidden="true" className="h-px min-w-8 flex-1 bg-border/50" />
+      <span className="min-w-0 break-words text-center leading-5">{label}</span>
+      <div aria-hidden="true" className="h-px min-w-8 flex-1 bg-border/50" />
+    </div>
+  );
+}
+
 function renderReadonlyRow(
   row: ConversationRow,
   theme: Theme,
@@ -580,6 +607,18 @@ function renderReadonlyRow(
     case "reasoning":
       return <ReasoningPresentation key={row.rowId} row={row} />;
     case "toolCall":
+      // 成功进入计划模式与实时时间线同规：收敛为不可展开的分隔线摘要；
+      // 运行中、失败与拒绝继续走普通工具行。
+      if (isSuccessfulEnterPlanModeToolCallRow(row)) {
+        return (
+          <ReadonlyTimelineDivider
+            key={row.rowId}
+            rowKind="toolCall"
+            markerType="enterPlanMode"
+            label={labels.markerEnterPlanMode}
+          />
+        );
+      }
       return (
         <ToolCallPresentation
           key={row.rowId}
@@ -618,16 +657,12 @@ function renderReadonlyRow(
         );
       }
       return (
-        <div
+        <ReadonlyTimelineDivider
           key={row.rowId}
-          data-conversation-share-row-kind="timelineMarker"
-          data-marker-type={row.marker.type}
-          className="flex w-full items-center gap-3 px-4 py-2 text-ui-base text-foreground-subtle"
-        >
-          <div aria-hidden="true" className="h-px min-w-8 flex-1 bg-border/50" />
-          <span className="min-w-0 break-words text-center leading-5">{markerLabel}</span>
-          <div aria-hidden="true" className="h-px min-w-8 flex-1 bg-border/50" />
-        </div>
+          rowKind="timelineMarker"
+          markerType={row.marker.type}
+          label={markerLabel}
+        />
       );
     }
     case "subagent":
@@ -1164,6 +1199,7 @@ export function ConversationShareReadonlyTimeline({
           computerUse: "电脑操作",
           artifactPreview: "下载文件",
           markerCompact: "上下文已压缩",
+          markerEnterPlanMode: "已进入计划模式",
           markerModelChange: "模型已切换",
           markerReplyWithdrawn: "模型撤回了一条未完成的回复",
           unsupportedRows: "部分内容需要更新 ZCode 查看",
@@ -1173,6 +1209,7 @@ export function ConversationShareReadonlyTimeline({
           computerUse: "Computer use",
           artifactPreview: "Download file",
           markerCompact: "Context compacted",
+          markerEnterPlanMode: "Entered plan mode",
           markerModelChange: "Model switched",
           markerReplyWithdrawn: "The model withdrew an unfinished reply",
           unsupportedRows: "Some content requires a newer version of ZCode",

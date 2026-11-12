@@ -418,6 +418,57 @@ test("分享只读渲染：pendingApproval 不显示执行中的动作", () => {
   assert.ok(markup.includes("approval pending"));
 });
 
+test("分享只读渲染：成功 EnterPlanMode 收敛为不可展开的已进入计划模式摘要", () => {
+  const markup = renderShare([
+    shareToolRow({
+      rowId: 1,
+      toolName: "EnterPlanMode",
+      input: {},
+      status: "success",
+    }),
+  ]);
+  assert.ok(markup.includes('data-marker-type="enterPlanMode"'));
+  assert.ok(markup.includes("已进入计划模式"));
+  assert.ok(!markup.includes("EnterPlanMode"));
+  assert.ok(!markup.includes("已执行"));
+  assert.ok(!markup.includes("tool-summary-trigger"));
+});
+
+test("分享只读渲染：失败与拒绝的 EnterPlanMode 仍是普通工具行", () => {
+  for (const status of ["error", "cancelled"] as const) {
+    const markup = renderShare([
+      shareToolRow({
+        rowId: 1,
+        toolName: "EnterPlanMode",
+        input: {},
+        status,
+        ...(status === "cancelled"
+          ? { permissionDenial: { decision: "deny" as const, reason: "Blocked" } }
+          : {}),
+      }),
+    ]);
+    assert.ok(markup.includes("EnterPlanMode"), `${status} 应显示工具名`);
+    assert.ok(!markup.includes('data-marker-type="enterPlanMode"'), `${status} 不得收敛成摘要`);
+  }
+});
+
+test("分享只读渲染：success + permissionDenial 不被收敛为已进入计划模式", () => {
+  const markup = renderShare([
+    shareToolRow({
+      rowId: 1,
+      toolName: "EnterPlanMode",
+      input: {},
+      status: "success",
+      permissionDenial: { decision: "deny", reason: "Blocked" },
+    }),
+  ]);
+  assert.ok(markup.includes("EnterPlanMode"), "显式拒绝行仍显示工具名");
+  assert.ok(
+    !markup.includes('data-marker-type="enterPlanMode"'),
+    "显式拒绝优先于 success status，不得收敛成摘要",
+  );
+});
+
 test("分享只读渲染：失败、拒绝与取消状态在摘要中保持可见", () => {
   const deniedReason = "Permission denied for this request";
   const markup = renderShare([

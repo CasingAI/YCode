@@ -5048,6 +5048,7 @@ const enUS: Record<string, string> = {
   "chat.longRunning.collapse": "Collapse long-running panel",
   "chat.longRunning.elapsedSeconds": "Running for {seconds}s",
   "chat.longRunning.elapsedMinutesSeconds": "Running for {minutes}m {seconds}s",
+  "chat.toolCall.enterPlanMode.entered": "Entered plan mode",
   "chat.toolCall.status.pending": "Pending",
   "chat.toolCall.status.running": "Running",
   "chat.toolCall.status.completed": "Completed",

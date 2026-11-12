@@ -143,6 +143,7 @@ function isVisibleAssistantWorkRow(row: AssistantWorkRow): boolean {
     return false;
   }
   // EnterPlanMode 也是正常工具调用，成功/运行/失败/拒绝都要留在时间线；
+  // 成功态由渲染层收敛为「已进入计划模式」分隔线摘要，其余终态仍是普通工具行，
   // 它不是计划审批卡，由 CreatePlan 之外的普通工具行承载。
   return true;
 }

@@ -4735,6 +4735,7 @@ const zhCN: Record<string, string> = {
   "chat.longRunning.collapse": "收起长时间运行面板",
   "chat.longRunning.elapsedSeconds": "已运行 {seconds} 秒",
   "chat.longRunning.elapsedMinutesSeconds": "已运行 {minutes} 分 {seconds} 秒",
+  "chat.toolCall.enterPlanMode.entered": "已进入计划模式",
   "chat.toolCall.status.pending": "等待中",
   "chat.toolCall.status.running": "执行中",
   "chat.toolCall.status.completed": "已执行",

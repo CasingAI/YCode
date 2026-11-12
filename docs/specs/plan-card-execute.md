@@ -71,7 +71,7 @@
 
 ## 状态所有者与事件顺序
 
-计划工具的**判定**只有一份实现：`packages/shared/src/zcode-protocol-v4/plan-approval.ts` 的 `isPlanApprovalToolName`（同时接受 `CreatePlan` 与历史 `ExitPlanMode`，大小写不敏感）。它必须在 shared 而不是 UI：fork 继承、计划目录、行过滤等多处都要判断"这一行是不是计划工具"，两边各写一份字面量迟早漂移。历史 `isPlanApprovalUserInputRequest` / `isPlanApprovalPendingSummary` 随交互链删除。消费方：桥接层拒绝豁免（仅历史行）、`plan-file-continuity` 的 fork 复制、`toolIdentity` 的 legacy 映射、`resolveRenderer` 的计划工具兜底。`EnterPlanMode` 不在该判定内：它是普通工具调用行（见 `agent-mode-axis.md`），不因计划工作流被过滤、改写或替换成计划卡。
+计划工具的**判定**只有一份实现：`packages/shared/src/zcode-protocol-v4/plan-approval.ts` 的 `isPlanApprovalToolName`（同时接受 `CreatePlan` 与历史 `ExitPlanMode`，大小写不敏感）。它必须在 shared 而不是 UI：fork 继承、计划目录、行过滤等多处都要判断"这一行是不是计划工具"，两边各写一份字面量迟早漂移。历史 `isPlanApprovalUserInputRequest` / `isPlanApprovalPendingSummary` 随交互链删除。消费方：桥接层拒绝豁免（仅历史行）、`plan-file-continuity` 的 fork 复制、`toolIdentity` 的 legacy 映射、`resolveRenderer` 的计划工具兜底。`EnterPlanMode` 不在该判定内（见 `agent-mode-axis.md`）：运行中、失败/拒绝仍按普通工具行展示；成功态只在 UI 派生层收敛为「已进入计划模式」的不可展开分隔线摘要，复用「上下文已压缩」的呈现路径。两种形态都不因计划工作流被过滤、改写或替换成计划卡。
 
 **渲染分发走同一判定，但分发器必须双认新旧工具名。** 聊天区的行分发是三段：`resolveToolCallIdentity`（`packages/ui/src/lib/toolIdentity.ts`）解析工具身份 → `resolveRenderer`（`packages/ui/src/ToolCallBlocks/resolveRenderer.ts`）按 family 选 renderer → `renderers/switch-mode.tsx` 渲染计划卡。`switch-mode` 是 UI 的**展示 family**（`ToolCallPresentationFamily`），不属于跨端 `ZCodeToolFamily`，所以 shared 工具注册表登记 `CreatePlan` 时**只登记名字、不指定 family**——family 判空后由 UI 侧兜底接住。判定仍只有 `isPlanApprovalToolName` 一份实现，注册表与 legacy 分支都只是接入点，两者都不得写字面量：任一接入点漏认新名，family 就落到 `unknown`，行会被分发进 `FallbackToolCallBlock`（通用扳手行），卡片代码本身再正确也渲染不到。
 
@@ -108,7 +108,7 @@ flowchart TD
 
 ## 不变量
 
-- 计划工具判定与新旧工具名兼容的实现只有一份，放在 shared；桥接层的工具名判定复用 `isPlanApprovalToolName`，消费方不得再出现 `ExitPlanMode` / `plan_approval` 字面量。`EnterPlanMode` 的可见性不由本判定控制，始终按普通工具行保留。
+- 计划工具判定与新旧工具名兼容的实现只有一份，放在 shared；桥接层的工具名判定复用 `isPlanApprovalToolName`，消费方不得再出现 `ExitPlanMode` / `plan_approval` 字面量。`EnterPlanMode` 的可见性不由本判定控制：运行中与失败/拒绝按普通工具行保留，成功态收敛为不可展开的「已进入计划模式」摘要，不提供展开或详情；显式 `permissionDenial` 优先于 wire status，`success + permissionDenial` 不收敛。
 - **不再有任何批准询问链。** 不得把 decline、重试、pendingInteraction 槽位、通知以任何形式加回来。`CreatePlan` 恒成功，失败只可能来自入参校验。
 - 计划批准永远不会在 UI 上渲染成可交互弹窗；该交互类型已不存在。
 - 「执行计划」不得单独发送模式切换命令：模式必须随同一次 `sendText` 的 submission 上行，避免切档与发送之间的竞态。
@@ -165,4 +165,4 @@ flowchart TD
 20. 写端回归：新计划行重启后仍是计划卡（`completedToolPartMetadata` 已写出 `permissionDenial` 的历史行走拒绝重放；新 `CreatePlan` 行恒成功，不依赖该标记）。
 21. 分发回归：新会话里 `CreatePlan` 的工具行走 `resolveToolCallIdentity` 得到 `switch-mode` 展示 family、`resolveRenderer` 返回 `SwitchModeToolCallBlock`（不是 `FallbackToolCallBlock`），因此渲染出的是计划卡而不是通用工具行；九月老会话的 `ExitPlanMode` 行仍走同一条卡片分支。
 22. 脱流回归：计划行与气泡内最后一次响应同 `assistantResponseId`（如同一响应里的多个工具调用）→ 原位紧凑记录 + 段末完整卡，两者不重复；计划行属于更早的响应、其后还有别次响应产出的工具行与最终正文（长会话形态，即统计标题下不该插队的场景）→ 不脱流，计划行落回过程桶，收起态只有统计标题与最终正文，无孤儿小字行、无段末重复卡；Plan 档段末计划行只产出一份可见的完整卡、不补原位记录；**同一轮被 steer 拆成多个工作段、末段没有最终正文、只以 `CreatePlan` 收口时**，末段过程行默认收起，段末计划卡仍直接可见（不能跟着进折叠桶，也不能因此把前几段展开）；行缺 `assistantResponseId` 时同样不脱流。
-23. `EnterPlanMode` 调用（成功 / 运行中 / 失败或拒绝）以普通工具行出现在时间线与公开分享页，不会被计划卡替换；同一回合随后的 `CreatePlan` 仍渲染独立计划卡。
+23. `EnterPlanMode` 成功调用在时间线与公开分享页收敛为不可展开的「已进入计划模式」分隔线摘要，不显示工具名、「已执行」、展开按钮或详情；运行中 / 失败 / 拒绝仍以普通工具行出现并保留状态，`success + permissionDenial` 也按显式拒绝保留为普通工具行，不会被计划卡替换；同一回合随后的 `CreatePlan` 仍渲染独立计划卡。
