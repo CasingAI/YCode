@@ -1,6 +1,7 @@
 import type { SpawnOptions } from "node:child_process";
 import type { ZCodeToolExecResource } from "@zcode/shared";
 import type { NetworkEgressEnvPolicy } from "../network/subprocess-env.js";
+import type { WindowsJobObjectController } from "../mcp/windows-job-object.js";
 import type { ResolvedSpawnCommand } from "./execution-command.js";
 import type {
   BackgroundExecutionSnapshot,
@@ -84,6 +85,8 @@ export interface NodeExecutionAdapterOptions {
   progressIntervalMs?: number;
   progressTailBytes?: number;
   progressThresholdMs?: number;
+  /** 测试注入；默认在 win32 上把执行 root 挂进 Job Object。 */
+  windowsJobObjectFactory?: (pid: number) => Promise<WindowsJobObjectController | undefined>;
 }
 
 export type OutputPersistenceMode = "none" | "on_truncate" | "always";

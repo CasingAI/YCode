@@ -12,6 +12,10 @@ import {
   isExpectedChildStdinClosureError,
 } from "./execution-utils.js";
 import { registerSessionProcess, unregisterSessionProcess } from "./session-process-registry.js";
+import {
+  attachProcessToWindowsJobObject,
+  type WindowsJobObjectController,
+} from "../mcp/windows-job-object.js";
 import type {
   ExitState,
   InternalExecutionRunOptions,
@@ -129,8 +133,35 @@ export class NodeExecutionAdapterRun extends NodeExecutionAdapterProcess {
       return createPreSpawnStoppedResult();
     };
 
+    // 作业控制器在 spawn 之后才就绪；停止请求可能先到，先记下意图再在控制器到位后执行。
+    let windowsJobSettled = false;
+    let windowsJobPromise: Promise<WindowsJobObjectController | undefined> | undefined;
+    const settleWindowsJob = (terminate: boolean) => {
+      if (windowsJobSettled) return;
+      windowsJobSettled = true;
+      void windowsJobPromise?.then((job) => {
+        if (!job) return;
+        if (terminate) {
+          try {
+            job.terminate();
+          } catch {
+            // 原生终止失败时保留既有 terminateProcessTree 兜底。
+          }
+        }
+        try {
+          job.close();
+        } catch {
+          // 句柄关闭失败不能改变命令结果。
+        }
+      });
+    };
+
     const terminateStartedChild = () => {
-      if (!stopRequested || !child || !childReadyForTermination || terminationRequested) {
+      if (!stopRequested) return;
+      // Windows 的 taskkill /T 沿当前父子链查找。root 先退出或已被中间 shell 替换时，
+      // 后代已经 reparent，/T 找不到它们；Job Object 记录成员身份，停止时按成员整树终止。
+      settleWindowsJob(true);
+      if (!child || !childReadyForTermination || terminationRequested) {
         return;
       }
       const startedChild = child;
@@ -156,7 +187,17 @@ export class NodeExecutionAdapterRun extends NodeExecutionAdapterProcess {
     };
 
     requestStop = (reason: StopReason) => {
-      if (executionSettled || stopRequested || (file && exited)) return;
+      // root 已退出但执行仍保留（后台任务）时，作业里可能还有存活后代；
+      // 不能因为 file && exited 就跳过停止，否则 TaskStop 只改状态、进程继续跑。
+      if (
+        executionSettled ||
+        stopRequested ||
+        (file &&
+          exited &&
+          internalOptions.shouldRetainExecutionAfterRootExit?.() !== true)
+      ) {
+        return;
+      }
       stopRequested = true;
       if (reason === "timeout") {
         timedOut = true;
@@ -210,6 +251,14 @@ export class NodeExecutionAdapterRun extends NodeExecutionAdapterProcess {
       );
       child = spawnedChild;
       lowerProcessPriority(spawnedChild.pid, "idle");
+      // Bash 正常完成时不连带杀死命令自己放到后台的进程，因此关闭句柄不触发 kill-on-close。
+      windowsJobPromise =
+        this.platform === "win32" && spawnedChild.pid !== undefined
+          ? (
+              this.options.windowsJobObjectFactory ??
+              ((pid: number) => attachProcessToWindowsJobObject(pid, { killOnJobClose: false }))
+            )(spawnedChild.pid).catch(() => undefined)
+          : undefined;
       // 资源管理器：登记“这次执行属于哪个会话”，Host 侧据此把进程树归属到会话。
       registerSessionProcess(spawnedChild.pid ?? 0, request.trace?.sessionId);
       finishResourceTelemetry = this.trackBashResources(spawnedChild, useBashMergedOutput, () => ({
@@ -396,6 +445,8 @@ export class NodeExecutionAdapterRun extends NodeExecutionAdapterProcess {
       if (!exited)
         finishResourceTelemetry({ error: new Error("Execution ended before child exit") });
       executionSettled = true;
+      // 正常结算只释放作业句柄；终止路径已在 terminateStartedChild 里处理。
+      settleWindowsJob(false);
       file?.stopWatching();
       if (internalOptions.bashLifecycle) internalOptions.bashLifecycle.onBackgrounded = undefined;
       await file?.close();

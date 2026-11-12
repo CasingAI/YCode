@@ -13,7 +13,7 @@ export interface WindowsJobObjectController {
 }
 
 interface WindowsJobObjectApi {
-  create(): WindowsJobHandle | undefined;
+  create(limitFlags: number): WindowsJobHandle | undefined;
   assign(job: WindowsJobHandle, pid: number): boolean;
   terminate(job: WindowsJobHandle): void;
   close(job: WindowsJobHandle): void;
@@ -22,6 +22,11 @@ interface WindowsJobObjectApi {
 interface AttachOptions {
   api?: WindowsJobObjectApi;
   platform?: NodeJS.Platform;
+  /**
+   * 关闭句柄时是否连带终止作业内进程。MCP 需要 true；Bash 的停止由显式
+   * terminate 决定，正常完成时关闭句柄不能杀掉命令自己放到后台的进程。
+   */
+  killOnJobClose?: boolean;
 }
 
 export async function attachProcessToWindowsJobObject(
@@ -34,9 +39,11 @@ export async function attachProcessToWindowsJobObject(
   const api = options.api ?? (await loadWindowsJobObjectApi());
   if (!api) return undefined;
 
+  const limitFlags =
+    options.killOnJobClose === false ? 0 : JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
   let job: WindowsJobHandle | undefined;
   try {
-    job = api.create();
+    job = api.create(limitFlags);
     if (!job || !api.assign(job, pid)) {
       if (job) api.close(job);
       return undefined;
@@ -53,9 +60,12 @@ export async function attachProcessToWindowsJobObject(
   }
 
   let closed = false;
+  let terminated = false;
   return {
     terminate() {
-      if (!closed) api.terminate(job);
+      if (closed || terminated) return;
+      terminated = true;
+      api.terminate(job);
     },
     close() {
       if (closed) return;
@@ -134,14 +144,14 @@ async function createWindowsJobObjectApi(): Promise<WindowsJobObjectApi | undefi
     const closeHandle = kernel32.func("__stdcall", "CloseHandle", "bool", [handleType]);
 
     return {
-      create() {
+      create(limitFlags) {
         const job = createJobObject(null, null) as WindowsJobHandle | null;
         if (!job) return undefined;
         const limits = {
           BasicLimitInformation: {
             PerProcessUserTimeLimit: 0,
             PerJobUserTimeLimit: 0,
-            LimitFlags: JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+            LimitFlags: limitFlags,
             MinimumWorkingSetSize: 0,
             MaximumWorkingSetSize: 0,
             ActiveProcessLimit: 0,
