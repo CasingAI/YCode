@@ -6,7 +6,13 @@ import {
   setExecutionState,
   setSessionLanguage,
 } from "./config.js";
-import { getMode, getPlanEnabled, getReadOnlyEnabled, getSessionLanguage } from "./config.js";
+import {
+  getMode,
+  getPlanEnabled,
+  getPlanExecuteMode,
+  getReadOnlyEnabled,
+  getSessionLanguage,
+} from "./config.js";
 import { getSessionModelSelection, setSessionModelSelection } from "./config.js";
 import {
   getSessionModelGroupState,
@@ -226,6 +232,7 @@ export function installAgentRuntimeMethods(ctor: AgentRuntimeConstructor): void 
   proto.getMode = getMode;
   proto.getPlanEnabled = getPlanEnabled;
   proto.getReadOnlyEnabled = getReadOnlyEnabled;
+  proto.getPlanExecuteMode = getPlanExecuteMode;
   proto.getSessionLanguage = getSessionLanguage;
   proto.getSessionModelSelection = getSessionModelSelection;
   proto.setSessionModelSelection = setSessionModelSelection;

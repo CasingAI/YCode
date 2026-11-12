@@ -1,6 +1,7 @@
 import { DEFAULT_ZCODE_MODEL_CONTEXT_BUDGET_STRATEGY, resolveExecutionState } from "@zcode/shared";
 import type {
   BackgroundBashOutputResult,
+  PlanExecuteMode,
   SandboxConsoleResult,
   SandboxEvalResult,
   SandboxResetResult,
@@ -260,7 +261,14 @@ export class AgentRuntime {
       ...config,
       modelContextBudgetStrategy: DEFAULT_ZCODE_MODEL_CONTEXT_BUDGET_STRATEGY,
     });
-    Object.assign(this.config, resolveExecutionState(config));
+    const initialExecutionState = resolveExecutionState(config);
+    this.config.mode = initialExecutionState.mode;
+    // 构造期不接受外部传入的目标：仅 Plan 来源才有目标，其余一律清空。
+    if (initialExecutionState.planExecuteMode) {
+      this.config.planExecuteMode = initialExecutionState.planExecuteMode;
+    } else {
+      delete this.config.planExecuteMode;
+    }
     this.agentTelemetry = new RuntimeTelemetryFacade({
       agentName: config.agentName,
       causation: deps.agentTelemetryCausation,
@@ -381,6 +389,8 @@ export interface AgentRuntime {
   getMode(): CollaborationMode;
   getPlanEnabled(): boolean;
   getReadOnlyEnabled(): boolean;
+  /** 计划卡执行目标（只读）：仅 Plan 内存在，供 bootstrap 投影种子读取。 */
+  getPlanExecuteMode(): PlanExecuteMode | undefined;
   /** 会话语言（创建时快照的界面语言）；未知返回 undefined。 */
   getSessionLanguage(): string | undefined;
   grantPermissionFullAccess(interactionId: string, signal?: AbortSignal): Promise<string>;

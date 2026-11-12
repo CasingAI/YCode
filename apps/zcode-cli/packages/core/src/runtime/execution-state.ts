@@ -1,4 +1,10 @@
-import { resolveExecutionState, type ExecutionState } from "@zcode/shared";
+import {
+  DEFAULT_EXECUTION_MODE,
+  executionPermissionModeSchema,
+  planExecuteModeSchema,
+  resolveExecutionState,
+  type ExecutionState,
+} from "@zcode/shared";
 import {
   CoreErrorType,
   SESSION_ENTRY_EXECUTION_STATE,
@@ -16,8 +22,18 @@ import {
 } from "./permission-grant-recovery.js";
 import { UNATTENDED_MODE_SWITCH_BLOCKED_MESSAGE } from "./unattended-execution-lock.js";
 
+/**
+ * 读取 runtime 的权威执行状态。这里不能复用 resolveExecutionState(config)：
+ * 它以「当前值」为默认来源，会把 config 里已有的 planExecuteMode 当成输入丢弃，
+ * Plan 内的 Team 目标会被重算成 yolo。目标只能按已落定的 config 原样读取。
+ */
 export function readRuntimeExecutionState(runtime: AgentRuntimeInternal): ExecutionState {
-  return resolveExecutionState(runtime.config);
+  const mode = executionPermissionModeSchema.safeParse(runtime.config.mode);
+  if (!mode.success) return { mode: DEFAULT_EXECUTION_MODE };
+  if (mode.data !== "plan") return { mode: mode.data };
+  const planExecuteMode = planExecuteModeSchema.safeParse(runtime.config.planExecuteMode);
+  // 旧数据（或直接写 config.mode=plan 的历史路径）没有目标时按 yolo，不能默认成 team。
+  return { mode: "plan", planExecuteMode: planExecuteMode.success ? planExecuteMode.data : "yolo" };
 }
 
 async function persistExecutionState(
@@ -102,6 +118,9 @@ export async function applyRuntimeExecutionState(
   }
   await persistExecutionState(runtime, next);
   runtime.config.mode = next.mode;
+  // 目标随 mode 一起落定：离开 Plan 必须删除，不能让上一条计划的目标污染下一段。
+  if (next.planExecuteMode) runtime.config.planExecuteMode = next.planExecuteMode;
+  else delete runtime.config.planExecuteMode;
   const trace = cause.traceContext ?? runtime.rootTraceContext;
   await runtime.appendEvent(
     runtime.createEvent(
@@ -111,6 +130,8 @@ export async function applyRuntimeExecutionState(
         // 两个位是 mode 的派生投影，随事件一起带上以兼容仍读它们的消费点。
         planEnabled: next.mode === "plan",
         readOnlyEnabled: next.mode === "readonly",
+        // 计划目标只在 Plan 内出现；离开 Plan 时不带字段，由 reducer 清理。
+        ...(next.planExecuteMode ? { planExecuteMode: next.planExecuteMode } : {}),
         previousMode: previous.mode,
         previousPlanEnabled: previous.mode === "plan",
         previousReadOnlyEnabled: previous.mode === "readonly",

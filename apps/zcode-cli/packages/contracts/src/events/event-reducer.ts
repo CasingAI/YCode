@@ -43,10 +43,12 @@ import {
 } from "../tools/target.js";
 import type {
   ActiveToolCall,
+  CollaborationMode,
   PendingPermission,
   SessionProjection,
   SessionStatus,
 } from "../interfaces/session.port.js";
+import type { PlanExecuteMode } from "@zcode/shared";
 import {
   applyBackgroundTaskCompleted,
   applyBackgroundTaskStarted,
@@ -70,6 +72,18 @@ function shouldModelCompleteUpdateContextUsed(payload: ModelCompletePayload): bo
 // -----------------------------------------------
 // Event Reducer
 // -----------------------------------------------
+
+/**
+ * 计划目标只在 Plan 内保留：离开 Plan 必须清空；旧事件缺字段按 yolo 兼容。
+ * 只认合法目标值，不按 previousMode 或历史消息重建。
+ */
+function projectedPlanExecuteMode(
+  mode: CollaborationMode,
+  value?: unknown,
+): PlanExecuteMode | undefined {
+  if (mode !== "plan") return undefined;
+  return value === "team" ? "team" : "yolo";
+}
 
 export class EventReducer {
   reduce(events: SessionEvent[]): SessionProjection {
@@ -100,6 +114,8 @@ export class EventReducer {
         ...p,
         id: e.sessionId,
         mode: payload.mode,
+        // 新建会话没有来源：即使创建时已是 plan，目标也只能是 yolo。
+        planExecuteMode: projectedPlanExecuteMode(payload.mode),
         // 两个位是 mode 的派生投影：新事件带 mode 就按 mode 算，旧事件的显式位继续生效。
         planEnabled: payload.planEnabled ?? payload.mode === "plan",
         readOnlyEnabled: payload.readOnlyEnabled ?? payload.mode === "readonly",
@@ -144,6 +160,7 @@ export class EventReducer {
         mode: payload.mode,
         planEnabled: payload.planEnabled ?? payload.mode === "plan",
         readOnlyEnabled: payload.readOnlyEnabled ?? payload.mode === "readonly",
+        planExecuteMode: projectedPlanExecuteMode(payload.mode, payload.planExecuteMode),
         updatedAt: e.timestamp,
       };
     },

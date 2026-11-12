@@ -26,6 +26,7 @@ import type {
 import type {
   BuiltInSubagentModelGroupIntentOverrides,
   BuiltInSubagentModelSelectionOverrides,
+  PlanExecuteMode,
   ZCodeProviderAccountAccess,
 } from "@zcode/shared";
 import { IMAGE_MODEL_MAX_DIMENSION } from "@zcode/shared";
@@ -134,6 +135,8 @@ export interface AgentRuntimeConfig {
   presentationSurface?: PresentationSurface;
   /** 权限轴单值：plan（只读 + 计划工作流）/ readonly / yolo（完全访问）。 */
   mode?: CollaborationMode;
+  /** 计划卡执行目标：仅 mode === "plan" 时存在，由 runtime 进入/离开 Plan 的写入点维护。 */
+  planExecuteMode?: PlanExecuteMode;
   modelStreaming?: "off" | "on";
   streamingToolExecution?: "off" | "readOnly";
   /** Session 创建时固定；缺省使用共享的模型上下文预算默认策略。 */

@@ -16,18 +16,38 @@ export function isGoalRestrictedMode(mode: string | undefined): boolean {
   return mode === "plan" || mode === "readonly";
 }
 
-export const executionStateSchema = z.object({ mode: executionPermissionModeSchema });
+/**
+ * 计划卡「执行计划」的目标档位。它不是权限轴第五档：仅 mode === "plan" 时存在，
+ * 进入 Plan 时由来源档派生（Team → team，其余 → yolo），离开 Plan 即清除。
+ */
+export const planExecuteModeSchema = z.enum(["team", "yolo"]);
+export type PlanExecuteMode = z.infer<typeof planExecuteModeSchema>;
+
+export const executionStateSchema = z.object({
+  mode: executionPermissionModeSchema,
+  planExecuteMode: planExecuteModeSchema.optional(),
+});
 export type ExecutionState = z.infer<typeof executionStateSchema>;
 
 const DEFAULT_EXECUTION_STATE: ExecutionState = { mode: DEFAULT_EXECUTION_MODE };
 
-/** 在接纳边界固定本次提交的模式，不能在队列消费时按当前配置重新解释。 */
+/**
+ * 在接纳边界固定本次提交的模式，不能在队列消费时按当前配置重新解释。
+ * 命令输入只接受 mode：planExecuteMode 一律由当前权威状态派生，不信任载荷传入值。
+ */
 export function resolveExecutionState(
   input: { mode?: string },
   current: ExecutionState = DEFAULT_EXECUTION_STATE,
 ): ExecutionState {
   const mode = executionPermissionModeSchema.safeParse(input.mode);
-  return { mode: mode.success ? mode.data : current.mode };
+  const nextMode = mode.success ? mode.data : current.mode;
+  if (nextMode !== "plan") return { mode: nextMode };
+  // 已在 Plan 内重复进入不改写既有目标；从 Team 进入保留 team，其余来源一律 yolo。
+  // 新建 / 无来源 / 旧数据缺目标同样落到 yolo，不能把缺值伪造成 Team。
+  if (current.mode === "plan") {
+    return { mode: "plan", planExecuteMode: current.planExecuteMode ?? "yolo" };
+  }
+  return { mode: "plan", planExecuteMode: current.mode === "team" ? "team" : "yolo" };
 }
 
 /** 模式种子必须区分「明确档位」与「没有数据」，不能把缺值伪造成完全访问。 */
@@ -58,4 +78,18 @@ export function resolvePersistedExecutionMode(raw: unknown): ExecutionPermission
  */
 export function normalizeLegacyExecutionMode(raw: unknown): ExecutionPermissionMode {
   return resolvePersistedExecutionMode(raw) ?? DEFAULT_EXECUTION_MODE;
+}
+
+/**
+ * 读取会话落盘 entry / 历史事件的执行状态。旧数据没有 planExecuteMode：
+ * mode 为 plan 时按 yolo 兜底，非 Plan 一律丢弃该字段（additive 兼容，不做迁移）。
+ */
+export function normalizeLegacyExecutionState(raw: unknown): ExecutionState {
+  const mode = normalizeLegacyExecutionMode(raw);
+  if (mode !== "plan") return { mode };
+  const planExecuteMode =
+    raw && typeof raw === "object"
+      ? planExecuteModeSchema.safeParse((raw as { planExecuteMode?: unknown }).planExecuteMode)
+      : undefined;
+  return { mode, planExecuteMode: planExecuteMode?.success ? planExecuteMode.data : "yolo" };
 }

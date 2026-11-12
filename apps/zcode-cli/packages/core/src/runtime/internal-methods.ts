@@ -35,6 +35,7 @@ import type {
   ExecutionShellSelection,
 } from "./deps.js";
 import type { BackgroundResultOriginMeta, ContextUsageBreakdownItem } from "@zcode/contracts";
+import type { PlanExecuteMode } from "@zcode/shared";
 import type { RuntimeCommand, RuntimeCommandId } from "./command-queue.js";
 import type { RuntimeMessageEntry } from "../agent/message-history.js";
 import type {
@@ -80,6 +81,8 @@ export interface AgentRuntimeCoreMethods {
   getMode(): CollaborationMode;
   getPlanEnabled(): boolean;
   getReadOnlyEnabled(): boolean;
+  /** 计划卡执行目标（只读）：仅 Plan 内存在，供 bootstrap 投影种子读取。 */
+  getPlanExecuteMode(): PlanExecuteMode | undefined;
   getSessionLanguage(): string | undefined;
   grantPermissionFullAccess(interactionId: string, signal?: AbortSignal): Promise<string>;
   setExecutionState(

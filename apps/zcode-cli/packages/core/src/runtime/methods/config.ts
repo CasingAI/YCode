@@ -26,7 +26,7 @@ import type { AgentRuntimeConfig, ActiveTurnInfo } from "../types.js";
 import type { AgentRuntimeInternal } from "../internal.js";
 import { SessionEventType } from "../deps.js";
 import { cloneModelSelection } from "../model-selection.js";
-import { applyRuntimeExecutionState } from "../execution-state.js";
+import { applyRuntimeExecutionState, readRuntimeExecutionState } from "../execution-state.js";
 import { persistRuntimeSessionLanguage } from "../session-language.js";
 
 import type { WebSearchPort } from "@zcode/contracts";
@@ -53,8 +53,13 @@ export function updateConfig(
   patch: Pick<AgentRuntimeConfig, "mode" | "language" | "outputStyle">,
 ): void {
   if (patch.mode !== undefined) {
-    const previous = resolveExecutionState(this.config);
-    Object.assign(this.config, resolveExecutionState(patch, previous));
+    // previous 必须读权威目标：用 resolveExecutionState(this.config) 会把 Plan 内的
+    // Team 目标当成输入丢弃并重算成 yolo。
+    const previous = readRuntimeExecutionState(this);
+    const next = resolveExecutionState(patch, previous);
+    this.config.mode = next.mode;
+    if (next.planExecuteMode) this.config.planExecuteMode = next.planExecuteMode;
+    else delete this.config.planExecuteMode;
   }
   if (patch.language !== undefined) {
     this.config.language = patch.language;
@@ -103,16 +108,21 @@ export function getSessionShellSelection(
 }
 
 export function getMode(this: AgentRuntimeInternal): CollaborationMode {
-  return resolveExecutionState(this.config).mode;
+  return readRuntimeExecutionState(this).mode;
 }
 
 /** mode 的派生查询：权限轴是单值，这里只是给既有调用点省一次比较。 */
 export function getPlanEnabled(this: AgentRuntimeInternal): boolean {
-  return resolveExecutionState(this.config).mode === "plan";
+  return readRuntimeExecutionState(this).mode === "plan";
 }
 
 export function getReadOnlyEnabled(this: AgentRuntimeInternal): boolean {
-  return resolveExecutionState(this.config).mode === "readonly";
+  return readRuntimeExecutionState(this).mode === "readonly";
+}
+
+/** 计划卡执行目标（只读）：仅 Plan 内存在，bootstrap 投影种子读取；非 Plan 返回 undefined。 */
+export function getPlanExecuteMode(this: AgentRuntimeInternal): PlanExecuteMode | undefined {
+  return readRuntimeExecutionState(this).planExecuteMode;
 }
 
 /** 会话语言（创建时快照）；未知时 undefined，投影种子据此决定是否注入。 */
@@ -345,4 +355,4 @@ export function resolveWebSearchToolExposed(
 function shouldExposeWebSearch(this: AgentRuntimeInternal): boolean {
   return resolveWebSearchToolExposed(this.webSearchPort);
 }
-import { resolveExecutionState } from "@zcode/shared";
+import { resolveExecutionState, type PlanExecuteMode } from "@zcode/shared";

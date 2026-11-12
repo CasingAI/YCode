@@ -1,5 +1,6 @@
 import type { ExecutionOutputPreview } from "../interfaces/execution.port.js";
 import type { RuntimeInputPresentation } from "../interfaces/runtime-input-presentation.js";
+import type { PlanExecuteMode } from "@zcode/shared";
 /* eslint-disable max-lines -- session event 契约集中在单文件导出，避免 app/agent 协议类型分散后漂移。 */
 // ============================================================
 // Session Events - All event types for the agent loop
@@ -679,6 +680,8 @@ export interface SessionModeChangedPayload {
   previousReadOnlyEnabled?: boolean;
   mode: CollaborationMode;
   previousMode: CollaborationMode;
+  /** 计划卡执行目标：仅 mode === "plan" 时携带，离开 Plan 时缺席并由投影清理。 */
+  planExecuteMode?: PlanExecuteMode;
   source: "tool" | "command" | "system";
   toolCallId?: ToolCallId;
 }

@@ -51,7 +51,8 @@ export async function grantPermissionFullAccess(
       const projection = await this.rebuildProjection();
       const queueItemIds = projection.pendingSteerInputs.map((item) => item.pendingInputId);
       const previous = readRuntimeExecutionState(this);
-      const next = { ...previous, mode: "yolo" as const };
+      // 全访问授权是离开 Plan 的既有写入点：目标必须同步清空，不能把计划来源带到 yolo。
+      const next = { mode: "yolo" as const };
       event = this.createEvent(
         SessionEventType.SessionModeChanged,
         {
@@ -94,6 +95,8 @@ export async function grantPermissionFullAccess(
     if (!applied.has(interactionId)) {
       this.lastPermissionGrantId = interactionId;
       this.config.mode = payload.mode;
+      // 授权后的执行状态恒为完全访问，Plan 目标不随事件带出，内存也必须同步删除。
+      delete this.config.planExecuteMode;
       for (const item of this.activeTurn?.pendingInputs ?? []) {
         if (ids.has(item.id) && item.intent) item.intent = { ...item.intent, mode: "yolo" };
       }

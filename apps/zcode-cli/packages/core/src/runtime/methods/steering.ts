@@ -1183,12 +1183,14 @@ export async function emitModeChanged(
     traceContext: TraceContext;
   },
 ): Promise<void> {
+  const planExecuteMode = this.getPlanExecuteMode();
   const event = createSessionEvent(
     SessionEventType.SessionModeChanged,
     this.sessionId,
     {
       mode: this.getMode(),
       planEnabled: this.getPlanEnabled(),
+      ...(planExecuteMode ? { planExecuteMode } : {}),
       previousMode: options.previousMode,
       source: "command",
     },

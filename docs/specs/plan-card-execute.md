@@ -9,7 +9,7 @@
 计划卡片同时承担两个入口：
 
 - 右上角「查看」：打开右侧计划详情 tab（等价于改造前卡片底部的「查看完整计划」）。
-- 底部「执行计划」：把当前会话切到**完全访问**并向 AI 发送「执行计划」。
+- 底部「执行计划」：把当前会话切到**本次计划的执行目标档位**（Team 来源为 Team；Agent / Ask / 新建或无来源 Plan 为完全访问），并向 AI 发送「执行计划」。
 
 卡片本体不再是按钮，点击正文不再跳转计划详情。
 
@@ -18,7 +18,13 @@
 - **没有批准弹窗，也没有静默拒绝。** `CreatePlan` 设 `needsApproval:false`、`requiresUserInteraction:false`，运行时不发任何 `plan_approval` 交互，UI 侧无弹窗、无自动 decline、无重试、无 `pendingInteraction` 槽位。`usePlanApprovalAutoDecline`、`planApprovalDecline.ts`、broker 的 `requestExitPlanModeApproval` 分支、投影的 `plan_approval` 分支、sessions-index 槽位优先规则、计划批准通知与对应 i18n、`V4InteractionDialogs` 的跳过判定——全部删除，不留残桩。
 - **调用即成功（仅 Plan 档）。** handler 内落盘（见 `session-plan-files.md`），返回 `{ approved:false, mode, previousMode, planFile }` 的成功结果（`approved` 为 boolean，`false` 表示"已创建、待用户在卡片上批准"，不是失败）。成功结果只含元数据，**不回显计划正文**：正文的唯一事实是工具调用 `input` 与已落盘文件，模型可见文本只有「已创建、等待批准」的确认和 `Plan file: <路径>`（未保存时只说明文件未保存），避免重复占用上下文。仅 Plan 档调用后 `turnControl` 以 `plan_created` 停轮、等用户在计划卡上批准；Ask / Agent 档直接调用不落盘，返回可读错误（`CreatePlan is Plan-mode only, call EnterPlanMode first then retry`），指引模型先切档再重试，不走权限拒绝。模型不再看到 `Permission denied for CreatePlan`。
 - **仅 Plan 档可调用。** `mode.plan.exitOnly` 硬拦已删除，但 `CreatePlan` 收归 Plan 专属：仅 plan 档成功落盘；readonly / yolo 档调用由 handler 返回可读错误重试指引。plan 档的硬只读门禁（`checkReadOnlyScope`、`mode.plan.nonReadOnly`）不动：Write/Edit 照旧被拒；Plan 档的 `CreatePlan` 经 `allowedInPlanMode: true` + `sideEffectScope: session` + `needsApproval: false` 走只读域的显式会话控制放行分支（与 `RespondToCoordinator`、`Compact` 同口径），不是把门禁改成只读放行。
-- **计划卡是唯一执行入口。** 用户点卡片底部「执行计划」时，客户端做两件事，且必须在同一 tick 内先切档再发送：把 composer 草稿模式置为 `yolo`，然后发一条正文为「执行计划」的普通用户消息。完全访问随这次 `sendText` 的 submission mode 上行（`resolveSubmittedExecutionState`），**不额外发 `switchCollaborationMode` 命令**；草稿模式持久化，后续提交也保持完全访问。模型可调的切档工具只有一个 `EnterPlanMode`（Ask / Agent 切进 Plan 用），不做 `SwitchMode` 工具，不加回 `ExitPlanMode`。
+- **计划卡是唯一执行入口，执行目标由 runtime 权威给出。** 用户点卡片底部「执行计划」时，客户端做两件事，且必须在同一 tick 内先切档再发送：按「点击旧计划时的执行目标读取优先级」取得目标（Plan 内取快照权威 `config.planExecuteMode ?? "yolo"`；非 Plan 取草稿/会话的 `team` / `yolo`，否则 `yolo`），把 composer 草稿模式置为该值，然后发一条正文为「执行计划」的普通用户消息。目标只由 runtime 在进入 Plan 时派生（来源 Team → `team`，含从 Team 手动选 Plan；其余 → `yolo`）、随既有 execution-state 持久化/事件/快照投影，离开 Plan 即清除；UI 不得自行推断来源、读 `previousMode` 或硬编码 `yolo`。该档位随这次 `sendText` 的 submission mode 上行（`resolveSubmittedExecutionState`），**不额外发 `switchCollaborationMode` 命令**；草稿模式持久化，后续提交也保持该档位。模型可调的切档工具只有一个 `EnterPlanMode`（Ask / Agent / Team 切进 Plan 用），不做 `SwitchMode` 工具，不加回 `ExitPlanMode`。
+- **点击旧计划时的执行目标读取优先级。** 目标只取当前会话快照与 composer 草稿的档位，不按计划行历史、`previousMode` 或草稿历史推断来源，按以下顺序裁决：
+  1. `snapshot.config.mode === "plan"`：使用快照权威 `config.planExecuteMode ?? "yolo"`，忽略草稿；
+  2. 非 Plan 且草稿档为 `team` / `yolo`：保留草稿档；
+  3. 非 Plan 且草稿档为 `plan` / `readonly` / 缺失：回退当前会话档；会话档为 `team` / `yolo` 时使用它；
+  4. 仍无法得到 `team` / `yolo` 时用 `yolo`。
+  该优先级保证：从 Team 执行计划后再次点击旧计划仍为 Team，不会从 Team 降为 Agent；任何分支都不恢复 `readonly`。
 - **「执行计划」文案即发送正文。** 按钮 label 与发送正文取同一个 i18n key（`planTool.panel.execute`），随界面语言走；中文即「执行计划」。
 - **卡片点击不再是入口。** 卡片退化为纯展示：去掉 `role="button"` / `tabIndex` / 整卡 `onClick` / `onKeyDown`，键盘与鼠标都只能通过「查看」「执行计划」两个真实按钮进入。
 - **复制能力收敛为路径复制，且路径文本不再展示。** 卡片右上角原复制按钮删除，整份计划**不提供**一键复制（正文可直接框选）；复制能力收敛为详情面板头部右上角的「…」菜单里的「复制绝对路径 / 复制相对路径」两个菜单项，以及「在 {editor} 中打开」按钮。**路径只作为操作目标存在**：折叠卡头部与详情面板头部都不再渲染任何路径文本（文件名、相对路径都不显示），`planFilePath` 字段仍随行下发，仅供复制与打开操作使用。
@@ -83,18 +89,19 @@ flowchart TD
   D --> E["计划卡渲染<br/>查看 + 执行计划"]
   E --> L["计划卡「执行计划」按钮"]
   L --> M["onExecutePlan（SessionPane 注入）"]
-  M --> N["handleSwitchMode('yolo')<br/>同步写 draftConfigRef"]
-  N --> O["handleSendText('执行计划')<br/>sendText.mode = yolo"]
-  O --> P["resolveSubmittedExecutionState<br/>本回合意图 mode=yolo"]
+  M --> N["handleSwitchMode(target)<br/>target = config.planExecuteMode ?? 'yolo'"]
+  N --> O["handleSendText('执行计划')<br/>sendText.mode = target"]
+  O --> P["resolveSubmittedExecutionState<br/>本回合意图 mode=target"]
 ```
 
 事件顺序（提交计划）：handler 落盘 → `call-runner` 统一发布 `plan_file_written`（唯一发布点）→ v4 投影按 `toolCallId` 把路径补到工具行 `planFilePath` 上 → 仅 Plan 档工具成功结果经 `plan_created` 停轮 → 用户点「执行计划」→ 同一同步栈内先切档后发送。
 
-事件顺序（执行计划）：按钮点击 → `handleSwitchMode("yolo")` 同步更新 `draftConfigRef.current` → 同一同步栈内 `handleSendText("执行计划")` 由该 ref 冻结本次 submission → 提交 `sendText`。
+事件顺序（执行计划）：按钮点击 → 按「点击旧计划时的执行目标读取优先级」得到 `target`（Plan 内取 `config.planExecuteMode ?? "yolo"`；非 Plan 取草稿/会话的 `team` / `yolo`，否则 `yolo`）→ `handleSwitchMode(target)` 同步更新 `draftConfigRef.current` → 同一同步栈内 `handleSendText("执行计划")` 由该 ref 冻结本次 submission → 提交 `sendText`；runtime 在接纳这次 submission 的 mode 后按既有写入点离开 Plan 并清空目标。
 
 ## 接口
 
 - **判定（跨端唯一实现）**：`packages/shared/src/zcode-protocol-v4/plan-approval.ts` — `isPlanApprovalToolName(value)`（`CreatePlan` 或 `ExitPlanMode`，大小写不敏感）。`isPlanApprovalUserInputRequest` 与 `isPlanApprovalPendingSummary` 已随交互链删除。`packages/ui/src/lib/planApproval.ts` 如仍存在，只做 re-export，不再持有实现。
+- **执行目标（runtime 权威）**：`ExecutionState.planExecuteMode?: "team" | "yolo"`（`packages/shared/src/execution-state.ts`）；持久化仍用 `SESSION_ENTRY_EXECUTION_STATE`；事件 `SessionModeChangedPayload.planExecuteMode?`（`apps/zcode-cli/packages/contracts/src/events/session.events.ts`）；v4 快照 `sessionConfigStateSchema.planExecuteMode?`（`packages/shared/src/zcode-protocol-v4/session-config.ts`）。投影由 `product-projection.ts` 的 `onSessionModeChanged` 写事件值、`seedConfig` 写冷启动种子；种子来源是 runtime `getPlanExecuteMode()`（`v4-bridge.ts` 的 `getSessionConfigSeed`）。UI 只读，不直接设置。
 - **UI（执行入口）**：`ToolCallBlockRenderContext.onExecutePlan?: () => void`，与 `onOpenPlanDetail` 同构，由会话宿主（`SessionPane`）绑定会话与发送能力；缺席即不渲染按钮。
 - **UI（卡片渲染）**：`packages/ui/src/ToolCallBlocks/renderers/switch-mode.tsx`（计划工具行，新老工具名都走同一渲染分支）；`extractPlanToolCallContent` 返回扩展 `title`/`overview`（正文缺席时仍返回这两个字段），形态判定抽成纯函数 `isPlanToolCallInputStreaming` / `shouldRenderCollapsedPlanCard`（`packages/ui/src/lib/planToolCall.ts`），规则由单测锁定。正文提取读 `plan`/`text`/`content` 三选一，`title`/`overview` 可选读——V1 无 `title`/`overview` 的旧行零额外成本。
 - **UI（流式预览字段）**：`packages/shared/src/streaming-tool-input-preview.ts` 的半截 JSON 字段白名单已纳入 `title`/`overview`/`plan`，让折叠卡的三个字段都能在 `input_end` 之前随流补进卡片。该白名单的消费方是 UI 适配层与 services 的工具名推断（只看文件路径/Edit/Write 字段），加这两个字段对后者无影响。字段**回收时机**由上一条的入参顺序决定，不由白名单决定。
@@ -112,6 +119,7 @@ flowchart TD
 - **不再有任何批准询问链。** 不得把 decline、重试、pendingInteraction 槽位、通知以任何形式加回来。`CreatePlan` 恒成功，失败只可能来自入参校验。
 - 计划批准永远不会在 UI 上渲染成可交互弹窗；该交互类型已不存在。
 - 「执行计划」不得单独发送模式切换命令：模式必须随同一次 `sendText` 的 submission 上行，避免切档与发送之间的竞态。
+- 「执行计划」提交的档位必须按「点击旧计划时的执行目标读取优先级」裁决：Plan 内只能取快照权威 `config.planExecuteMode ?? "yolo"`；非 Plan 取草稿/会话的 `team` / `yolo`，仍无法取得时用 `yolo`。不得在 UI 侧硬编码 `yolo`、不得按 `previousMode` 或历史消息推断来源；任何分支都不恢复 `readonly`。
 - 计划卡本体不得再承担跳转/执行语义；两个动作各自绑定到真实按钮。
 - 计划卡形态由调用状态决定：流式与「定稿且有 `overview`」都渲染折叠卡，只有「定稿且入参无 `overview`」才退回全文预览；不得用 `overview` 有没有值代替状态判断。
 - 失败且无计划内容的计划工具行必须带工具身份（工具名 + failed 徽标 + 可折叠 + 原因），不得退化成无标题的裸错误块。**历史搁置的拒绝行不在此列**：它有完整计划内容，且桥接层已豁免失败标记（含旧形状兼容），天然渲染计划卡。
@@ -137,7 +145,7 @@ flowchart TD
 - **「执行计划」不进详情面板。** 它仍只挂在折叠卡底部；把会话发送能力与只读门禁穿到 `AnimatedSidePanePanel` 属另一条改动。
 - **状态面板「会话计划」列表的渲染不动**，不喂面板任何卡片专属字段。
 - **不为「提交未就绪」给「执行计划」加门禁。** 模型未选定之类的提交条件不满足时，点击与点发送按钮同义：本次不发送，不在卡片上再加禁用/加载态。（流式期间禁用是另一条规则，为的是「计划还没写完」，见产品规则。）
-- **脱流不做执行按钮文案匹配**，不新增协议字段、状态或全局标记；卡片渲染器、折叠归属与 16px / 2px 间距不随判据收窄改动。
+- **脱流不做执行按钮文案匹配**，脱流本身不新增协议字段、状态或全局标记；卡片渲染器、折叠归属与 16px / 2px 间距不随判据收窄改动。执行目标字段属于模式轴与快照配置，不属于脱流判据。
 - **不删除脱流渲染路径**（`planCallRecord` / `planCard`）：同一次响应内的多个工具调用仍可能触发，本次只收窄门。
 - CLI / TUI 的计划批准入口本次不补，这是已知缺口，单独排期。
 
@@ -146,7 +154,12 @@ flowchart TD
 1. Plan 档发一条会产出计划的请求：AI 写完计划后**不出现**批准弹窗；计划卡片正常显示；工具结果成功，模型可见结果只有确认与 `Plan file: <路径>`、**不含计划全文**，无 `Permission denied`，无 failed 徽标。Ask / Agent 档直接调 `CreatePlan`：不落盘，返回可读错误指引先调 `EnterPlanMode`；这条是真实工具失败，按失败工具行展示（工具名 + failed 徽标 + 原因），**不渲染计划卡**，但同样无 `Permission denied`。
 2. 计划卡片右上角显示「查看」文本按钮；点击后右侧打开该计划的详情 tab。
 3. 点击计划卡片正文或空白处：不打开详情、不跳转、无任何副作用。
-4. 计划卡片底部显示「执行计划」；点击后 composer 权限档位变为「完全访问」，对话里出现一条用户消息「执行计划」，AI 开始实施。
+4. 计划卡片底部显示「执行计划」；点击后 composer 权限档位变为该计划的执行目标档位，对话里出现一条用户消息「执行计划」，AI 开始实施。
+   4a. Team 档进入 Plan（`EnterPlanMode` 或从 Team 手动选 Plan）的计划：执行后档位为 Team，不是 Agent。
+   4b. Agent / Ask 档进入 Plan、或新建/无来源 Plan 的计划：执行后档位为 Agent（`yolo`），不恢复 Ask。
+   4c. Plan 内重启应用 / 远端重连后执行：目标与重启前一致；手动离开 Plan 后再从 Agent 进入新 Plan，执行目标为 Agent，不残留上一次的 Team。
+   4d. 从 Team 执行计划后，会话档与草稿均为 Team；再点一条旧计划（当前非 Plan）：保留草稿/会话的 Team，不降为 Agent。
+   4e. 非 Plan 且草稿停在 Plan / Ask（或缺失）时点旧计划：用当前会话的 `team` / `yolo`，仍无法取得时用 `yolo`；不恢复 Ask。
 5. 只读/分享视图下：卡片底部不出现「执行计划」，右上角「查看」仍可用。
 6. 提交带 `overview` 的计划 → 卡片显示加粗标题与 3 行内概述（无全文预览）；「查看」打开的详情仍是完整计划。
 7. 历史计划（**定稿**且入参无 `overview`）→ 卡片保持全文渐隐预览渲染，不空白。

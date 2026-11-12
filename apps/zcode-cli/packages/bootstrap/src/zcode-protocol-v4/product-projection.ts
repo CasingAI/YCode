@@ -82,6 +82,7 @@ import {
   WORKFLOW_REFINE_PERMISSION_OPTION_ID,
   ZCODE_FILE_STREAMING_TOOL_INPUT_PREVIEW_MIN_INTERVAL_MS,
   zcodeBackgroundTaskNotificationToolUpdateStatus,
+  type PlanExecuteMode,
 } from "@zcode/shared";
 import type {
   AssistantTextRow,
@@ -260,6 +261,11 @@ export interface SessionConfigSeed {
   thought?: string;
   thoughtLevels?: readonly string[];
   mode?: string;
+  /**
+   * 计划执行目标：仅 mode === "plan" 时有效，缺失按 "yolo" 兼容。
+   * 真值由 runtime 派生并持久化，投影种子只透传，不重算、不读 previousMode。
+   */
+  planExecuteMode?: PlanExecuteMode;
   /**
    * 会话语言（创建时快照的界面语言）。它**没有对应会话事件**，永远由种子注入：
    * 重放日志里不存在会覆盖它的值，因此不需要「事件触碰过就跳过」的守卫。
@@ -816,9 +822,23 @@ export class ProductProjection {
       config.thoughtLevels = [...seedThoughtLevels];
       changed = true;
     }
-    if (!this.configModeTouchedByEvent && seed.mode && config.mode !== seed.mode) {
-      config.mode = seed.mode;
-      changed = true;
+    if (!this.configModeTouchedByEvent && seed.mode) {
+      if (config.mode !== seed.mode) {
+        config.mode = seed.mode;
+        changed = true;
+      }
+      // planExecuteMode 只在 Plan 内有效：非 Plan 一律清理，Plan 内缺失按 yolo 兼容。
+      // 种子只透传 runtime 真值，不依据 previousMode 或历史状态重算。
+      const nextPlanExecuteMode: PlanExecuteMode | undefined =
+        seed.mode === "plan" ? (seed.planExecuteMode ?? "yolo") : undefined;
+      if (config.planExecuteMode !== nextPlanExecuteMode) {
+        if (nextPlanExecuteMode) {
+          config.planExecuteMode = nextPlanExecuteMode;
+        } else {
+          delete config.planExecuteMode;
+        }
+        changed = true;
+      }
     }
     if (
       !this.configModeTouchedByEvent &&
@@ -4781,6 +4801,7 @@ export class ProductProjection {
   private onSessionModeChanged(event: SessionEvent): ConversationDelta[] {
     const payload = event.payload as {
       mode?: string;
+      planExecuteMode?: string;
       planEnabled?: boolean;
       readOnlyEnabled?: boolean;
       source?: string;
@@ -4794,6 +4815,10 @@ export class ProductProjection {
     // mode 是单值真值，两个位只是给仍读旧字段的消费点留下的派生投影。
     const planEnabled = payload.planEnabled ?? mode === "plan";
     const readOnlyEnabled = payload.readOnlyEnabled ?? mode === "readonly";
+    // 计划执行目标只在 Plan 内有效：离开 Plan 必须清理；旧事件缺字段按 yolo 兼容。
+    // 非法值（含 readonly）不得被恢复——目标只可能是 team / yolo。
+    const planExecuteMode: PlanExecuteMode | undefined =
+      mode === "plan" ? (payload.planExecuteMode === "team" ? "team" : "yolo") : undefined;
     const planTransition =
       payload.source === "tool" && payload.toolCallId
         ? { toolCallId: payload.toolCallId, planEnabled }
@@ -4802,10 +4827,24 @@ export class ProductProjection {
       this.snapshot.config.mode === mode &&
       this.snapshot.config.planEnabled === planEnabled &&
       this.snapshot.config.readOnlyEnabled === readOnlyEnabled &&
+      this.snapshot.config.planExecuteMode === planExecuteMode &&
       planTransition === this.snapshot.config.planTransition &&
       !payload.permissionGrant
     )
       return [];
+    // 同 mode 只改目标也要产出 delta（幂等判据已包含 planExecuteMode）。
+    const nextConfig: SessionConfigState = {
+      ...this.snapshot.config,
+      mode,
+      planEnabled,
+      readOnlyEnabled,
+      planTransition,
+    };
+    if (planExecuteMode) nextConfig.planExecuteMode = planExecuteMode;
+    else delete nextConfig.planExecuteMode;
+    if (payload.permissionGrant) {
+      nextConfig.permissionGrant = { interactionId: payload.permissionGrant.interactionId };
+    }
     return [
       {
         op: "state.updated",
@@ -4820,16 +4859,7 @@ export class ProductProjection {
                 ),
               })
             : {}),
-          config: {
-            ...this.snapshot.config,
-            mode,
-            planEnabled,
-            readOnlyEnabled,
-            planTransition,
-            ...(payload.permissionGrant
-              ? { permissionGrant: { interactionId: payload.permissionGrant.interactionId } }
-              : {}),
-          },
+          config: nextConfig,
         },
       },
     ];

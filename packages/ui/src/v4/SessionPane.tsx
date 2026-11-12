@@ -89,6 +89,7 @@ import { useBaseWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
 import { useWorkspaceHomePath } from "@/hooks/useWorkspaceHomePath.js";
 import { prepareWorkspaceWithZCodeSessionService } from "@/hooks/useWorkspacePrepare.js";
 import { decodeCustomModelValue, encodeCustomModelValue } from "@/lib/zcodeCustomModelValue.js";
+import { executePlanSubmission } from "@/lib/planExecutionMode.js";
 import { parseModelPickerValue } from "@/lib/zcodeSessionProjection.js";
 import { captureComposerRecentSubmission } from "@/lib/composerRecent.js";
 import {
@@ -4435,16 +4436,23 @@ export function SessionPane({
     [handleDraftSelectModelGroup],
   );
 
-  // 计划卡「执行计划」：先同步把草稿模式切成完全访问，紧接着发一条「执行计划」。
-  // 必须落在同一同步栈——dispatchSendText 用 draftConfigRef 冻结本次 submission，
-  // 分两帧会让发送带上旧的计划模式。正文与按钮文案取同一个 key，随界面语言走。
+  // 计划卡「执行计划」：目标档由快照/草稿按 spec 优先级解析（不硬编码 yolo、不读历史），
+  // 再在同一同步栈内先切档后发送——dispatchSendText 用 draftConfigRef 冻结本次 submission，
+  // 分两帧会让发送带上旧的计划档。点击时经 ref 读最新快照与草稿，避免旧闭包。
+  // 正文与按钮文案取同一个 key，随界面语言走。目标档随同一次 sendText 上行，不单独切档。
   const handleExecutePlan = useCallback(() => {
-    handleSwitchMode("yolo");
-    // handleSendText 内部已落 pane-local 错误横幅；这里只负责不产生未处理拒绝。
-    void handleSendText(intl.formatMessage({ id: "planTool.panel.execute" })).catch(
-      () => undefined,
-    );
-  }, [handleSendText, handleSwitchMode, intl]);
+    executePlanSubmission({
+      snapshotConfig: snapshotRef.current?.config,
+      draftMode: draftConfigRef.current.mode,
+      switchMode: handleSwitchMode,
+      // handleSendText 内部已落 pane-local 错误横幅；这里只负责不产生未处理拒绝。
+      sendText: () => {
+        void handleSendText(intl.formatMessage({ id: "planTool.panel.execute" })).catch(
+          () => undefined,
+        );
+      },
+    });
+  }, [draftConfigRef, handleSendText, handleSwitchMode, intl]);
 
   useEffect(() => {
     executePlanHandlerRef.current = handleExecutePlan;

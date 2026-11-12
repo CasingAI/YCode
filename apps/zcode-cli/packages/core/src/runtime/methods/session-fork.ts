@@ -900,10 +900,14 @@ async function commitAtomicConversationFork(
     .reverse()
     .find((message) => message.info.role === "assistant")?.info;
   // 保留原 stable fork 的历史权限选择，不能让新增 entry 把它覆盖成父任务当前权限。
+  // stable fork 的 planExecuteMode 同样只认历史：父会话当前处于 Plan 时，不能把
+  // 父当前来源冒充历史来源；没有历史 assistant 或历史无目标时一律 yolo。
   const executionState =
-    kind === "selection_side_chat" || historicalInfo?.role !== "assistant"
+    kind === "selection_side_chat"
       ? currentExecutionState
-      : resolveExecutionState(historicalInfo);
+      : historicalInfo?.role === "assistant"
+        ? resolveExecutionState(historicalInfo)
+        : resolveExecutionState({ mode: currentExecutionState.mode });
   // 辅助对话明确不复制 Goal target/verifier entries，不能仍将
   // 父消息的 goalBoundary 交给 strict fork clone，否则任意 Goal 状态都会要求不存在的
   // child-local identity。只移除用于 Goal 恢复的 boundary，保留父对话正文作为模型上下文。

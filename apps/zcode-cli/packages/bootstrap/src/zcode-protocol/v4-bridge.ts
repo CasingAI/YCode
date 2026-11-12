@@ -1784,6 +1784,9 @@ export function createConversationV4Gateway(
       const sessionLanguage = sessionLanguageSchema.safeParse(
         record.app.runtime.getSessionLanguage(),
       );
+      const mode = record.app.getMode();
+      // 计划执行目标由 runtime 唯一派生/持久化，投影种子只透传；非 Plan 不携带。
+      const planExecuteMode = mode === "plan" ? record.app.runtime.getPlanExecuteMode() : undefined;
       return {
         modelSelection: cloneModelSelection(selection),
         provider: selection?.providerId ?? "",
@@ -1799,7 +1802,8 @@ export function createConversationV4Gateway(
               )
               ?.reasoning?.levels.map((level) => level.value) ?? [])
           : [],
-        mode: record.app.getMode(),
+        mode,
+        ...(planExecuteMode ? { planExecuteMode } : {}),
         planEnabled: record.app.runtime.getPlanEnabled(),
         readOnlyEnabled: record.app.runtime.getReadOnlyEnabled(),
         // 会话语言无事件通道，投影只能靠种子；未知时（含旧会话与非法值）不注入，

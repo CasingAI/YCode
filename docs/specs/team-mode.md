@@ -24,7 +24,7 @@
   - 证据回报：子代理回报自带证据（diff、命令输出、关键引用），裁决建立在证据上。
   - 失败熔断：一次失败指调用工具报错、中断、空输出，或回报完全无可用交付（无证据、无结论、无改动）。失败按同一任务或工作切片计连续次数，跨子代理累计，换代理不清零；只有出现可用交付才清零。因上下文窗口即将用满而交接且已交付成果，不算失败。首次失败先对原代理重试一次；若创建调用尚未返回 `agentId`，则重试该创建调用一次。第二次连续失败必须换新子代理，交接目标、失败原因与已有证据，替代子代理的一次尝试计第三次。连续第三次失败才停止该任务：不进行第四次尝试，也不由主代理补做；停止时报告三次尝试的执行者、失败原因、已有成果与阻塞点。
   - 交叉复核是可选项而非默认：结论足够重要时，可再派一个子代理复核前一子的结论。
-  - EnterPlanMode：引导不进 Plan，Team 档内就地拆解与设计（文本 + todo 呈现）；机制不拦。
+  - EnterPlanMode：引导不进 Plan，Team 档内就地拆解与设计（文本 + todo 呈现）；机制不拦。若模型仍进入 Plan，或用户从 Team 手动选 Plan 后提交，runtime 记录计划执行目标 `team`：`CreatePlan` 后点「执行计划」回到 Team；Agent / Ask / 新建或无来源的 Plan 为 `yolo`。
   - Goal 自主循环里同样尽量把执行派给子代理。
 - UI 中文描述一句话，与 Team 行同基调（如「善用子代理干活，主模型把关质量」），不得沿用「不亲自改工作区」类禁令式旧文案。
 
@@ -58,6 +58,9 @@ composer 四选草稿 → 提交载荷 mode("team") → resolveExecutionState
   → applyRuntimeExecutionState → runtime.config.mode
   → PermissionContext.mode（与 yolo 同判定路径，ruleId 同 mode.yolo）
   → 每步 <mode>Team</mode> 标签
+
+Team → EnterPlanMode（机制允许）→ runtime 记录 planExecuteMode="team"
+  → CreatePlan 不切档 → 「执行计划」提交 mode="team" → Team
 ```
 
 ## 迁移
@@ -70,6 +73,7 @@ composer 四选草稿 → 提交载荷 mode("team") → resolveExecutionState
 ## 不变量
 
 - Team 档不引入任何独立权限分支；判定路径与 yolo 相同。
+- 计划执行目标不是 Team 的权限分支：它只决定「执行计划」提交的档位，进入 Plan 时由来源档记录（Team → `team`，其余 → `yolo`），离开 Plan 即清除；不按历史 `previousMode` 恢复。
 - 模型可见引导只有三处：每步标签、Collaboration modes 一行、可选技能手册；不随回合追加散落提醒。
 - 不为 Team 维护专用内置子代理类型。
 - 提示词不写按场景枚举的禁令清单；唯一的显式停止条件是失败熔断（同一工作切片跨代理连续三次失败）。
@@ -85,6 +89,7 @@ composer 四选草稿 → 提交载荷 mode("team") → resolveExecutionState
 7. `team` 技能手册包含角色边界与失败处理：主 Agent 只拆解、派发、审阅证据、质量裁决与汇总，任务小、重复失败、上下文不足均不得亲自执行；首次失败先对原代理重试一次（未拿到 `agentId` 时重试创建调用一次）；第二次连续失败换新代理并交接目标、失败原因与已有证据，替代代理的一次尝试计第三次；同一工作切片跨代理连续三次失败才停止，无第四次尝试且主 Agent 不补做；有可用交付即清零，正常低上下文交接不计失败；停止时报告三次尝试的执行者、失败原因、已有成果与阻塞点。
 8. 自动化任务可选 Team：定时 / 延时 / 闲时与 `CronCreate` / `CronUpdate` / `OffPeakCreate` 均可显式写 `team`，列表保留 Team；运行期模型调用 `EnterPlanMode` 被硬拒绝，人工新消息解锁后恢复可切换。
 9. `pnpm typecheck` / `pnpm lint` / `pnpm architecture:check --changed` 通过。
+10. Team 档进入 Plan（`EnterPlanMode` 或从 Team 手动选 Plan）→ `CreatePlan` → 点「执行计划」：档位回到 Team；计划执行目标在冷恢复与远端快照中保持 `team`，手动离开 Plan 后清空。
 
 ## 废弃记录
 

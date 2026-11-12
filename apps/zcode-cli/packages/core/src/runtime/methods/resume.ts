@@ -1,5 +1,5 @@
 import { restorePermissionGrantMarker } from "../helpers/permission-grant-resume.js";
-import { normalizeLegacyExecutionMode } from "@zcode/shared";
+import { normalizeLegacyExecutionState, type ExecutionState } from "@zcode/shared";
 import { SESSION_ENTRY_EXECUTION_STATE, SESSION_ENTRY_SESSION_LANGUAGE } from "@zcode/contracts";
 import { parseSessionLanguageEntry } from "../session-language.js";
 import { restoreUnattendedExecutionLockFromStore } from "../unattended-execution-lock.js";
@@ -42,6 +42,31 @@ import {
   restoreWorkspaceFileRewindEntries,
 } from "./workspace-checkpoint-persistence.js";
 import { sessionCacheHitAggregateFromMessages } from "./turn-model-step-usage.js";
+
+/**
+ * 冷恢复的执行状态优先级：显式 modeOverride（重新入场）> 会话 execution-state entry >
+ * 权威 mode 事件 / session permission。entry 与事件都只做 additive 读取：
+ * Plan 内缺目标按 yolo，非 Plan 丢目标，不从 previousMode 恢复任何历史档。
+ */
+export function resolveRestoredExecutionState(input: {
+  savedExecutionData?: unknown;
+  modeOverride?: string;
+  restoredMode?: string;
+  restoredPlanExecuteMode?: unknown;
+}): ExecutionState | undefined {
+  if (input.modeOverride !== undefined) {
+    return normalizeLegacyExecutionState({ mode: input.modeOverride });
+  }
+  if (input.savedExecutionData !== undefined) {
+    return normalizeLegacyExecutionState(input.savedExecutionData);
+  }
+  const mode = input.restoredMode;
+  if (mode === undefined) return undefined;
+  return normalizeLegacyExecutionState({
+    planExecuteMode: input.restoredPlanExecuteMode,
+    mode,
+  });
+}
 
 export function toScheduleState(
   this: AgentRuntimeInternal,
@@ -209,26 +234,35 @@ export async function resumeFromStore(
       event.type === SessionEventType.SessionCreated ||
       event.type === SessionEventType.SessionModeChanged,
   );
-  const restoredMode =
-    restoredModeEvents.length > 0 ? this.eventReducer.reduce(restoredModeEvents).mode : undefined;
+  const restoredProjection =
+    restoredModeEvents.length > 0 ? this.eventReducer.reduce(restoredModeEvents) : undefined;
+  const restoredMode = restoredProjection?.mode;
+  const restoredPlanExecuteMode = restoredProjection?.planExecuteMode;
   const resolvedMode = options?.modeOverride ?? restoredMode ?? session.permission?.mode;
-  if (resolvedMode !== undefined) {
-    // cold resume 会先把 checkpoint/rewind 等局部事件恢复到新的内存 eventStore。
-    // 这些事件不携带 mode，若仅按“存在任意事件”reduce，会用默认档覆盖 headless yolo。
-    // 只有权威 mode 事件能恢复历史值；本次 invocation 的显式/default mode 仍保持最高优先级。
-    // 升级前的事件日志里 mode 可能是 build / edit / auto，必须走迁移函数，否则旧计划会话会提权。
-    Object.assign(this.config, { mode: normalizeLegacyExecutionMode(resolvedMode) });
-  }
   // 会话自己的新记录优先于项目偏好；旧记录仅兼容读取，不批量回填。
   const executionEntries = await this.sessionStore.sessionEntries?.({
     sessionID: this.sessionId,
     type: SESSION_ENTRY_EXECUTION_STATE,
   });
   const savedExecutionData = executionEntries?.at(-1)?.data;
-  if (savedExecutionData !== undefined && options?.modeOverride === undefined) {
-    // 升级前落盘的是「四档 mode + planEnabled / readOnlyEnabled」，安全解析会失败；
-    // 忽略失败会把旧计划会话当成完全访问（提权），所以统一走迁移函数还原。
-    Object.assign(this.config, { mode: normalizeLegacyExecutionMode(savedExecutionData) });
+  // mode 与 planExecuteMode 一起恢复：entry 优先于事件，显式 modeOverride 视为重新入场。
+  // cold resume 会先把 checkpoint/rewind 等局部事件恢复到新的内存 eventStore。
+  // 这些事件不携带 mode，若仅按“存在任意事件”reduce，会用默认档覆盖 headless yolo。
+  // 只有权威 mode 事件能恢复历史值；本次 invocation 的显式/default mode 仍保持最高优先级。
+  // 升级前的事件日志里 mode 可能是 build / edit / auto，必须走迁移函数，否则旧计划会话会提权。
+  const restoredExecutionState = resolveRestoredExecutionState({
+    modeOverride: options?.modeOverride,
+    restoredMode: resolvedMode,
+    restoredPlanExecuteMode,
+    savedExecutionData,
+  });
+  if (restoredExecutionState) {
+    this.config.mode = restoredExecutionState.mode;
+    if (restoredExecutionState.planExecuteMode) {
+      this.config.planExecuteMode = restoredExecutionState.planExecuteMode;
+    } else {
+      delete this.config.planExecuteMode;
+    }
   }
   // 无人值守锁按最后一条 entry 还原；冷恢复本身不是人工消息，绝不自动解锁。
   await restoreUnattendedExecutionLockFromStore(this);

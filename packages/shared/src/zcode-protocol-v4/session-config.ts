@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { modelGroupIntentSchema, modelSelectionSchema } from "../model-selection.js";
+import { planExecuteModeSchema } from "../execution-state.js";
 
 // ── config──
 
@@ -33,6 +34,9 @@ export const sessionConfigStateSchema = z.object({
   // 必须带 default 才不破坏旧快照/旧发送端的解析；投影经 SessionModeChanged 事件更新。
   // 宽度保持 string：升级前的 build / edit / auto 仍要从这里读进来再归一。
   mode: z.string().default("yolo"),
+  // 计划卡执行目标（docs/specs/plan-card-execute.md）：additive 且仅 Plan 内有意义；
+  // 旧快照缺省时按 yolo 读取，非 Plan 不携带。
+  planExecuteMode: planExecuteModeSchema.optional(),
   // 会话语言：创建时快照的界面语言（解析后的实际语言），之后不变。
   // 故意 optional 且**不给 default**：旧快照没有该字段，给默认值等于凭空断言
   // 「这个旧会话是中文/英文」，而正确语义是「未知」——消费方（Bash 字段提示）

@@ -1,4 +1,5 @@
 import type { RuntimeInputPresentation } from "./runtime-input-presentation.js";
+import type { PlanExecuteMode } from "@zcode/shared";
 // ============================================================
 // Session Ports - Core interfaces for session management
 // ============================================================
@@ -87,6 +88,8 @@ export interface SessionProjection {
   createdAt: Date;
   updatedAt: Date;
   mode: CollaborationMode;
+  /** 计划卡执行目标：仅 mode === "plan" 时存在；additive，旧投影缺席时按 yolo 读。 */
+  planExecuteMode?: PlanExecuteMode;
   /** mode 的派生投影，只为兼容旧事件 payload 保留；不得独立设置。 */
   planEnabled?: boolean;
   readOnlyEnabled?: boolean;
