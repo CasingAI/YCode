@@ -117,7 +117,8 @@ test("URL 编解码往返（ycode 双参规范式）", () => {
   assert.equal(parsed?.session, "sess_a");
   assert.equal(parsed?.text, "原文片段");
 
-  // 未编码中文与空格照读（URLSearchParams 原生容忍）。
+  // 只验证 URL 解析层容忍裸空格，不代表 Markdown 渲染可用：CommonMark 行内链接目标
+  // 含裸空格会在空格处终止，产出侧必须按提示词编码（空格 %20 或 +）。
   const loose = parseZCodeSessionCitationUrl(
     "ycode://session/open?sessionId=sess_a&search=鉴权结论 已合入",
   );

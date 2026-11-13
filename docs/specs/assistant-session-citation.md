@@ -5,7 +5,7 @@
 
 ## 载体契约（唯一：Markdown 链接，定死）
 
-`[原文片段](ycode://session/open?sessionId=<id>&search=<原文片段>)`
+`[原文片段](ycode://session/open?sessionId=<id>&search=<URL 查询参数编码值>)`
 
 - 链接文本 = 定位用的原文片段，与 `search` 同源；跳转后按该片段搜索高亮。
   链接文本为空时引用无法定位：正文仍可渲染芯片（`search` 存在即可点），
@@ -14,9 +14,16 @@
   只呈现链接文本（不可点，不露 `ycode://` 裸 URL），且不进来源。
 - `search`（推荐）：打开后自动定位的查询串。缺席时芯片可点但无法高亮，
   来源列表丢弃。
-- 编码容忍：解析侧接受未 percent-encode 的中文与空格（`URLSearchParams` 原生容忍）；
-  会破坏 query 的字符（`&`、`#`、`?`）模型必须 percent-encode 或改写片段避开，
-  prompt 明确教这一条。解析失败只影响该条引用，不影响正文其余部分。
+- 编码规则（渲染前置硬约束）：`search` 的值必须是按 URL 查询参数编码后的单个 token，
+  原文片段不因编码丢失或改写。裸空格会终止 CommonMark 行内链接目标，链接退化成
+  `[文字](ycode://…)` 原文；因此空格统一写 `%20`（现有 `URLSearchParams` 产出的 `+`
+  parser 也接受）。原文里的字面 `+` 必须写 `%2B`；`&`、`#`、`?`、括号、`%` 等同样必须
+  编码。中文可保持原样，但整值编码最稳。程序生成如有，复用
+  `buildZCodeSessionCitationUrl`（`URLSearchParams` 语义）；当前正文由模型直出。
+  `parseZCodeSessionCitationUrl` 对已到达 URL 层的裸空格仍容忍，但这只覆盖解析层，
+  不构成 Markdown 渲染保证。解析失败只影响该条引用，不影响正文其余部分。
+- 已保存的旧消息不做自动修复：历史正文里未编码空格的 malformed 链接继续按原文显示，
+  本次不新增预解析替换或平行归一化路径；只有新生成的链接按上述编码规则产出。
 - 遗留指令语法一律剥离、永不向用户显示原文（剥离/隐藏遗留语法，不是恢复兼容）：
   `:::zcode-session-citation{...}`（单/三冒号、智能引号、参数顺序不一都要认）在渲染与
   导出中就近做最小剥离——用它的 `text` 值作为纯文本展示，没有 `text` 时退 `title`，
@@ -32,11 +39,14 @@
 
 规范式，新产出只用这一种：
 
-`ycode://session/open?sessionId=<id>&search=<编码>`
+`ycode://session/open?sessionId=<id>&search=<URL 查询参数编码>`
 
 完整真实例子（session 为 sess_a，片段为之前有做过）：
 
 `[之前有做过](ycode://session/open?sessionId=sess_a&search=%E4%B9%8B%E5%89%8D%E6%9C%89%E5%81%9A%E8%BF%87)`
+
+- 只编码 `search` 的值，不编码整个 URL；空格写 `%20`，字面 `+` 写 `%2B`，
+  `&`/`#`/`?`/括号/`%` 一并编码；示例带空格时必须使用 `%20`。
 
 硬规则：
 
@@ -182,19 +192,28 @@
   （title 取链接文本，segment 恒为 1，snippet 取链接文本或 `search`）。
   抽取只解析那一条文本，不扫投影窗口；时间徽标缺席（链接不带时间）。
 - 顶部第二行工具过程摘要照旧（仍读工具 display）。
-- 模型提示：`v4-bridge.ts buildAiHistorySearchPrompt` 教链接形态；
-  `history-search.ts modelInstructions` 教链接形态。
+- 模型提示：`v4-bridge.ts buildAiHistorySearchPrompt` 与
+  `history-search.ts modelInstructions` 必须教“只编码 `search` 值”的链接形态：
+  空格 `%20`、字面 `+` `%2B`、`&`/`#`/`?`/括号/`%` 一并编码；示例不得含裸空格，
+  也不得再教“中文与空格无需编码”。
 
 ## 验证
 
-- 单测：`packages/ui/test/sessionCitationRender.test.ts` 覆盖常规渲染管线；
+- 单测：`packages/ui/test/sessionCitationRender.test.ts` 覆盖常规渲染管线，并锁定
+  `%20` 与 `URLSearchParams` 的 `+` 两种空格形式：芯片渲染、来源抽取一致、
+  `search` 解码回原文（含中英文空格、字面 `+`、`&`/`#`/`?`/括号/`%`），
+  `<details>` 内合法编码引用同样成芯片；裸空格 malformed 不被自动修复，仍按原文显示。
   `packages/ui/test/sessionCitationMinifiedRender.test.ts` 用仓库现有 Vite 生产默认压缩
   压缩真实 `message.tsx`（含 Streamdown sanitize 条目）后再 SSR，断言 ycode 引用仍渲染成
   可点芯片、无 `[blocked]`，且 `javascript:`/`data:`/`vbscript:` 等敏感协议仍被拦截；
   同时校验产物中的 sanitize attacher 已改名，避免未压缩构建造成假绿灯。
   仅未压缩源码的 SSR 绿灯不算覆盖生产压缩路径。
-- E2E 验收场景：正式包中助手正文出现 `[片段](ycode://session/open?sessionId=…)` 时
-  应渲染可点会话芯片而非带 `[blocked]` 的文本；点击后切换会话并高亮 `search` 片段。
+- 提示词回归：AI 历史搜索中英文 prompt 与 HistorySearch `modelInstructions` 必须含
+  `%20` 示例和 `%2B` 规则，不得出现“空格无需编码”或裸空格示例。
+- E2E 验收场景：正式包中助手正文出现 `[片段](ycode://session/open?sessionId=…&search=…)`
+  时，合法编码（含 `%20`）应渲染可点会话芯片而非带 `[blocked]` 的文本或裸 Markdown；
+  点击后切换会话并高亮 `search` 片段。未编码空格的旧 malformed 消息保持原文，不在本次
+  自动修复范围。
 
 ## 明确不做
 

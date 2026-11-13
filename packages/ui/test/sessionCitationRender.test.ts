@@ -6,9 +6,19 @@ import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MessageResponse } from "../src/components/ai-elements/message.js";
-import { projectLegacyZCodeSessionCitationDirectives } from "../src/lib/zcodeSessionCitation.js";
+import {
+  extractZCodeSessionCitationLinks,
+  parseZCodeSessionCitationUrl,
+  projectLegacyZCodeSessionCitationDirectives,
+} from "../src/lib/zcodeSessionCitation.js";
 import { TooltipProvider } from "../src/components/ui/tooltip.js";
 import { ZCodeIntlProvider } from "../src/i18n/IntlProvider.js";
+
+/** 用生产构造语义生成合法链接：签名默认 `%20` 形式；传 `+` 时使用 `URLSearchParams` 原始输出。 */
+function citationUrl(text: string, spaceForm: "%20" | "+" = "%20"): string {
+  const query = new URLSearchParams({ sessionId: "sess_a", search: text }).toString();
+  return `ycode://session/open?${spaceForm === "+" ? query : query.replaceAll("+", "%20")}`;
+}
 
 function renderSessionCitation(
   markdown: string,
@@ -48,13 +58,70 @@ test("直出链接渲染成可点芯片", () => {
   assert.ok(markup.includes('title="sess_a"'));
 });
 
-test("未编码中文 search 照常成芯片", () => {
+test("未编码中文（无空格）search 照常成芯片", () => {
   const markup = renderSessionCitation(
     "[鉴权结论已合入](ycode://session/open?sessionId=sess_a&search=鉴权结论已合入)",
     new Set(["sess_a"]),
   );
   assert.ok(markup.includes("<button"), `未编码链接应成芯片:\n${markup}`);
   assert.ok(markup.includes("鉴权结论已合入"));
+});
+
+test("search 编码契约：%20 与 + 形式都渲染成芯片且解码回原文", () => {
+  // 回归：裸空格会终止 CommonMark 行内链接目标；这里用真实 MessageResponse 管线锁住
+  // 两种合法空格形式，覆盖中英文空格、字面 +、& # 括号 % 等必须编码的字符。
+  const original = "auth conclusion landed + Q&A #1 (100%) 找到 90 件";
+  for (const spaceForm of ["%20", "+"] as const) {
+    const url = citationUrl(original, spaceForm);
+    assert.ok(!url.includes(" "), `${spaceForm} 形式不应含裸空格: ${url}`);
+    const markdown = `结论见[来源片段](${url})。`;
+
+    const markup = renderSessionCitation(markdown, new Set(["sess_a"]));
+    assert.ok(markup.includes("<button"), `${spaceForm} 应渲染成可点芯片:\n${markup}`);
+    assert.ok(markup.includes('title="sess_a"'), `${spaceForm} 芯片缺少会话 id:\n${markup}`);
+    assert.ok(markup.includes("来源片段"), `${spaceForm} 链接文本丢失:\n${markup}`);
+    assert.ok(!markup.includes("ycode://"), `${spaceForm} 裸 URL 泄漏:\n${markup}`);
+    assert.ok(!markup.includes("](ycode://"), `${spaceForm} 链接未解析:\n${markup}`);
+
+    // 来源抽取与 URL 解析读到的 search 必须还原成同一份原文，不因编码丢失或改写。
+    const extracted = extractZCodeSessionCitationLinks(markdown);
+    assert.equal(extracted.length, 1, `${spaceForm} 来源抽取条数:\n${markdown}`);
+    assert.equal(extracted[0]?.session, "sess_a");
+    assert.equal(extracted[0]?.text, "来源片段");
+    assert.equal(extracted[0]?.search, original, `${spaceForm} search 解码不一致`);
+    assert.equal(parseZCodeSessionCitationUrl(url)?.text, original, `${spaceForm} URL 解码不一致`);
+  }
+});
+
+test("details 内的合法编码引用同样渲染成芯片并正确抽取", () => {
+  const original = "当时的物品接口实测记录 90 件";
+  const markdown = [
+    "<details>",
+    "",
+    "<summary>相关记录</summary>",
+    "",
+    `[当时的物品接口实测记录](${citationUrl(original)})`,
+    "",
+    "</details>",
+  ].join("\n");
+  const markup = renderSessionCitation(markdown, new Set(["sess_a"]));
+  assert.ok(markup.includes("<button"), `details 内引用应成芯片:\n${markup}`);
+  assert.ok(markup.includes('title="sess_a"'), `details 内芯片缺少会话 id:\n${markup}`);
+  assert.ok(!markup.includes("](ycode://"), `details 内链接未解析:\n${markup}`);
+
+  const extracted = extractZCodeSessionCitationLinks(markdown);
+  assert.equal(extracted.length, 1);
+  assert.equal(extracted[0]?.search, original);
+});
+
+test("裸空格 malformed 链接不自动修复：保留原文、不可点、不抽来源", () => {
+  // 明确不做预解析修复：旧消息里的裸空格目标继续按原文显示，只有新生成链接按编码规则产出。
+  const markdown =
+    "[当时的物品接口实测记录](ycode://session/open?sessionId=sess_a&search=当时 的接口实测记录)";
+  const markup = renderSessionCitation(markdown, new Set(["sess_a"]));
+  assert.ok(!markup.includes("<button"), `malformed 不应自动成芯片:\n${markup}`);
+  assert.ok(markup.includes("](ycode://session/open"), `malformed 应保留原文:\n${markup}`);
+  assert.equal(extractZCodeSessionCitationLinks(markdown).length, 0, "malformed 不应被抽取");
 });
 
 test("无效 sessionId 只显示文本、不可点、不露裸 URL", () => {

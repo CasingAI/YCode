@@ -716,3 +716,36 @@ test("AI 搜索真实启动编排：turn 启动抛错仍回收隐藏会话", asy
   assert.deepEqual(harness.flushCalls, []);
   assert.equal(harness.context.sessions.size, 0);
 });
+
+test("AI 搜索引用提示：search 整值按 URL 查询编码，示例空格用 %20", async () => {
+  // 回归：旧提示教“中文与空格可不编码”，模型直出含裸空格的 Markdown 链接，
+  // CommonMark 行内链接目标在空格处终止，正文退化成 [文字](ycode://…) 原文。
+  for (const language of ["zh-CN", "en-US"] as const) {
+    const harness = buildAiSearchStartHarness({ groups: [], models: [], sendInput: "started" });
+    await runAiHistorySearchTurn(harness.context, harness.host, harness.record, {
+      query: "结论",
+      language,
+      sourceCommandId: `cmd-ai-search-prompt-${language}`,
+    });
+    const prompt = harness.sendInputTexts[0] ?? "";
+    assert.match(
+      prompt,
+      /search=auth%20conclusion%20landed/,
+      `${language} 缺少空格编码的合法示例:\n${prompt}`,
+    );
+    assert.match(prompt, /%2B/, `${language} 未教字面 + 编码:\n${prompt}`);
+    assert.match(prompt, /%20/, `${language} 未教空格编码:\n${prompt}`);
+    assert.doesNotMatch(
+      prompt,
+      /spaces need no encoding|中文与空格可不编码/,
+      `${language} 仍在教空格无需编码:\n${prompt}`,
+    );
+    assert.doesNotMatch(
+      prompt,
+      /search=auth conclusion landed/,
+      `${language} 示例仍含裸空格:\n${prompt}`,
+    );
+    harness.completion.resolve();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+});

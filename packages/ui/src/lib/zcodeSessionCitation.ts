@@ -168,8 +168,9 @@ export function findUnclosedLegacyZCodeSessionCitationStart(content: string): nu
 /**
  * 构建会话引用链接（ycode 双参规范式）：
  * `ycode://session/open?sessionId=<id>&search=<编码>`。
- * 调用方（prompt 示例、单测）传入原文片段，这里只做 percent-encode——markdown 看整串
- * URL 就是不透明文本，`*`/反引号/空格切不碎。
+ * 调用方传入原文片段，值按 `URLSearchParams` 语义编码：空格→`+`，字面 `+`→`%2B`，
+ * `&`/`#`/`?`/括号/`%` 等一并编码，产出不含裸空白，是合法的 CommonMark 行内链接目标。
+ * 正文提示词统一教更易读的 `%20` 写法；两种空格形式 parser 都接受。
  */
 export function buildZCodeSessionCitationUrl(citation: { session: string; text?: string }): string {
   const params = new URLSearchParams();
@@ -195,7 +196,8 @@ function parseSessionIdToken(value: string | null | undefined): string | null {
 
 function readCitationQueryParams(params: URLSearchParams, parsed: ParsedZCodeSessionCitationUrl) {
   // 参数名 search 为规范，text 为旧名兼容；两者都接受。
-  // 中文与空格可不编码（URLSearchParams 原生容忍）；&、#、? 必须由产出方编码或改写避开。
+  // 解析层对未编码的中文与空格仍容忍（URLSearchParams 原生行为），但那只覆盖已经到达
+  // URL 解析这一步的输入；Markdown 行内链接目标不能含裸空格，产出侧必须按提示词编码。
   const text = params.get("search")?.trim() || params.get("text")?.trim();
   if (text) parsed.text = text;
 }

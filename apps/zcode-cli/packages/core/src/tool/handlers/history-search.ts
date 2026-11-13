@@ -93,7 +93,7 @@ export const historySearchToolEntry: ToolEntry = {
       "Use when looking for prior conclusions, root causes, decisions or snippets across past sessions.",
       "Hits are segments of the cleaned transcript; call HistoryRead with role=\"both\" and fromSegment=segment for the surrounding verbatim text.",
       "Prefer short keywords; widen days when nothing matches; subagent sessions are excluded unless withSubagents=true; archived sessions are excluded unless includeArchived=true.",
-      "When citing a hit in your answer, write a Markdown link [source excerpt](ycode://session/open?sessionId=<sessionId>&search=<source excerpt>) with sessionId/search from the hit (never invent session ids); the link text and search are one locatable source excerpt used for jump-to-highlight, e.g. [鉴权结论已合入](ycode://session/open?sessionId=sess_abc123&search=鉴权结论已合入). Chinese text and spaces in search do not need percent-encoding, but characters that break query parsing (&, #, ?) must be percent-encoded or reworded away.",
+      "When citing a hit in your answer, write a Markdown link [source excerpt](ycode://session/open?sessionId=<sessionId>&search=<encoded-excerpt>) with sessionId/search from the hit (never invent session ids); the link text and search are one locatable source excerpt used for jump-to-highlight, e.g. [auth conclusion landed](ycode://session/open?sessionId=sess_abc123&search=auth%20conclusion%20landed). Percent-encode only the search value, not the whole URL: write spaces as %20, a literal + as %2B, and also encode &, #, ?, parentheses and %; Chinese text may stay as-is.",
     ],
     readOnly: true,
     destructive: false,

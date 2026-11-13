@@ -944,8 +944,18 @@ test("HistorySearch：候选为空时 scopeNote 回退报告时间窗", async ()
 
 test("HistorySearch：modelInstructions 教 Markdown 链接引用，不教指令块", () => {
   const instructions = (historySearchToolEntry.metadata.modelInstructions ?? []).join("\n");
-  assert.ok(instructions.includes("[source excerpt](ycode://session/open?sessionId=<sessionId>&search=<source excerpt>)"));
+  assert.ok(instructions.includes("[source excerpt](ycode://session/open?sessionId=<sessionId>&search=<encoded-excerpt>)"));
   assert.ok(!instructions.includes("zcode-session-citation"));
+});
+
+test("HistorySearch：modelInstructions 要求 search 整值 URL 查询编码，示例空格用 %20", () => {
+  // 回归：旧说明教“空格无需编码”，模型直出的裸空格不是合法 CommonMark 行内链接，
+  // 正文退化成 [文字](ycode://…) 原文。这里锁住提示词必须给出 %20 示例与 + 的编码规则。
+  const instructions = (historySearchToolEntry.metadata.modelInstructions ?? []).join("\n");
+  assert.match(instructions, /search=auth%20conclusion%20landed/);
+  assert.match(instructions, /%2B/);
+  assert.doesNotMatch(instructions, /spaces need no encoding|spaces in search do not need percent-encoding/);
+  assert.doesNotMatch(instructions, /search=auth conclusion landed/);
 });
 
 test("HistorySearch display：结构化引用按命中顺序取前 N 条并独立限长", async () => {
