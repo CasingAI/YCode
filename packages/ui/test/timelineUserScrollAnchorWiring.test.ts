@@ -104,9 +104,6 @@ function createHarness() {
       syncTurnNavigatorViewport: noop,
       cacheCurrentScrollMemoryState: noop,
       notifyScrollObserversAfterCommit: noop,
-      lastPrependDebugContextRef: { current: null },
-      recordConversationTimelineDebugEvent: noop,
-      TIMELINE_SCROLL_DEBUG_RUN_ID: "test",
       hasActiveUserScrollInteraction: () => active,
     },
   );
@@ -136,8 +133,6 @@ function createHarness() {
       followingRef: { current: false },
       layoutScrollGuardUntilRef: { current: 0 },
       LAYOUT_SCROLL_GUARD_MS: 100,
-      getPrependDebugRequestId: () => null,
-      recordConversationTimelineDebugEvent: noop,
       userScrollIntentRef: { current: { intent: "towardBottom", observedAt: 0 } },
     },
   );
@@ -377,7 +372,7 @@ test("最终回答出现章节栏时 Timeline 补偿可见正文的插入高度"
     getBoundingClientRect: () => ({ top: 80, bottom: 720, left: 0, right: 800 }),
   };
   const lastObservedScrollTopRef = { current: 120 };
-  const programmaticReasons: string[] = [];
+  let programmaticMarks = 0;
   let viewportSyncs = 0;
   const preserve = bindCallback<(report: Record<string, unknown>) => void>(
     "preserveAssistantReadingPosition",
@@ -386,7 +381,9 @@ test("最终回答出现章节栏时 Timeline 补偿可见正文的插入高度"
       assistantReadingLayoutRef: { current: { scopeKey: "layout-scope", rows: new Map() } },
       scrollRef: { current: root },
       findMountedTimelineRowElement: (_root: unknown, rowId: number) => (rowId === 42 ? row : null),
-      markProgrammaticScroll: (reason: string) => programmaticReasons.push(reason),
+      markProgrammaticScroll: () => {
+        programmaticMarks += 1;
+      },
       lastObservedScrollTopRef,
       syncTurnNavigatorViewport: () => {
         viewportSyncs += 1;
@@ -408,7 +405,7 @@ test("最终回答出现章节栏时 Timeline 补偿可见正文的插入高度"
 
   assert.equal(root.scrollTop, 156);
   assert.equal(lastObservedScrollTopRef.current, 156);
-  assert.deepEqual(programmaticReasons, ["assistant-section-layout"]);
+  assert.equal(programmaticMarks, 1);
   assert.equal(viewportSyncs, 1);
 });
 

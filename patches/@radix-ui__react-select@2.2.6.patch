@@ -1,0 +1,52 @@
+diff --git a/dist/index.js b/dist/index.js
+index dc37ac4a018a086c4244a09a67215dbaa9b4de65..329ce5454d6cdb5ab0a4d4c8e4ce74a3999b8682 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -772,7 +772,7 @@ var SelectPopperPosition = React.forwardRef((props, forwardedRef) => {
+ });
+ SelectPopperPosition.displayName = POPPER_POSITION_NAME;
+ var [SelectViewportProvider, useSelectViewportContext] = createSelectContext(CONTENT_NAME, {});
+-var VIEWPORT_NAME = "SelectViewport";
++var VIEWPORT_NAME = "SelectViewport", SELECT_VIEWPORT_FIXED_STYLE = { __html: `[data-radix-select-viewport]{scrollbar-width:none;-ms-overflow-style:none;-webkit-overflow-scrolling:touch;}[data-radix-select-viewport]::-webkit-scrollbar{display:none}` };
+ var SelectViewport = React.forwardRef(
+   (props, forwardedRef) => {
+     const { __scopeSelect, nonce, ...viewportProps } = props;
+@@ -784,9 +784,9 @@ var SelectViewport = React.forwardRef(
+       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+         "style",
+         {
+-          dangerouslySetInnerHTML: {
+-            __html: `[data-radix-select-viewport]{scrollbar-width:none;-ms-overflow-style:none;-webkit-overflow-scrolling:touch;}[data-radix-select-viewport]::-webkit-scrollbar{display:none}`
+-          },
++          dangerouslySetInnerHTML: SELECT_VIEWPORT_FIXED_STYLE,
++          // 固定 CSS 的包装对象复用模块常量，避免每次 render 新建对象触发 innerHTML 写入。
++          // 仅稳定包装对象引用，CSS 文本与 nonce 属性保持原语义。
+           nonce
+         }
+       ),
+diff --git a/dist/index.mjs b/dist/index.mjs
+index f9b94f39dfddef678ef3086354f8d7413ae27e52..e79ee25d76e10241d56517357d20a11b7a20b8af 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -705,7 +705,7 @@ var SelectPopperPosition = React.forwardRef((props, forwardedRef) => {
+ });
+ SelectPopperPosition.displayName = POPPER_POSITION_NAME;
+ var [SelectViewportProvider, useSelectViewportContext] = createSelectContext(CONTENT_NAME, {});
+-var VIEWPORT_NAME = "SelectViewport";
++var VIEWPORT_NAME = "SelectViewport", SELECT_VIEWPORT_FIXED_STYLE = { __html: `[data-radix-select-viewport]{scrollbar-width:none;-ms-overflow-style:none;-webkit-overflow-scrolling:touch;}[data-radix-select-viewport]::-webkit-scrollbar{display:none}` };
+ var SelectViewport = React.forwardRef(
+   (props, forwardedRef) => {
+     const { __scopeSelect, nonce, ...viewportProps } = props;
+@@ -717,9 +717,9 @@ var SelectViewport = React.forwardRef(
+       /* @__PURE__ */ jsx(
+         "style",
+         {
+-          dangerouslySetInnerHTML: {
+-            __html: `[data-radix-select-viewport]{scrollbar-width:none;-ms-overflow-style:none;-webkit-overflow-scrolling:touch;}[data-radix-select-viewport]::-webkit-scrollbar{display:none}`
+-          },
++          dangerouslySetInnerHTML: SELECT_VIEWPORT_FIXED_STYLE,
++          // 固定 CSS 的包装对象复用模块常量，避免每次 render 新建对象触发 innerHTML 写入。
++          // 仅稳定包装对象引用，CSS 文本与 nonce 属性保持原语义。
+           nonce
+         }
+       ),

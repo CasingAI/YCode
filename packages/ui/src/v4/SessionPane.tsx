@@ -144,7 +144,12 @@ import { shouldIgnoreStopGenerationShortcut } from "@/v4/composer/escapeStop.js"
 import { ConversationDraftSuggestedPromptsContainer } from "@/v4/ConversationDraftSuggestedPromptsContainer.js";
 import { ConversationHeader, type PaneWorkspaceBadge } from "@/v4/ConversationHeader.js";
 import { ConversationQueuePanel } from "@/v4/ConversationQueuePanel.js";
-import { projectPendingGuideQueue } from "@/v4/pendingGuideProjection.js";
+import { EMPTY_PENDING_GUIDES } from "@/v4/pendingGuideProjection.js";
+import {
+  buildKnownSessionIdSet,
+  useStableKnownSessionIdSet,
+  useStablePendingGuideProjection,
+} from "@/v4/sessionPaneDerivedInputs.js";
 import { WorkspaceHookPendingBanner } from "@/v4/WorkspaceHookPendingBanner.js";
 import { ConversationStatusPanel } from "@/v4/ConversationStatusPanel.js";
 import { SessionStorageWarning } from "@/v4/SessionStorageWarning.js";
@@ -2612,34 +2617,44 @@ export function SessionPane({
     collapsedLimit: 0,
   });
   const taskQueryCacheForCitation = useTaskQueryCacheStore((state) => state.taskMetaByEntityKey);
-  const knownSessionIds = useMemo<ReadonlySet<string> | undefined>(() => {
-    if (!sessionScopeReady || sessionIndexScopes.length === 0) return undefined;
-    if (hydratingEndpointKeys.length > 0 && archivedTasksForCitation.loading) return undefined;
-    const ids = new Set<string>();
-    for (const item of sessionIndexItems) {
-      if (item.taskId.trim()) ids.add(item.taskId.trim());
-    }
-    // tasks-index 全量缓存：含归档/置顶行，不被 sessions-index 200 条冷种子截断。
-    for (const meta of Object.values(taskQueryCacheForCitation)) {
-      const taskId = (meta as { taskId?: unknown }).taskId;
-      if (typeof taskId === "string" && taskId.trim()) ids.add(taskId.trim());
-    }
-    for (const item of archivedTasksForCitation.items) {
-      const taskId = (item as { taskId?: unknown }).taskId;
-      if (typeof taskId === "string" && taskId.trim()) ids.add(taskId.trim());
-    }
-    if (typeof sessionId === "string" && sessionId.trim()) ids.add(sessionId.trim());
-    return ids.size > 0 ? ids : undefined;
-  }, [
-    archivedTasksForCitation.items,
-    archivedTasksForCitation.loading,
-    hydratingEndpointKeys,
+  const derivedInputScope = {
+    workspaceIdentity,
+    workspacePath,
+    remoteSessionId,
     sessionId,
-    sessionIndexItems,
-    sessionIndexScopes,
-    sessionScopeReady,
-    taskQueryCacheForCitation,
-  ]);
+  };
+  // 来源并集与就绪规则保持不变；scope 也参与依赖，来源引用不变但作用域切换时不能复用旧 Set。
+  const knownSessionIdSet = useMemo(
+    () =>
+      buildKnownSessionIdSet({
+        sessionScopeReady,
+        sessionIndexScopeCount: sessionIndexScopes.length,
+        hydratingEndpointCount: hydratingEndpointKeys.length,
+        archivedLoading: archivedTasksForCitation.loading,
+        sessionIndexItems,
+        taskMetaByEntityKey: taskQueryCacheForCitation,
+        archivedItems: archivedTasksForCitation.items,
+        sessionId,
+      }),
+    [
+      archivedTasksForCitation.items,
+      archivedTasksForCitation.loading,
+      hydratingEndpointKeys.length,
+      remoteSessionId,
+      sessionId,
+      sessionIndexItems,
+      sessionIndexScopes.length,
+      sessionScopeReady,
+      taskQueryCacheForCitation,
+      workspaceIdentity,
+      workspacePath,
+    ],
+  );
+  const knownSessionIds = useStableKnownSessionIdSet(derivedInputScope, knownSessionIdSet);
+  const pendingGuideProjection = useStablePendingGuideProjection(
+    derivedInputScope,
+    snapshot?.queue,
+  );
 
   // 行内编辑卡开合的宿主 state（specs/message-history-edit.md 规则 13）：经 rowContext
   // 下发，Timeline/RowView 据此对其后行做弱化预览，其余编辑卡据此互斥关闭。
@@ -5428,7 +5443,6 @@ export function SessionPane({
       onDropTargetControllerChange={handleDropTargetControllerChange}
     />
   );
-  const pendingGuideProjection = snapshot ? projectPendingGuideQueue(snapshot.queue) : null;
   const conversationBottomDockContent = readOnly ? null : shareActive && sessionId ? (
     shareInSelectionStage ? (
       <ConversationShareSelectionDock
@@ -5741,7 +5755,9 @@ export function SessionPane({
                 onFollowingChange={handleTimelineFollowingChange}
                 selectionPanelLayoutContainerRef={conversationLayoutContainerRef}
                 rows={timelineSnapshot?.rows.window ?? EMPTY_CONVERSATION_ROWS}
-                pendingGuides={timelineSnapshot ? pendingGuideProjection?.pendingGuides : []}
+                pendingGuides={
+                  timelineSnapshot ? pendingGuideProjection?.pendingGuides : EMPTY_PENDING_GUIDES
+                }
                 apiRetry={timelineSnapshot?.control.apiRetry ?? null}
                 totalCount={timelineSnapshot?.rows.totalCount ?? 0}
                 sessionKey={sessionId ?? "draft"}

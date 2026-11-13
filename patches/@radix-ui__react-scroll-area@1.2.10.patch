@@ -1,0 +1,52 @@
+diff --git a/dist/index.js b/dist/index.js
+index 6e0a40d99edf0a3e2ed405455c25bed6a48c1c5a..ab73b88fbdadefde9e8c088aadca22188b29c3ed 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -133,7 +133,7 @@ var ScrollArea = React2.forwardRef(
+   }
+ );
+ ScrollArea.displayName = SCROLL_AREA_NAME;
+-var VIEWPORT_NAME = "ScrollAreaViewport";
++var VIEWPORT_NAME = "ScrollAreaViewport", SCROLL_AREA_VIEWPORT_FIXED_STYLE = { __html: `[data-radix-scroll-area-viewport]{scrollbar-width:none;-ms-overflow-style:none;-webkit-overflow-scrolling:touch;}[data-radix-scroll-area-viewport]::-webkit-scrollbar{display:none}` };
+ var ScrollAreaViewport = React2.forwardRef(
+   (props, forwardedRef) => {
+     const { __scopeScrollArea, children, nonce, ...viewportProps } = props;
+@@ -144,9 +144,9 @@ var ScrollAreaViewport = React2.forwardRef(
+       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+         "style",
+         {
+-          dangerouslySetInnerHTML: {
+-            __html: `[data-radix-scroll-area-viewport]{scrollbar-width:none;-ms-overflow-style:none;-webkit-overflow-scrolling:touch;}[data-radix-scroll-area-viewport]::-webkit-scrollbar{display:none}`
+-          },
++          dangerouslySetInnerHTML: SCROLL_AREA_VIEWPORT_FIXED_STYLE,
++          // 固定 CSS 的包装对象复用模块常量，避免每次 render 新建对象触发 innerHTML 写入。
++          // 仅稳定包装对象引用，CSS 文本与 nonce 属性保持原语义。
+           nonce
+         }
+       ),
+diff --git a/dist/index.mjs b/dist/index.mjs
+index fac521d1e293331d6c358170552a0d15ebbc04c6..03f387d97dd1d999b613abfff7469af931c486f3 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -88,7 +88,7 @@ var ScrollArea = React2.forwardRef(
+   }
+ );
+ ScrollArea.displayName = SCROLL_AREA_NAME;
+-var VIEWPORT_NAME = "ScrollAreaViewport";
++var VIEWPORT_NAME = "ScrollAreaViewport", SCROLL_AREA_VIEWPORT_FIXED_STYLE = { __html: `[data-radix-scroll-area-viewport]{scrollbar-width:none;-ms-overflow-style:none;-webkit-overflow-scrolling:touch;}[data-radix-scroll-area-viewport]::-webkit-scrollbar{display:none}` };
+ var ScrollAreaViewport = React2.forwardRef(
+   (props, forwardedRef) => {
+     const { __scopeScrollArea, children, nonce, ...viewportProps } = props;
+@@ -99,9 +99,9 @@ var ScrollAreaViewport = React2.forwardRef(
+       /* @__PURE__ */ jsx(
+         "style",
+         {
+-          dangerouslySetInnerHTML: {
+-            __html: `[data-radix-scroll-area-viewport]{scrollbar-width:none;-ms-overflow-style:none;-webkit-overflow-scrolling:touch;}[data-radix-scroll-area-viewport]::-webkit-scrollbar{display:none}`
+-          },
++          dangerouslySetInnerHTML: SCROLL_AREA_VIEWPORT_FIXED_STYLE,
++          // 固定 CSS 的包装对象复用模块常量，避免每次 render 新建对象触发 innerHTML 写入。
++          // 仅稳定包装对象引用，CSS 文本与 nonce 属性保持原语义。
+           nonce
+         }
+       ),

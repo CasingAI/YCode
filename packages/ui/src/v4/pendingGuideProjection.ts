@@ -1,9 +1,12 @@
 import type { QueueItem, QueueState } from "@zcode/shared/zcode-protocol-v4";
 
-interface PendingGuideQueueProjection {
+export interface PendingGuideQueueProjection {
   pendingGuides: readonly QueueItem[];
   visibleQueue: QueueState;
 }
+
+/** 空 pendingGuides 的稳定引用：下游 memo 以引用判断，不能每次投影都新建 []。 */
+export const EMPTY_PENDING_GUIDES: readonly QueueItem[] = Object.freeze([]);
 
 /**
  * CLI 用同一份 queue fact 可靠承载 guide 与 future queue；旧 UI 直接渲染
@@ -19,6 +22,9 @@ export function projectPendingGuideQueue(queue: QueueState): PendingGuideQueuePr
     } else {
       visibleItems.push(item);
     }
+  }
+  if (pendingGuides.length === 0) {
+    return { pendingGuides: EMPTY_PENDING_GUIDES, visibleQueue: queue };
   }
   return {
     pendingGuides,

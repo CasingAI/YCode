@@ -111,7 +111,24 @@
   - 集合为 `undefined`（所有来源均未就绪：索引首帧未到且缓存为空）= 不校验、全部投影
     （与 `#sess_` 气泡同一 fail-open 纪律，避免首帧前芯片闪没）。
 - **禁止按消息/按轮扫描**：校验只在 `a` 渲染器遇到 ycode 链接 / 来源抽取遇到链接时
-  做一次 O(1) 成员判断；无引用消息零成本。集合引用保持稳定，不在每次 render 重算。
+  做一次 O(1) 成员判断；无引用消息零成本。
+- **集合引用稳定（性能硬约束）**：同一作用域内，只要成员集合与就绪语义未变，必须复用
+  上一份存在性集合引用，不在每次 render 重建 `Set`。
+  - 实现位于 `packages/ui/src/v4/sessionPaneDerivedInputs.ts`：`buildKnownSessionIdSet`
+    保留原并集与就绪规则，`useStableKnownSessionIdSet` 用 `zustand/vanilla/shallow`
+    比较成员并输出稳定引用。
+  - 比较忽略索引顺序与对象身份，但不忽略成员增删；仅活动时间、标题或状态变化且成员
+    未变时保持引用。
+  - 作用域由 `isSameDerivedInputScope` 逐字段比较：归一化 identity
+    （`workspaceIdentity?.trim() || workspacePath`）、`remoteSessionId`（缺省空串）、
+    `sessionId`（缺省空串）。不拼接 `scopeKey`，也不复用 `SessionPane` 其他用途的
+    `scopeKey`；作用域变化时即使传入同一 `next` 集合也返回克隆的新 `Set`。
+  - `useStableKnownSessionIdSet` 只是只读派生 memo，不是状态 owner 或 accepted queue；
+    成员真值仍来自索引、任务缓存与当前会话，不新增订阅、权威缓存或准入语义。
+  - `undefined` 只表示“所有来源均未就绪”，与已就绪集合不混同；未就绪转就绪、就绪转
+    未就绪都要更新引用。
+  - 归档来源仍包含在集合内；归档订阅到达时按真实成员变化更新，不因引用复用而延迟。
+  - 引用稳定只影响下游浅比较，不改变 chips、来源列表、fail-open、不可点回退或跳转语义。
 - 无原文片段（链接文本与 `search` 均空）的引用不进来源（无法定位）。
 - 安全边界：伪造 id（不在集合里）只呈现文本、不可点、不进来源、不露 URL；
   点击链路本身只读（切会话 + 搜索高亮，无写操作），打开不存在的会话由会话打开链路

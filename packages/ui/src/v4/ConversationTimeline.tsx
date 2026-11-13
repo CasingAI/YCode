@@ -55,7 +55,6 @@ import type {
   ConversationRowRenderContext,
 } from "@/v4/conversationRowContext.js";
 import { splitConversationTimelineLiveTail } from "@/v4/conversationTimelineLiveTail.js";
-import { recordConversationTimelineDebugEvent } from "@/v4/conversationTimelineDebug.js";
 import {
   buildAgentSessionByIdentityMemo,
   buildAgentTitleByIdentityMemo,
@@ -183,9 +182,6 @@ const LAYOUT_SCROLL_GUARD_MS = 250;
 const CONTENT_WIDTH_RESIZE_SETTLE_MS = 120;
 const SCROLL_MEMORY_RESTORE_TOLERANCE_PX = 1;
 const USER_SCROLL_ANCHOR_EPSILON_PX = 0.5;
-const PREPEND_DEBUG_CONTEXT_TTL_MS = 1000;
-const PREPEND_DEBUG_REQUEST_CLEANUP_DELAY_MS = 1000;
-const TIMELINE_SCROLL_DEBUG_RUN_ID = "prepend-scroll-debug-v1";
 /** 顶部加载提示的渐显延迟：快链路（本地 stdio 常见几十毫秒）全程透明。 */
 const HISTORY_LOADING_HINT_DELAY_MS = 400;
 /**
@@ -1272,7 +1268,6 @@ function ConversationTimelineImpl({
     // 新游标重取。补页平时由 scroll 事件唤醒，而此刻列表锁死，不会有事件。
     if (!result.committed && result.retry) void loadOlderRef.current.onLoadOlder?.();
   }, []);
-  const previousLoadingOlderRef = useRef(loadingOlder);
   const followingRef = useRef(initialFollowing());
   // 跟随态仍是组件实例的唯一真相源；回调只把变化同步给宿主（已读水位）。
   // 用 ref 保存回调，避免宿主每次渲染新建函数导致滚动回调依赖抖动。
@@ -1363,31 +1358,6 @@ function ConversationTimelineImpl({
     appliedTopInsetRef.current = nextInset;
     return adjustment;
   }, []);
-  const timelineDebugRequestIdRef = useRef(0);
-  const pendingPrependDebugRequestIdRef = useRef<number | null>(null);
-  const pendingPrependDebugLoadingObservedRef = useRef<number | null>(null);
-  const pendingPrependDebugCleanupTimerRef = useRef<number | null>(null);
-  const lastPrependDebugContextRef = useRef<{
-    requestId: number;
-    scrollTopAfter: number | null;
-    adjustment: number | null;
-    expiresAt: number;
-  } | null>(null);
-  const clearPendingPrependDebugTimer = useCallback(() => {
-    if (pendingPrependDebugCleanupTimerRef.current === null) return;
-    window.clearTimeout(pendingPrependDebugCleanupTimerRef.current);
-    pendingPrependDebugCleanupTimerRef.current = null;
-  }, []);
-  const clearPendingPrependDebugRequest = useCallback(
-    (requestId: number) => {
-      if (pendingPrependDebugRequestIdRef.current !== requestId) return;
-      clearPendingPrependDebugTimer();
-      pendingPrependDebugRequestIdRef.current = null;
-      pendingPrependDebugLoadingObservedRef.current = null;
-      lastPrependDebugContextRef.current = null;
-    },
-    [clearPendingPrependDebugTimer],
-  );
   const heightCacheRef = useRef<TimelineRowHeightCache | null>(null);
   if (heightCacheRef.current === null) {
     heightCacheRef.current = new TimelineRowHeightCache();
@@ -1489,29 +1459,6 @@ function ConversationTimelineImpl({
   // 目录水合退役说明见上面那段注释：宽度 observer 与 hydration effect 整段删除。
   // turnNavigatorContainerWidthPx / hydration attempt / retry revision 的 state
   // 一并删除（下面还有引用，逐个清理）。
-
-  useEffect(() => {
-    const wasLoading = previousLoadingOlderRef.current;
-    previousLoadingOlderRef.current = loadingOlder;
-    const requestId = pendingPrependDebugRequestIdRef.current;
-    if (loadingOlder) {
-      if (requestId !== null) {
-        pendingPrependDebugLoadingObservedRef.current = requestId;
-      }
-      clearPendingPrependDebugTimer();
-      return;
-    }
-    if (wasLoading && requestId !== null) {
-      // P4 已在 layout effect 消费成功请求的 requestId；这里只清理没有形成 prepend 的请求。
-      clearPendingPrependDebugRequest(requestId);
-    }
-  }, [clearPendingPrependDebugRequest, clearPendingPrependDebugTimer, loadingOlder]);
-
-  useEffect(() => {
-    return () => {
-      clearPendingPrependDebugTimer();
-    };
-  }, [clearPendingPrependDebugTimer]);
 
   /**
    * 首绘 staging 的两个 layout effect：先量，再决定挂不挂。
@@ -1743,33 +1690,6 @@ function ConversationTimelineImpl({
     prependAnchorRef.current = { firstRowId: null, totalSize: 0 };
   }, [sessionKey, windowEpoch]);
 
-  // restage 探针（只观测，不改行为）：已挂载的窗口因 windowEpoch 变化（活跃会话的
-  // snapshot resync 换代）重新进入首绘 staging，整个可见时间线会被打回暗处再重挂
-  // 一遍——这是用户报告「反复闪烁、上下抖动」的候选成因之一。先取证再决定是否
-  // 改 staging 的换代判定语义（见 turn-window-fill spec 负面边界）。
-  const renderIdentityRef = useRef<{
-    sessionKey: string;
-    windowEpoch: number;
-    stagingActive: boolean;
-  } | null>(null);
-  useEffect(() => {
-    const previous = renderIdentityRef.current;
-    renderIdentityRef.current = { sessionKey, windowEpoch, stagingActive };
-    if (
-      stagingActive &&
-      previous !== null &&
-      !previous.stagingActive &&
-      previous.sessionKey === sessionKey &&
-      previous.windowEpoch !== windowEpoch
-    ) {
-      recordConversationTimelineDebugEvent("A3-restage", {
-        sessionKey,
-        fromWindowEpoch: previous.windowEpoch,
-        toWindowEpoch: windowEpoch,
-      });
-    }
-  }, [sessionKey, stagingActive, windowEpoch]);
-
   // 作废闸门里的待提交请求只留给「换会话」，不能跟着 windowEpoch 走。
   //
   // 为什么不跟：snapshot 帧换代时缓冲里往往正躺着更早的一页，cancel 会把这条待提交
@@ -1809,34 +1729,16 @@ function ConversationTimelineImpl({
   }, []);
   // 动态测高：virtualizer 对窗口内元素挂 ResizeObserver，流式行长高即回调此处；
   // 同时把真实高度写入稳定的 turnId 缓存。
-  const measureElement = useCallback(
-    (element: Element, entry: ResizeObserverEntry | undefined) => {
-      const height = measureRowHeight(element, entry);
-      const indexAttr = element.getAttribute("data-index");
-      const unit = indexAttr === null ? undefined : virtualizedUnitsRef.current[Number(indexAttr)];
-      const cacheKey = getUnitHeightCacheKey(unit);
-      const previousHeight =
-        cacheKey === undefined ? null : (heightCacheRef.current?.get(cacheKey) ?? null);
-      if (cacheKey !== undefined) {
-        heightCacheRef.current?.set(cacheKey, height);
-      }
-      if (previousHeight === null || previousHeight !== height) {
-        recordConversationTimelineDebugEvent("A1-measure", {
-          index: indexAttr === null ? null : Number(indexAttr),
-          measuredHeight: height,
-          previousCachedHeight: previousHeight,
-          heightDelta: previousHeight === null ? null : height - previousHeight,
-          virtualUnitCount: virtualizedUnitsRef.current.length,
-          scrollTop: scrollRef.current?.scrollTop ?? null,
-          viewportHeight: scrollRef.current?.clientHeight ?? null,
-          following: followingRef.current,
-          contentWidthChanging: isContentWidthChanging(),
-        });
-      }
-      return height;
-    },
-    [isContentWidthChanging],
-  );
+  const measureElement = useCallback((element: Element, entry: ResizeObserverEntry | undefined) => {
+    const height = measureRowHeight(element, entry);
+    const indexAttr = element.getAttribute("data-index");
+    const unit = indexAttr === null ? undefined : virtualizedUnitsRef.current[Number(indexAttr)];
+    const cacheKey = getUnitHeightCacheKey(unit);
+    if (cacheKey !== undefined) {
+      heightCacheRef.current?.set(cacheKey, height);
+    }
+    return height;
+  }, []);
 
   const clearUserScrollAnchor = useCallback(() => {
     userScrollAnchorRef.current = null;
@@ -1847,39 +1749,6 @@ function ConversationTimelineImpl({
     // 同会话 rewind / 重订阅也会换窗，不能将上一窗口的测量坐标带入新窗口。
     clearUserScrollAnchor();
   }, [clearUserScrollAnchor, sessionKey, windowEpoch]);
-
-  const getPrependDebugRequestId = useCallback((): number | null => {
-    const pendingRequestId = pendingPrependDebugRequestIdRef.current;
-    if (pendingRequestId !== null) return pendingRequestId;
-    const context = lastPrependDebugContextRef.current;
-    if (context === null) return null;
-    if (context.expiresAt < Date.now()) {
-      lastPrependDebugContextRef.current = null;
-      return null;
-    }
-    return context.requestId;
-  }, []);
-
-  const schedulePendingPrependDebugCleanup = useCallback(
-    (requestId: number) => {
-      if (pendingPrependDebugRequestIdRef.current !== requestId) return;
-      clearPendingPrependDebugTimer();
-      pendingPrependDebugCleanupTimerRef.current = window.setTimeout(() => {
-        pendingPrependDebugCleanupTimerRef.current = null;
-        if (pendingPrependDebugRequestIdRef.current !== requestId) return;
-        // Promise 可能先于 React 的 loadingOlder 状态提交完成；仍在 loading 时交给
-        // loadingOlder effect 统一清理，避免正常请求在 P3/P4 前被误删。
-        if (
-          loadOlderRef.current.loadingOlder ||
-          pendingPrependDebugLoadingObservedRef.current === requestId
-        ) {
-          return;
-        }
-        clearPendingPrependDebugRequest(requestId);
-      }, PREPEND_DEBUG_REQUEST_CLEANUP_DELAY_MS);
-    },
-    [clearPendingPrependDebugRequest, clearPendingPrependDebugTimer],
-  );
 
   const hasActiveUserScrollInteraction = useCallback(() => {
     const current = userScrollIntentRef.current;
@@ -1926,38 +1795,8 @@ function ConversationTimelineImpl({
     if (shouldAdjust) {
       // virtualizer 即将自行写入补偿；先标记 ensuing scroll 为 layout，避免 pending
       // prepend 基线把这次程序化位移误记为用户滚动。
-      const guardUntil = Date.now() + LAYOUT_SCROLL_GUARD_MS;
-      layoutScrollGuardUntilRef.current = guardUntil;
-      const requestId = getPrependDebugRequestId();
-      if (requestId !== null) {
-        recordConversationTimelineDebugEvent("P6-programmatic-scroll", {
-          runId: TIMELINE_SCROLL_DEBUG_RUN_ID,
-          requestId,
-          source: "virtualizer-size-adjust",
-          itemIndex: item.index,
-          itemStart: item.start,
-          itemEnd: item.end,
-          scrollTop: scrollRef.current?.scrollTop ?? null,
-          shouldAdjust,
-          guardUntil,
-        });
-      }
+      layoutScrollGuardUntilRef.current = Date.now() + LAYOUT_SCROLL_GUARD_MS;
     }
-    recordConversationTimelineDebugEvent("A2-size-adjust", {
-      itemIndex: item.index,
-      itemStart: item.start,
-      itemEnd: item.end,
-      itemSize: item.size,
-      scrollTop: scrollRef.current?.scrollTop ?? null,
-      following: followingRef.current,
-      contentWidthChanging,
-      suppressAdjustment,
-      toggleAnchorActive,
-      userScrollProtected,
-      userScrollAnchorActive,
-      userScrollIntent: userScrollIntentRef.current.intent,
-      shouldAdjust,
-    });
     return shouldAdjust;
   };
   const refreshUserScrollAnchor = useCallback(() => {
@@ -2020,28 +1859,15 @@ function ConversationTimelineImpl({
     [liveUnit, virtualRows],
   );
 
-  const markProgrammaticScroll = useCallback(
-    (source: string = "unknown") => {
-      const requestId = getPrependDebugRequestId();
-      if (requestId !== null) {
-        recordConversationTimelineDebugEvent("P6-programmatic-scroll", {
-          runId: TIMELINE_SCROLL_DEBUG_RUN_ID,
-          requestId,
-          source,
-          scrollTop: scrollRef.current?.scrollTop ?? null,
-          guardUntil: Date.now() + LAYOUT_SCROLL_GUARD_MS,
-        });
-      }
-      layoutScrollGuardUntilRef.current = Date.now() + LAYOUT_SCROLL_GUARD_MS;
-      if (programmaticScrollFrameRef.current !== null) {
-        window.cancelAnimationFrame(programmaticScrollFrameRef.current);
-      }
-      programmaticScrollFrameRef.current = window.requestAnimationFrame(() => {
-        programmaticScrollFrameRef.current = null;
-      });
-    },
-    [getPrependDebugRequestId],
-  );
+  const markProgrammaticScroll = useCallback(() => {
+    layoutScrollGuardUntilRef.current = Date.now() + LAYOUT_SCROLL_GUARD_MS;
+    if (programmaticScrollFrameRef.current !== null) {
+      window.cancelAnimationFrame(programmaticScrollFrameRef.current);
+    }
+    programmaticScrollFrameRef.current = window.requestAnimationFrame(() => {
+      programmaticScrollFrameRef.current = null;
+    });
+  }, []);
 
   const commitFollowing = useCallback(
     (following: boolean) => {
@@ -2348,7 +2174,7 @@ function ConversationTimelineImpl({
         return;
       }
 
-      markProgrammaticScroll("assistant-section-layout");
+      markProgrammaticScroll();
       root.scrollTop = Math.max(0, root.scrollTop + shiftPx);
       lastObservedScrollTopRef.current = root.scrollTop;
       syncTurnNavigatorViewport(root);
@@ -2483,7 +2309,7 @@ function ConversationTimelineImpl({
       clearUserScrollAnchor();
       const element = scrollRef.current;
       if (!element) return;
-      markProgrammaticScroll("bottom");
+      markProgrammaticScroll();
       // 草稿安全居中允许内容在低高度下向下溢出；若沿用真实会话吸底，
       // 顶部安全留白会被滚走。草稿始终展示顶部，真实会话继续吸底。
       element.scrollTop = responsiveCenteredEmptyLayout ? 0 : element.scrollHeight;
@@ -2695,27 +2521,6 @@ function ConversationTimelineImpl({
       syncTurnNavigatorViewport(element);
       cacheCurrentScrollMemoryState(element);
       notifyScrollObserversAfterCommit(element);
-      const prependDebugContext = lastPrependDebugContextRef.current;
-      const prependContext =
-        prependDebugContext && prependDebugContext.expiresAt >= Date.now()
-          ? prependDebugContext
-          : null;
-      if (prependDebugContext !== prependContext) {
-        lastPrependDebugContextRef.current = null;
-      }
-      recordConversationTimelineDebugEvent("P5-user-anchor-write", {
-        runId: TIMELINE_SCROLL_DEBUG_RUN_ID,
-        requestId: prependContext?.requestId ?? null,
-        prependContextPresent: prependContext !== null,
-        scrollTopBefore,
-        scrollTopAfter: element.scrollTop,
-        computedAdjustment: adjustment,
-        appliedAdjustment,
-        prependAdjustment: prependContext?.adjustment ?? null,
-        prependScrollTopAfter: prependContext?.scrollTopAfter ?? null,
-        pendingUserCorrection: pendingUserScrollAnchorCorrectionRef.current,
-      });
-      // 保留最近一次 P4 上下文，供紧随其后的 P6 关联；它会在 TTL 到期时惰性清理。
       if (!hasActiveUserScrollInteraction()) {
         clearUserScrollAnchor();
       }
@@ -2803,12 +2608,10 @@ function ConversationTimelineImpl({
     const observer = new ResizeObserver((entries) => {
       const nextHeight = cacheHeight(entries[0]);
       if (nextHeight === observedHeight) return;
-      const previousHeight = observedHeight;
       observedHeight = nextHeight;
 
       const scrollElement = scrollRef.current;
       if (!scrollElement) return;
-      const scrollTopBefore = scrollElement.scrollTop;
       markLayoutScrollGuard();
       const followingBefore = followingRef.current;
       const contentWidthChanging = isContentWidthChanging();
@@ -2824,17 +2627,6 @@ function ConversationTimelineImpl({
       });
       commitFollowing(following);
       applyContentAnchorAction(following, contentWidthChanging);
-      recordConversationTimelineDebugEvent("A6-live-tail", {
-        previousHeight,
-        nextHeight,
-        heightDelta: nextHeight - previousHeight,
-        followingBefore,
-        followingAfter: followingRef.current,
-        contentWidthChanging,
-        scrollTopBefore,
-        scrollTopAfter: scrollElement.scrollTop,
-        contentHeight: scrollElement.scrollHeight,
-      });
     });
     observer.observe(element);
     return () => observer.disconnect();
@@ -2874,10 +2666,8 @@ function ConversationTimelineImpl({
         return;
       }
       clearUserScrollIntent();
-      markProgrammaticScroll("restore");
-      const requestedScrollTop = state.scrollTop;
+      markProgrammaticScroll();
       const resolvedScrollTop = resolveChatSessionScrollRestoreTop(state, element);
-      const contentHeightBefore = element.scrollHeight;
       element.scrollTop = resolvedScrollTop;
       const actualScrollTop = element.scrollTop;
       lastObservedScrollTopRef.current = actualScrollTop;
@@ -2886,22 +2676,6 @@ function ConversationTimelineImpl({
       syncTurnNavigatorViewport(element);
       userAdjustedScrollSinceRestoreRef.current = false;
       cacheCurrentScrollMemoryState(element);
-      const resolverClamped =
-        Math.abs(resolvedScrollTop - requestedScrollTop) > SCROLL_MEMORY_RESTORE_TOLERANCE_PX;
-      const browserClamped =
-        Math.abs(actualScrollTop - resolvedScrollTop) > SCROLL_MEMORY_RESTORE_TOLERANCE_PX;
-      recordConversationTimelineDebugEvent("A7-restore", {
-        requestedScrollTop,
-        resolvedScrollTop,
-        actualScrollTop,
-        resolverClamped,
-        browserClamped,
-        clamped: resolverClamped || browserClamped,
-        contentHeightBefore,
-        contentHeightAfter: element.scrollHeight,
-        viewportHeight: element.clientHeight,
-        rowCount: unitsRef.current.length,
-      });
     },
     [
       cacheCurrentScrollMemoryState,
@@ -2945,39 +2719,14 @@ function ConversationTimelineImpl({
       }
       // 顶部前插走块装载，不再消费用户测高校正锚点，先解除其所有权。
       clearUserScrollAnchor();
-      const debugRequestId = ++timelineDebugRequestIdRef.current;
-      clearPendingPrependDebugTimer();
-      pendingPrependDebugRequestIdRef.current = debugRequestId;
-      pendingPrependDebugLoadingObservedRef.current = null;
-      lastPrependDebugContextRef.current = null;
-
-      recordConversationTimelineDebugEvent("P2-load-start", {
-        runId: TIMELINE_SCROLL_DEBUG_RUN_ID,
-        requestId: debugRequestId,
-        scrollTop: element.scrollTop,
-        triggerPx,
-        canLoadOlder: loadOlder.canLoadOlder,
-        loadingOlder: loadOlder.loadingOlder,
-        handlerPresent: Boolean(loadOlder.onLoadOlder),
-        source,
-      });
       logger.debug("[v4-timeline] 接近历史窗口顶部，自动预取更早行", {
         scrollTop: element.scrollTop,
         triggerPx,
         source,
       });
-      const loadResult = loadOlder.onLoadOlder?.();
-      if (loadResult) {
-        void loadResult.then(
-          () => schedulePendingPrependDebugCleanup(debugRequestId),
-          () => schedulePendingPrependDebugCleanup(debugRequestId),
-        );
-      } else {
-        // lease 缺失或同步 no-op 时没有 loadingOlder 状态可等待，下一帧清理未启动的探针请求。
-        schedulePendingPrependDebugCleanup(debugRequestId);
-      }
+      void loadOlder.onLoadOlder?.();
     },
-    [clearPendingPrependDebugTimer, clearUserScrollAnchor, schedulePendingPrependDebugCleanup],
+    [clearUserScrollAnchor],
   );
 
   /**
@@ -3050,12 +2799,6 @@ function ConversationTimelineImpl({
       suppressVirtualizerAdjustmentDuringRestoreRef.current = false;
     }
     const scrollTop = element.scrollTop;
-    const observedScrollTopBefore = lastObservedScrollTopRef.current;
-    const debugRequestId = pendingPrependDebugRequestIdRef.current;
-    const hasUserScrollSignal =
-      userScrollIntent !== "none" ||
-      touchClientYRef.current !== null ||
-      scrollbarPointerIdRef.current !== null;
     lastObservedScrollTopRef.current = scrollTop;
     if (scrollSource === "user") {
       // 位置一并喂进去：闸门要求「停在顶部」，而 scrollTop 只可能在 scroll 事件里变，
@@ -3070,7 +2813,6 @@ function ConversationTimelineImpl({
     syncTurnNavigatorViewport(element);
     const viewportHeight = element.clientHeight;
     const contentHeight = element.scrollHeight;
-    const distanceFromBottom = contentHeight - viewportHeight - scrollTop;
     const followingBefore = followingRef.current;
     const following = resolveFollowingAfterScroll({
       following: followingBefore,
@@ -3082,34 +2824,6 @@ function ConversationTimelineImpl({
       },
     });
     commitFollowing(following);
-    if (debugRequestId !== null) {
-      recordConversationTimelineDebugEvent("P1-scroll-pending", {
-        runId: TIMELINE_SCROLL_DEBUG_RUN_ID,
-        requestId: debugRequestId,
-        source: scrollSource,
-        userScrollIntent,
-        hasUserScrollSignal,
-        scrollTopBefore: observedScrollTopBefore,
-        scrollTop,
-        followingBefore,
-        followingAfter: following,
-        layoutGuardActive: Date.now() <= layoutScrollGuardUntilRef.current,
-      });
-    }
-    recordConversationTimelineDebugEvent("A5-scroll", {
-      source: scrollSource,
-      userScrollIntent,
-      followingBefore,
-      followingAfter: following,
-      scrollTop,
-      viewportHeight,
-      contentHeight,
-      distanceFromBottom,
-      layoutGuardActive: Date.now() <= layoutScrollGuardUntilRef.current,
-      toggleAnchorActive: toggleAnchorRef.current !== null,
-      pointerScrollInteractionActive:
-        touchClientYRef.current !== null || scrollbarPointerIdRef.current !== null,
-    });
     if (scrollSource === "user") {
       pendingDetachedScrollRestoreRef.current = null;
       userAdjustedScrollSinceRestoreRef.current = true;
@@ -3285,7 +2999,7 @@ function ConversationTimelineImpl({
         pendingQueryTargetRef.current = target;
         return;
       }
-      markProgrammaticScroll("query");
+      markProgrammaticScroll();
 
       // unitIndex 是旧 rail 的 renderUnits 下标（分享面板仍在用）；目录 rail 传 turnId。
       // 未挂载时按 turn 容器定位：先查已知的 unit 下标，查不到再按 turnId 在当前
@@ -3425,7 +3139,7 @@ function ConversationTimelineImpl({
     (unitIndex: number, behavior: ScrollBehavior = "auto") => {
       clearUserScrollIntent();
       commitFollowing(false);
-      markProgrammaticScroll("unit");
+      markProgrammaticScroll();
       if (unitIndex === liveUnitIndex) {
         const element = scrollRef.current;
         const liveTail = liveTailRef.current;
@@ -3534,7 +3248,7 @@ function ConversationTimelineImpl({
       clearUserScrollIntent();
       clearToggleAnchor();
       commitFollowing(false);
-      markProgrammaticScroll("assistant-section");
+      markProgrammaticScroll();
       const target = request.anchorOffset === undefined ? origin! : section;
       const targetTop =
         root.scrollTop +
@@ -3606,10 +3320,6 @@ function ConversationTimelineImpl({
     workTitleMemoRef.current?.clear();
     // prepend 锚定基线一并重置：rowId 跨会话可重复，禁止拿旧会话首行比较。
     prependAnchorRef.current = { firstRowId: null, totalSize: 0 };
-    clearPendingPrependDebugTimer();
-    pendingPrependDebugRequestIdRef.current = null;
-    pendingPrependDebugLoadingObservedRef.current = null;
-    lastPrependDebugContextRef.current = null;
     // draft 默认吸底会留下旧 virtualizer.scrollOffset；在恢复写入派发 scroll 事件前，
     // 测高若继续按旧 offset 校正，会把刚恢复的历史位置重新推回 draft 的落点。
     suppressVirtualizerAdjustmentDuringRestoreRef.current = true;
@@ -3663,7 +3373,6 @@ function ConversationTimelineImpl({
       suppressVirtualizerAdjustmentDuringRestoreRef.current = false;
     };
   }, [
-    clearPendingPrependDebugTimer,
     clearUserScrollIntent,
     restoreScrollMemory,
     scrollMemoryKey,
@@ -3747,12 +3456,18 @@ function ConversationTimelineImpl({
       };
       return;
     }
-    const scrollTopBefore = scrollRef.current?.scrollTop ?? null;
-    const pendingRestore = pendingDetachedScrollRestoreRef.current;
-    const pendingRestoreOwnsAnchor = pendingRestore?.key === scrollMemoryKey;
+    // 没有真实前插时只更新基线后返回：不得读取恢复上下文或任何 DOM 几何。
     const didPrepend =
       prev.firstRowId !== null && nextFirstRowId !== null && nextFirstRowId < prev.firstRowId;
-    const debugRequestId = pendingPrependDebugRequestIdRef.current;
+    if (!didPrepend) {
+      prependAnchorRef.current = {
+        firstRowId: nextFirstRowId,
+        totalSize: nextTotalSize,
+      };
+      return;
+    }
+    const pendingRestore = pendingDetachedScrollRestoreRef.current;
+    const pendingRestoreOwnsAnchor = pendingRestore?.key === scrollMemoryKey;
     // 块提交在途：didPrepend 由 runPrependCommit 的 flushSync 渲染触发。inset 账本
     // 必须结算到「header + 占位项 + 块容器终值高度」——staged 翻入流内的真实高度
     // 只有此刻的 DOM 才知道，闭包里的 prependBlocksHeight state 还停在上一次 observer
@@ -3776,23 +3491,6 @@ function ConversationTimelineImpl({
         headerSlotHeight +
         PENDING_HISTORY_SLOT_PX +
         prependBlocksRef.current.getBoundingClientRect().height;
-    }
-    if (didPrepend && debugRequestId !== null) {
-      recordConversationTimelineDebugEvent("P3-prepend-before-write", {
-        runId: TIMELINE_SCROLL_DEBUG_RUN_ID,
-        requestId: debugRequestId,
-        prevFirstRowId: prev.firstRowId,
-        nextFirstRowId,
-        prevTotalSize: prev.totalSize,
-        nextTotalSize,
-        scrollTopBefore,
-        blockCommit,
-        blockCommitInsetPx,
-        fallbackAdjustment,
-        pendingRestoreOwnsAnchor,
-        pendingUserCorrection: pendingUserScrollAnchorCorrectionRef.current,
-        userAnchorPresent: userScrollAnchorRef.current !== null,
-      });
     }
     if (adjustment !== null && scrollRef.current) {
       const element = scrollRef.current;
@@ -3819,8 +3517,6 @@ function ConversationTimelineImpl({
     // 提前结清等于告诉后面的独立补偿 effect「这段差值已经补过了」，而它并没有被写入。
     // 占位块出现那一帧就走这条路径，结果是 scrollMargin 变了 +56 而 scrollTop 没动，
     // 正文整体被推下一个块的高度。账本只能由真正写入它的那一处结算。
-    let prependUserAnchorReanchored = false;
-    let prependUserAnchorCleared = false;
     if (didPrepend) {
       // 只要历史行真正前插，就结束本轮用户测高校正的所有权；即使没有可写的
       // adjustment（恢复接管或总高度无变化），旧 measurement 也不能在 prepend
@@ -3828,63 +3524,9 @@ function ConversationTimelineImpl({
       pendingUserScrollAnchorCorrectionRef.current = false;
       if (adjustment !== null && hasActiveUserScrollInteraction()) {
         refreshUserScrollAnchor();
-        prependUserAnchorReanchored = userScrollAnchorRef.current !== null;
       } else {
         clearUserScrollAnchor();
-        prependUserAnchorCleared = true;
       }
-    }
-    if (didPrepend) {
-      recordConversationTimelineDebugEvent("A3-prepend", {
-        runId: TIMELINE_SCROLL_DEBUG_RUN_ID,
-        requestId: debugRequestId,
-        prevFirstRowId: prev.firstRowId,
-        nextFirstRowId,
-        prevTotalSize: prev.totalSize,
-        nextTotalSize,
-        blockCommit,
-        prependAdjustmentApplied: didPrepend && adjustment !== null,
-        prependAdjustmentSource: blockCommit
-          ? "block-inset"
-          : adjustment !== null
-            ? "total-size"
-            : null,
-        prependUserAnchorReanchored,
-        prependUserAnchorCleared,
-        pendingRestoreOwnsAnchor,
-        adjustment,
-        scrollTopBefore,
-        scrollTopAfter: scrollRef.current?.scrollTop ?? null,
-        contentHeight: scrollRef.current?.scrollHeight ?? null,
-      });
-    }
-    if (didPrepend && debugRequestId !== null) {
-      const scrollTopAfter = scrollRef.current?.scrollTop ?? null;
-      lastPrependDebugContextRef.current = {
-        requestId: debugRequestId,
-        scrollTopAfter,
-        adjustment,
-        expiresAt: Date.now() + PREPEND_DEBUG_CONTEXT_TTL_MS,
-      };
-      recordConversationTimelineDebugEvent("P4-prepend-after-write", {
-        runId: TIMELINE_SCROLL_DEBUG_RUN_ID,
-        requestId: debugRequestId,
-        prevFirstRowId: prev.firstRowId,
-        nextFirstRowId,
-        adjustment,
-        scrollTopBefore,
-        scrollTopAfter,
-        lastObservedScrollTop: lastObservedScrollTopRef.current,
-        adjustmentSource: blockCommit ? "block-inset" : adjustment !== null ? "total-size" : null,
-        blockCommitInsetPx,
-        userAnchorReanchored: prependUserAnchorReanchored,
-        userAnchorCleared: prependUserAnchorCleared,
-        pendingUserCorrection: pendingUserScrollAnchorCorrectionRef.current,
-        contentHeight: scrollRef.current?.scrollHeight ?? null,
-      });
-      clearPendingPrependDebugTimer();
-      pendingPrependDebugLoadingObservedRef.current = null;
-      pendingPrependDebugRequestIdRef.current = null;
     }
     // 待恢复的离底记忆拥有当前 commit 的坐标系；不能让 prepend 把临时 clamp 值再次
     // 平移。恢复 effect 会在同一 commit 的下一帧按最终内容高度重放原始位置。
@@ -3905,8 +3547,7 @@ function ConversationTimelineImpl({
     // 回写一笔（-H），state 追上后再补一笔（+H），提交瞬间抖两下。账本已结清，等
     // prependBlocksHeight state 追上来时 previousInsetPx === topInsetPx 自然短路。
     if (blockCommitInFlightRef.current) return;
-    // 记结算前的值：这个探针的全部意义就是看清这一段差值从哪来到哪去，
-    // 记结算后的就只剩一个恒等式。
+    // 记结算前的值：账本要按「上一次真正补偿到的 inset」判断本轮是否还欠一段。
     const previousInsetPx = appliedTopInsetRef.current;
     if (previousInsetPx === topInsetPx) return;
     // 先确认写得进去，再结算账本。顺序反了会在 element 为 null 时把差值吞掉——
@@ -3921,15 +3562,6 @@ function ConversationTimelineImpl({
     syncTurnNavigatorViewport(element);
     cacheCurrentScrollMemoryState(element);
     notifyScrollObserversAfterCommit(element);
-    recordConversationTimelineDebugEvent("A8-top-inset", {
-      runId: TIMELINE_SCROLL_DEBUG_RUN_ID,
-      adjustment,
-      // 记结算前的值：这个探针的全部意义就是看清这一段差值从哪来到哪去，
-      // 记结算后的就只剩一个恒等式。
-      previousTopInsetPx: previousInsetPx,
-      topInsetPx,
-      scrollTopAfter: element.scrollTop,
-    });
   }, [cacheCurrentScrollMemoryState, markLayoutScrollGuard, topInsetPx]);
 
   // 底部锚定：内容变化（新行 / 流式 delta / 动态测高修正 → totalSize 变化）时，
@@ -3939,7 +3571,6 @@ function ConversationTimelineImpl({
   // 若同帧有用户向上滚动，capture handler 会先登记 awayFromBottom，本 effect 必须让位。
   useLayoutEffect(() => {
     const element = scrollRef.current;
-    const scrollTopBefore = element?.scrollTop ?? null;
     const toggleAnchorActive = toggleAnchorRef.current !== null;
     // 折叠锚点窗口内禁止用户滚动测高校正消费：收起巨型历史块时测高结算若按过期的
     // measurement 写 scrollTop，会算出巨大负修正量把页面甩到顶部（真实复现的 bug）。
@@ -3967,28 +3598,9 @@ function ConversationTimelineImpl({
       });
       commitFollowing(following);
     }
-    const action = element
-      ? resolveTimelineContentAnchorAction({
-          toggleAnchorActive,
-          following: followingRef.current,
-          contentWidthChanging,
-        })
-      : null;
     if (!userScrollAnchorCorrection.applied) {
       applyContentAnchorAction(followingRef.current, contentWidthChanging);
     }
-    recordConversationTimelineDebugEvent("A4-content-anchor", {
-      followingBefore,
-      followingAfter: followingRef.current,
-      contentWidthChanging,
-      toggleAnchorActive,
-      action,
-      userScrollAnchorCorrection,
-      scrollTopBefore,
-      scrollTopAfter: element?.scrollTop ?? null,
-      contentHeight: element?.scrollHeight ?? null,
-      totalSize,
-    });
   }, [
     applyContentAnchorAction,
     commitFollowing,

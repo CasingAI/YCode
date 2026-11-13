@@ -49,6 +49,27 @@
 | drain 进行中的项   | core runtime `pendingInputDrainIds`                                  | 已 splice、事件未提交；撤回只能 noop                 |
 | 行展示             | renderer `projectPendingGuideQueue` + `ConversationPendingGuideList` | 只读，不产生事实                                     |
 
+### 3.1 只读投影的引用稳定
+
+`projectPendingGuideQueue` 只做只读分流；为降低无关更新成本，允许稳定其输出引用，
+但不得改变任何产品语义：
+
+- `pendingGuideProjection.ts` 在无 guide 时返回模块级 `EMPTY_PENDING_GUIDES`，避免空
+  `pendingGuides` 每次新建。
+- `sessionPaneDerivedInputs.ts` 的 `useStablePendingGuideProjection` 按作用域字段与
+  `snapshot.queue` memo；`stabilizePendingGuideProjection` 在 pendingGuides 成员引用与
+  顺序未变时复用旧数组。真实 guide 内容、dispatch、delivery 或顺序变化必须立即更新。
+- `visibleQueue` 始终由当前权威 `snapshot.queue` 派生，不复制、不改写 accepted input，
+  不建立 renderer 侧 guide 队列或本地权威缓存。
+- 作用域由 `isSameDerivedInputScope` 逐字段比较（归一化 identity、`remoteSessionId`、
+  `sessionId`），不拼接 `scopeKey`，也不复用 `SessionPane` 其他用途的 `scopeKey`。
+- `useStablePendingGuideProjection` 只是只读派生 memo，不是状态 owner 或 accepted
+  queue；不持有队列、不参与准入，也不改变任何 dispatch 判定。
+- 引用稳定化不得改变 guide / queue 的分流规则与顺序、撤回入口显隐、`dispatch.state`
+  判定、reserved / promoting 禁用、drain 胜负边界或 `deleteQueueItem` 命令链路。
+- 投影更新与撤回命令保持独立：ACK 结果仍以 CLI 权威事实为准，不能因为复用旧引用而
+  延迟移除已撤回行，也不能复活已 drain 项。
+
 ## 4. 原子胜负边界
 
 撤回与模型步边界 drain 都会消费同一个 pending input，必须由 `pendingInputReservations`

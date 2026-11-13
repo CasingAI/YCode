@@ -61,7 +61,7 @@ function createHarness() {
       rows: new Map<string, { version: string | null; heightPx: number; settled: boolean }>(),
     },
   };
-  const programmaticReasons: string[] = [];
+  let programmaticMarks = 0;
   const lastObservedScrollTopRef = { current: root.scrollTop };
   let mountedRow: unknown = row;
   const preserve = bindExpression<(report: Record<string, unknown>) => void>(
@@ -75,7 +75,9 @@ function createHarness() {
       assistantReadingLayoutRef,
       scrollRef: { current: root },
       findMountedTimelineRowElement: () => mountedRow,
-      markProgrammaticScroll: (reason: string) => programmaticReasons.push(reason),
+      markProgrammaticScroll: () => {
+        programmaticMarks += 1;
+      },
       lastObservedScrollTopRef,
       syncTurnNavigatorViewport: () => {},
     },
@@ -150,7 +152,7 @@ function createHarness() {
     row,
     navigation,
     assistantReadingLayoutRef,
-    programmaticReasons,
+    programmaticMarks: () => programmaticMarks,
     lastObservedScrollTopRef,
     document,
     report,
@@ -172,7 +174,7 @@ test("Live 完成后跨历史行重挂，只补偿一次真实头部插入", () 
 
   assert.equal(h.root.scrollTop, 216);
   assert.equal(h.lastObservedScrollTopRef.current, 216);
-  assert.deepEqual(h.programmaticReasons, ["assistant-section-layout"]);
+  assert.equal(h.programmaticMarks(), 1);
 });
 
 test("视口外完成先消费布局，之后滚回或重挂不补做旧位移", () => {
@@ -185,7 +187,7 @@ test("视口外完成先消费布局，之后滚回或重挂不补做旧位移",
   h.report({ document: h.document });
 
   assert.equal(h.root.scrollTop, 120);
-  assert.deepEqual(h.programmaticReasons, []);
+  assert.equal(h.programmaticMarks(), 0);
 });
 
 test("首次冷打开分页仅登记头部，切换全文不误补偿", () => {
