@@ -31,7 +31,7 @@ export function terminateGenericPosixProcessGroup(child: ChildProcess): void {
   }, GENERIC_SIGTERM_TO_SIGKILL_MS).unref();
 }
 
-function isPosixProcessGroupAlive(processGroupId: number): boolean {
+export function isPosixProcessGroupAlive(processGroupId: number): boolean {
   try {
     process.kill(-processGroupId, 0);
     return true;

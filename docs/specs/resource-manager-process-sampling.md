@@ -3,7 +3,8 @@
 ## 产品规则
 
 - YCode 自行从操作系统读取 PID、PPID 和资源指标，递归纳入本地宿主派生的 shell、Node.js、Python、构建 worker、Agent、MCP 与工具进程；不要求用户项目上报 PID、接入协议或修改代码。
-- 统计口径必须统一：Host 派生过且仍存活的进程，不因中间父进程退出、PPID 断链或 root 已结束而缺席。Windows 上由 Host 自持的统计用 Job Object 维护成员身份，成员与 PPID 树并集纳入；成员身份只决定“算不算 YCode”，CPU/内存仍取自进程表。
+- 统计口径必须统一：Host 派生过且仍存活的进程，不因中间父进程退出、PPID 断链或 root 已结束而缺席。Windows 上由 Host 自持的 Host 生命周期 Job Object 维护成员身份，成员与 PPID 树并集纳入；成员身份只决定“算不算 YCode”，CPU/内存仍取自进程表。
+- 统计与清理是同一 Job 的两项独立责任：资源管理器只读成员 PID，不触发清理、不决定清理时机；清理只在 Host 进程真正退出时由操作系统关闭句柄触发，见 `host-process-containment-cleanup.md`。
 - 总量按实际 PID 去重。终端及工具派生的外部程序属于 YCode 工作负载，不能仅因映像名不同而排除。远端进程不加到本机总量，已存在的共享系统服务不因被调用而自动归属。
 - 来源会话只是展示信息，不是采集后代或纳入总量的前提。Host 回帖必须接受已有的可选 sessionId、sessionTitle；不能因某个后代带会话字段而拒绝整份资源快照。
 - 采样失败、仍在等待或回退旧样本时，整机指标继续展示；YCode 应用合计、进度条和趋势不得把缺失数据当作真实零或完整总量。进程分组中存在未采样成员时，分组合计同样使用占位。页面显示明确的不完整采样说明。
@@ -12,7 +13,7 @@
 ## 所有权与接口
 
 - `createProcessResourceSampler` 是单个 Host 的操作系统资源差分基线所有者；Windows 继续异步查表，不把 PowerShell 或其他外部查询移入 Electron Main。
-- `createWindowsJobMembership` 是单个 Host 的“成员身份”所有者（仅 Windows）：Host 初始化服务时创建不设 `KILL_ON_JOB_CLOSE` 的统计用 Job，并在 CLI、Bash、MCP 等任何后代创建之前把 Host 自身加入；后代自动继承成员身份，中间层退出也不脱离。它只提供存活成员 PID，不提供指标、不参与终止、失败时返回 `undefined` 并由调用方回退。
+- `createWindowsJobMembership` 是单个 Host 的“成员身份”所有者（仅 Windows）：Host 初始化服务时创建 Host 生命周期 Job，并在 CLI、Bash、MCP 等任何后代创建之前把 Host 自身加入；后代自动继承成员身份，中间层退出也不脱离。它提供存活成员 PID，不提供指标、不参与终止。Host 显式以 `killOnJobClose: true` 创建该 Job；成员枚举因此与清理共用同一作业，但采样只读成员、不改清理语义。原生能力不可用时返回 `undefined` 并由调用方回退到 PPID 树，同时给出一次降级诊断。
 - `attributeHostProcessTree` 依据 PPID 递归派生进程。CLI 已报告但不在 Host 当前子树下的工具根，与 Agent/MCP 根一样纳入断链补入，保留最近 owner、独占会话继承与 PID 去重。没有历史证据的任意脱离进程不猜测归属；统计 Job 的成员是唯一例外：它们有成员身份证据，按基础服务 `host` 组纳入且不带会话。
 - 同一 PID 同时被 PPID 树和 Job 成员命中时只计一次；已知 owner 与会话优先于 Job 的匿名纳入。
 - `createHostResourceUsageResponder` 是 Host 单轮采样的唯一所有者；成功、失败均显式回帖。最多一个底层采样，不积压 FIFO；取消后不发布旧结果。
@@ -25,9 +26,9 @@
 
 ```text
 Host 启动（初始化服务，早于任何 CLI/Bash spawn）
-  → 创建统计用 Job（不设 kill-on-close，允许 breakaway）
+  → 创建 Host 生命周期 Job（kill-on-close，允许 breakaway）
   → 把 Host 自身加入 Job
-  → 原生能力不可用时静默回退，不影响 Host 启动
+  → 原生能力不可用时回退 PPID 树并记录一次降级诊断，不影响 Host 启动
 
 资源管理器串行刷新
   → Main 为各 Host 建立唯一 requestId
@@ -46,14 +47,14 @@ Host 启动（初始化服务，早于任何 CLI/Bash spawn）
 
 - UI 不持有第二份进程归属事实，不新增轮询或持久化状态。
 - 本改动不改变会话、owner/lease、workspace identity、Desktop continuous 或 Web replayable 链路；两种客户端读取的都是宿主快照，重连后完整替换。
-- Windows 的统计 Job 只用于成员纳入，不读取其 CPU/内存、不参与终止、不设置 `KILL_ON_JOB_CLOSE`，也不向终止链路提供信息。Bash 停止仍使用每次执行自己的 Job 回收整棵树，见 `windows-bash-process-tree-stop.md`。
-- 统计 Job 随 Host 进程生命周期存在：Host 重启后无法追溯上一个 Host 派生的进程。非 Windows、原生模块不可用、嵌套作业分配失败时回退为 PPID 树，不阻断采样，也不把这种情况判为采样失败。
-- 显式 breakaway 的进程会脱离统计成员身份；周期采样不能保证捕获两次采样之间已退出的短命进程，不能宣称这部分历史用量已精确计入。Job 只说明“由本 Host 派生”，不说明属于哪个会话。
+- Windows 的 Host 生命周期 Job 用于成员纳入，不读取其 CPU/内存、不向终止链路提供信息。关闭句柄导致的整树清理只在 Host 进程退出时由内核触发，资源管理器与 Host 资源回收阶段都不主动 close 该 Job，见 `host-process-containment-cleanup.md`。Bash 停止仍使用每次执行自己的 Job 回收整棵树，见 `windows-bash-process-tree-stop.md`。
+- Host 生命周期 Job 随 Host 进程生命周期存在：Host 重启后无法追溯上一个 Host 派生的进程。非 Windows、原生模块不可用、嵌套作业分配失败时回退为 PPID 树，不阻断采样，也不把这种情况判为采样失败；此时清理保证同时降级，Host 只记录一次诊断，不宣称降级路径有同等保证。
+- 显式 breakaway 的进程会脱离成员身份；周期采样不能保证捕获两次采样之间已退出的短命进程，不能宣称这部分历史用量已精确计入。Job 只说明“由本 Host 派生”，不说明属于哪个会话。
 
 ## 验收与测试
 
 1. Host 下 shell → npm/Node.js → worker，无项目上报、无会话字段，所有存活后代被纳入且只计一次；已报告但脱离 Host 当前子树的工具根及后代仍保留 owner 和会话。
-2. 中间父进程已退出、PPID 指向失效 PID 时，统计 Job 中仍存活的成员及其存活后代被纳入，归基础服务且不带会话；同一 PID 不重复计数，已知 owner 不被匿名纳入覆盖。
+2. 中间父进程已退出、PPID 指向失效 PID 时，Host 生命周期 Job 中仍存活的成员及其存活后代被纳入，归基础服务且不带会话；同一 PID 不重复计数，已知 owner 不被匿名纳入覆盖。
 3. 非 Windows 或成员枚举失败时归属结果与改造前一致，不抛错、不把本轮判为失败。
 4. Host 回帖的 sessionId/sessionTitle 通过实际 Main 使用的严格 schema；非法未知字段仍拒绝。
 5. Windows 采样测试覆盖输出解析、累积 CPU 单位、逻辑核归一化、失败和取消。避免逐行 PowerShell 管道输出的额外开销，查询仍有界，错误不得当作成功的部分表。

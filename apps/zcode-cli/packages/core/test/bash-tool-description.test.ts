@@ -149,4 +149,9 @@ test("createBashProviderDescription：保留 Git 技术约束、timeout 与搜�
   // embeddedSearchEnabled 决定搜索命令提示：关闭时点名 find/grep，开启时不再提醒。
   assert.match(providerDescription(false), /`find`, `grep`/);
   assert.doesNotMatch(providerDescription(true), /`find`, `grep`/);
+
+  // `&` 不是常驻授权：命令结算时其派生树会被回收，常驻必须用 run_in_background。
+  for (const description of descriptions) {
+    assert.match(description, /`&` alone does not survive the command/);
+  }
 });

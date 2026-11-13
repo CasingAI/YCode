@@ -10,7 +10,7 @@ import { installCliProcessErrorBoundary } from "./process-errors.js";
 import { installProtocolStderrBoundary } from "./protocol-stderr.js";
 import { createProtocolProcessLifecycle } from "./protocol-lifecycle.js";
 import { isProtocolServerInvocation } from "./arguments.js";
-import { isBrowserHostInvocation } from "./internal-commands.js";
+import { isBrowserHostInvocation, isJobLauncherInvocation } from "./internal-commands.js";
 import { applyCliProcessPriority } from "./process-priority.js";
 
 void main();
@@ -33,6 +33,23 @@ async function main(): Promise<void> {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       process.stderr.write(`${message}\n`);
+      process.exitCode = 1;
+    }
+    return;
+  }
+  // Windows 执行 Job 启动器：SEA 单文件只能走本二进制 + 内部命令自 re-exec。
+  // 必须在加载 run/bootstrap 之前分派，且只依赖 adapters 公开入口；它按 IPC 存活。
+  if (isJobLauncherInvocation(argv)) {
+    // adapters 公开入口会间接执行到 node:sqlite，其 ExperimentalWarning 早于本函数稍后
+    // 安装的全局抑制器输出，会被父方当作命令输出捕获。加载前先复用同一抑制器。该警告在
+    // runJobLauncherCommand 返回后才异步写出，故不能在返回时 restore；launch 进程专用于
+    // 启动子命令，自身 stderr 不承载用户输出，而真实命令继承父进程的 stderr 句柄、
+    // 不经过本进程的 write，所以目标命令自己的警告不受影响。
+    interceptKnownRuntimeWarnings(process.stderr);
+    try {
+      const { runJobLauncherCommand } = await import("@zcode/adapters/exec");
+      process.exitCode = await runJobLauncherCommand();
+    } catch {
       process.exitCode = 1;
     }
     return;

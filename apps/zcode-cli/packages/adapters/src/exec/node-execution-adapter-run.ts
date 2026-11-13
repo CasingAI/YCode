@@ -1,6 +1,5 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import { BashFileOutput } from "./bash-file-output.js";
-import { readCapturedCwd } from "./cwd-capture.js";
 import { defaultCwdDialect } from "./execution-command.js";
 import { NodeExecutionAdapterProcess } from "./node-execution-adapter-process.js";
 import { resolveLegacyExecutionOutputEncoding } from "./outputEncoding.js";
@@ -9,13 +8,10 @@ import {
   FORCE_EXIT_AFTER_KILL_MS,
   abortSignalReason,
   isBashMergedOutputRequest,
-  isExpectedChildStdinClosureError,
 } from "./execution-utils.js";
 import { registerSessionProcess, unregisterSessionProcess } from "./session-process-registry.js";
-import {
-  attachProcessToWindowsJobObject,
-  type WindowsJobObjectController,
-} from "../mcp/windows-job-object.js";
+import { createChildExitTracking } from "./child-exit-tracking.js";
+import type { WindowsJobObjectController } from "../mcp/windows-job-object.js";
 import type {
   ExitState,
   InternalExecutionRunOptions,
@@ -132,15 +128,35 @@ export class NodeExecutionAdapterRun extends NodeExecutionAdapterProcess {
       if (!stopRequested && !this.closePromise && !options.signal?.aborted) return undefined;
       return createPreSpawnStoppedResult();
     };
+    /**
+     * Windows 作业闸门不可用（原生 Job 缺失、分配失败/超期、启动器起不来）时，
+     * 不放出真实命令，直接返回明确的 spawn_error：静默执行等于放弃整树所有权保证。
+     */
+    const finishGateUnavailable = (
+      runOptions: ExecutionRunOptions,
+      start: Date,
+      message: string,
+    ): ExecutionResult => {
+      const result = this.createOwnershipUnavailableResult({
+        startedAt: start,
+        message,
+        stdout: stdout?.result() ?? { text: "", bytes: 0, truncated: false },
+        stderr: stderr?.result() ?? { text: "", bytes: 0, truncated: false },
+      });
+      this.emitResult(runOptions, result);
+      return result;
+    };
 
     // 作业控制器在 spawn 之后才就绪；停止请求可能先到，先记下意图再在控制器到位后执行。
     let windowsJobSettled = false;
+    let windowsJobSettlePromise: Promise<boolean> | undefined;
     let windowsJobPromise: Promise<WindowsJobObjectController | undefined> | undefined;
-    const settleWindowsJob = (terminate: boolean) => {
-      if (windowsJobSettled) return;
+    // 返回本次执行是否真的持有作业：结算时据此决定是否需要 taskkill 兜底。
+    const settleWindowsJob = (terminate: boolean): Promise<boolean> => {
+      if (windowsJobSettled) return windowsJobSettlePromise ?? Promise.resolve(false);
       windowsJobSettled = true;
-      void windowsJobPromise?.then((job) => {
-        if (!job) return;
+      windowsJobSettlePromise = (windowsJobPromise ?? Promise.resolve(undefined)).then((job) => {
+        if (!job) return false;
         if (terminate) {
           try {
             job.terminate();
@@ -153,7 +169,9 @@ export class NodeExecutionAdapterRun extends NodeExecutionAdapterProcess {
         } catch {
           // 句柄关闭失败不能改变命令结果。
         }
+        return true;
       });
+      return windowsJobSettlePromise;
     };
 
     const terminateStartedChild = () => {
@@ -192,9 +210,7 @@ export class NodeExecutionAdapterRun extends NodeExecutionAdapterProcess {
       if (
         executionSettled ||
         stopRequested ||
-        (file &&
-          exited &&
-          internalOptions.shouldRetainExecutionAfterRootExit?.() !== true)
+        (file && exited && internalOptions.shouldRetainExecutionAfterRootExit?.() !== true)
       ) {
         return;
       }
@@ -244,21 +260,20 @@ export class NodeExecutionAdapterRun extends NodeExecutionAdapterProcess {
         ];
       }
 
-      const spawnedChild = spawn(
-        prepared.command.file,
-        prepared.command.args,
-        prepared.spawnOptions,
-      );
+      // 启动准备与闸门等待在 process 层完成；run() 只消费「已启动」或「启动阶段已结算」。
+      const outcome = await this.startExecutionChild({
+        prepared,
+        isStopRequested: () => stopRequested || this.closePromise !== undefined,
+        stoppedResult: createPreSpawnStoppedResult,
+        unavailable: (message) => finishGateUnavailable(options, startedAt, message),
+        discardOutput: () => file?.discard() ?? Promise.resolve(),
+      });
+      if (outcome.kind === "result") return outcome.result;
+      const spawnedChild = outcome.child;
+      const gateStartResult = outcome.commandStart;
+      windowsJobPromise = outcome.job;
       child = spawnedChild;
       lowerProcessPriority(spawnedChild.pid, "idle");
-      // Bash 正常完成时不连带杀死命令自己放到后台的进程，因此关闭句柄不触发 kill-on-close。
-      windowsJobPromise =
-        this.platform === "win32" && spawnedChild.pid !== undefined
-          ? (
-              this.options.windowsJobObjectFactory ??
-              ((pid: number) => attachProcessToWindowsJobObject(pid, { killOnJobClose: false }))
-            )(spawnedChild.pid).catch(() => undefined)
-          : undefined;
       // 资源管理器：登记“这次执行属于哪个会话”，Host 侧据此把进程树归属到会话。
       registerSessionProcess(spawnedChild.pid ?? 0, request.trace?.sessionId);
       finishResourceTelemetry = this.trackBashResources(spawnedChild, useBashMergedOutput, () => ({
@@ -268,64 +283,47 @@ export class NodeExecutionAdapterRun extends NodeExecutionAdapterProcess {
       cwdDialect = prepared.cwdDialect;
       cwdFilePath = prepared.cwdFilePath;
 
-      const exitPromise = new Promise<ExitState>((resolve) => {
-        finishExit = (state) => {
-          if (exited) return;
-          exited = true;
-          finishResourceTelemetry(state);
-          file?.stopWatching();
-          if (file) internalOptions.bashLifecycle?.onExit?.();
-          resolve(state);
-        };
-        spawnedChild.once("error", (error) => {
-          // 进程启动失败时没有存活进程可归属，登记簿必须同步撤销。
-          unregisterSessionProcess(spawnedChild.pid);
-          finishExit({ error });
-        });
-        spawnedChild.once("exit", (code, signal) => {
-          unregisterSessionProcess(spawnedChild.pid);
-          finishExit({
-            code: code ?? undefined,
-            signal: signal ?? undefined,
-          });
-        });
-      });
-
-      const closePromise = new Promise<void>((resolve) => {
-        spawnedChild.once("close", () => {
+      // 结局的所有权仍在本执行器：幂等标记、资源遥测结束与 Bash 生命周期回调都在这里，
+      // child-exit-tracking 只负责把事件翻译成「谁先到达就谁落定」。
+      const finalizeExit = (state: ExitState) => {
+        if (exited) return;
+        exited = true;
+        finishResourceTelemetry(state);
+        file?.stopWatching();
+        if (file) internalOptions.bashLifecycle?.onExit?.();
+      };
+      finishExit = finalizeExit;
+      const tracking = createChildExitTracking(spawnedChild, {
+        gateStartResult,
+        onStartError: () => unregisterSessionProcess(spawnedChild.pid),
+        onExit: () => unregisterSessionProcess(spawnedChild.pid),
+        onClosed: () => {
           childClosed = true;
-          resolve();
-        });
+        },
+        finalize: finalizeExit,
       });
+      const exitPromise = tracking.exitPromise;
+      const closePromise = tracking.closePromise;
+      // 启动器报告真实命令启动失败时，补一个 spawn_error 结局；成功与失败都由 exit 兜底。
+      if (gateStartResult) {
+        void gateStartResult.then((start) => {
+          if (!start.ok) tracking.finish({ error: new Error(start.message) });
+        });
+      }
 
       await file?.close();
-      const watchBashLimit = () => {
-        if (!file || exited || stopRequested) return;
-        file.watchLimit(this.persistedOutputLimit(request), () => requestStop("output_limit"));
-      };
       if (file) {
-        watchBashLimit();
-        if (internalOptions.bashLifecycle)
-          internalOptions.bashLifecycle.onBackgrounded = watchBashLimit;
-        if (options.onEvent && !exited && !internalOptions.bashLifecycle?.isBackgrounded()) {
-          file.watchProgress(
-            this.progressTailBytes,
-            this.progressThresholdMs,
-            this.progressIntervalMs,
-            (output, outputPreview) => {
-              this.emit(options, {
-                type: "progress",
-                elapsedMs: Date.now() - startedAt.getTime(),
-                pid: spawnedChild.pid,
-                stdoutBytes: output.bytes,
-                stderrBytes: 0,
-                stdoutTail: output.text,
-                outputPreview,
-                timestamp: new Date(),
-              });
-            },
-          );
-        }
+        this.watchBashOutputProgress({
+          file,
+          request,
+          options,
+          internalOptions,
+          startedAt,
+          pid: spawnedChild.pid,
+          isExited: () => exited,
+          isStopRequested: () => stopRequested,
+          requestStop,
+        });
       }
       childReadyForTermination = true;
       terminateStartedChild();
@@ -342,32 +340,26 @@ export class NodeExecutionAdapterRun extends NodeExecutionAdapterProcess {
 
       if (stdout && stderr) {
         if (options.onEvent) {
-          progressTimer = setInterval(() => {
-            if (
-              childClosed ||
-              (exited && internalOptions.shouldRetainExecutionAfterRootExit?.() !== true)
-            )
-              return;
-            const elapsedMs = Date.now() - startedAt.getTime();
-            if (elapsedMs < this.progressThresholdMs) return;
-            this.emit(options, {
-              type: "progress",
-              elapsedMs,
-              pid: spawnedChild.pid,
-              stdoutBytes: stdout.bytes,
-              stderrBytes: stderr.bytes,
-              stdoutTail: stdout.tailText(),
-              stderrTail: stderr.tailText(),
-              timestamp: new Date(),
-            });
-          }, this.progressIntervalMs);
-          progressTimer.unref?.();
+          progressTimer = this.startPipedProgressTimer({
+            stdout,
+            stderr,
+            options,
+            internalOptions,
+            startedAt,
+            pid: spawnedChild.pid,
+            isClosed: () => childClosed,
+            isExited: () => exited,
+          });
         }
         this.attachPipedOutput(spawnedChild, stdout, stderr, legacyOutputEncoding, options);
       }
       const inputFailure = this.writeChildInput(spawnedChild, request.stdin);
 
       const exitState = await exitPromise;
+      // root 已退出即进入结算：本次执行不再被任何任务持有，作业里的存活后代必须回收。
+      // Windows 由 TerminateJobObject 覆盖 detached/reparent 的成员；POSIX 复用进程组与 PPID 快照。
+      const windowsJobAttached = await settleWindowsJob(true);
+      this.reclaimProcessTreeOnSettlement(spawnedChild, useBashMergedOutput, windowsJobAttached);
       if (!file) {
         await this.drainChildOutput(
           spawnedChild,
@@ -385,40 +377,20 @@ export class NodeExecutionAdapterRun extends NodeExecutionAdapterProcess {
       const stderrResult = useBashMergedOutput
         ? { text: "", bytes: 0, truncated: false }
         : stderr!.result();
-      const completedAt = new Date();
-      if (file && outputLimitExceeded) cancelled = true;
-      const baseStatus = this.statusFromExit(exitState, timedOut, cancelled, outputLimitExceeded);
-      const stdinWriteError = inputFailure();
-      const unexpectedStdinFailure =
-        baseStatus === "completed" &&
-        stdinWriteError &&
-        !isExpectedChildStdinClosureError(stdinWriteError)
-          ? this.toFailure("unknown", stdinWriteError)
-          : undefined;
-      const failure = exitState.error
-        ? this.toFailure("spawn_error", exitState.error)
-        : file && outputLimitExceeded
-          ? { type: "output_limit" as const, message: "Command killed: output file exceeded 5GB" }
-          : (this.statusFailure(timedOut, cancelled, outputLimitExceeded, timeoutMs) ??
-            unexpectedStdinFailure);
-      const status = unexpectedStdinFailure ? "failed" : baseStatus;
-      const resolvedCwd =
-        status === "completed" && exitState.code === 0
-          ? readCapturedCwd(cwdFilePath, { dialect: cwdDialect })
-          : undefined;
-      const result = this.createResult({
-        status,
+      const result = this.assembleExecutionResult({
         startedAt,
-        completedAt,
+        completedAt: new Date(),
         pid: spawnedChild.pid,
-        exitCode: exitState.code,
-        signal: exitState.signal,
-        stdout: stdoutResult,
-        stderr: stderrResult,
+        exitState,
         timedOut,
         cancelled,
-        error: failure,
-        resolvedCwd,
+        outputLimitExceeded,
+        timeoutMs,
+        bashMergedOutput: useBashMergedOutput,
+        stdout: stdoutResult,
+        stderr: stderrResult,
+        stdinWriteError: inputFailure(),
+        cwd: { filePath: cwdFilePath, dialect: cwdDialect },
       });
 
       this.emitResult(options, result);
@@ -428,16 +400,11 @@ export class NodeExecutionAdapterRun extends NodeExecutionAdapterProcess {
       if (stopRequested || this.closePromise || options.signal?.aborted) {
         return createPreSpawnStoppedResult();
       }
-      const failure = this.toFailure("spawn_error", error);
-      const result = this.createResult({
-        status: "spawn_error",
+      const result = this.createSpawnFailureResult({
         startedAt,
-        completedAt: new Date(),
+        error,
         stdout: file ? await file.result(this.bashInlineLimit(request)) : stdout!.result(),
         stderr: useBashMergedOutput ? { text: "", bytes: 0, truncated: false } : stderr!.result(),
-        timedOut: false,
-        cancelled: false,
-        error: failure,
       });
       this.emitResult(options, result);
       return result;
@@ -445,8 +412,9 @@ export class NodeExecutionAdapterRun extends NodeExecutionAdapterProcess {
       if (!exited)
         finishResourceTelemetry({ error: new Error("Execution ended before child exit") });
       executionSettled = true;
-      // 正常结算只释放作业句柄；终止路径已在 terminateStartedChild 里处理。
-      settleWindowsJob(false);
+      // 任何离开 run() 的路径都是这次 execution 的结算：作业必须终止并关闭，
+      // 不能把仍存活的成员留在内核里等下一个任务来认领。结算路径已处理过时这里只是幂等返回。
+      settleWindowsJob(true);
       file?.stopWatching();
       if (internalOptions.bashLifecycle) internalOptions.bashLifecycle.onBackgrounded = undefined;
       await file?.close();

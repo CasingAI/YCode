@@ -121,7 +121,8 @@ const desktopNodeRuntimeExternals = [
   "ssh2",
   "undici",
   "yaml",
-  // Host 的统计用 Job 通过 koffi 调 kernel32；原生 addon 不能内联进 ESM bundle。
+  // Host 生命周期 Job（成员统计 + 退出清理容器）通过 koffi 调 kernel32；
+  // 原生 addon 不能内联进 ESM bundle。
   "koffi",
   // node-forge 内部用动态 require("crypto")，内联进 ESM main/host bundle 后 Electron 会报
   // Dynamic require of "crypto" is not supported。和 undici 同样保留为运行时外部依赖。

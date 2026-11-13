@@ -118,6 +118,9 @@ const requiredRuntimeModules = [
   "asn1",
   "bcrypt-pbkdf",
   "tweetnacl",
+  // Host 生命周期 Job 以外部模块方式加载 koffi 调 kernel32；tsup 保留为运行时依赖。
+  // 缺失时 Windows 容器/成员统计会静默降级、退出清理失去保证，bundle 阶段直接拦下坏包。
+  "koffi",
 ];
 const electronBuilderRetryCount = 3;
 const electronBuilderRetryDelayMs = 5_000;

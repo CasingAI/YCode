@@ -1607,8 +1607,12 @@ let activeHostApiNetworkTransport: HostApiNetworkTransport | null = null;
 /** 本地 host services 的资源遥测订阅；远端连接的订阅由各自的 connection handle 持有。 */
 let activeLocalResourceTelemetry: IDisposable | null = null;
 /**
- * 统计用 Job 的成员身份。必须在任何 CLI/Bash 后代创建之前初始化，
+ * Host 生命周期 Job 的成员身份（仅 Windows）。必须在任何 CLI/Bash 后代创建之前初始化，
  * 否则它们的子孙不会继承成员身份，断链后又从资源管理器消失。
+ *
+ * 该 Job 以 kill-on-close 创建，同时承担统计与 Host 退出时的容器清理。句柄由 Host 进程
+ * 生命周期持有：不在这里或 disposeHostResources 中 close，否则 Host 仍存活时就会被内核
+ * 连同整棵后代树一起终止。正常/异常退出都由 OS 关闭句柄并回收残留成员。
  */
 let hostJobMembership: WindowsJobMembership | undefined;
 // 资源管理器采样只在 main 请求时执行一次，Host 不维护任何周期定时器。
@@ -3128,8 +3132,18 @@ parentPort.on("message", async (e: Electron.MessageEvent) => {
         ),
       initializeServices: async () => {
         logger.info("initializing local services");
-        // 在创建任何 CLI/Bash 之前加入统计 Job，让整棵后代树继承成员身份。
-        hostJobMembership ??= await createWindowsJobMembership();
+        // 在创建任何 CLI/Bash 之前加入 Host 生命周期 Job，让整棵后代树继承成员身份。
+        // kill-on-close：句柄只在 Host 进程真正退出时由内核关闭并回收残留树；
+        // 绝不在 dispose 阶段 close，否则会先杀掉 Host 自身，妨碍存储与日志收尾。
+        hostJobMembership ??= await createWindowsJobMembership({
+          killOnJobClose: true,
+          onDiagnostic: (diagnostic) => {
+            // 原生容器不可用时清理保证降级为 PPID/执行层路径，必须显式告知，不静默。
+            logger.warn(
+              `host process containment degraded, stage=${diagnostic.stage}, reason=${diagnostic.reason}`,
+            );
+          },
+        });
         activeSessionRealtimePort = createTaskRealtimeBridgeForHostInit(msg, parentPort);
         // 旧 Team 补组织必须与网络代理读取共用同一个 Setting 实例及写队列。
         // 只注入 service 会跳过默认装配分支，导致缺组织的升级用户永远无法恢复连接。

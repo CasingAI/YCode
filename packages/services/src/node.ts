@@ -53,6 +53,7 @@ export {
 export {
   createWindowsJobMembership,
   type WindowsJobMembership,
+  type WindowsJobMembershipDiagnostic,
 } from "./process/windowsJobMembership.js";
 export {
   createResourceUsageService,

@@ -1,8 +1,13 @@
 import { mkdir, open, rm } from "node:fs/promises";
 import { dirname } from "node:path";
 import { BashFileOutput, diagnoseLostBashOutput } from "./bash-file-output.js";
+import { readCapturedCwd } from "./cwd-capture.js";
 import { NodeExecutionAdapterBase } from "./node-execution-adapter-base.js";
-import { DEFAULT_TIMEOUT_MS, formatTimeoutDuration } from "./execution-utils.js";
+import {
+  DEFAULT_TIMEOUT_MS,
+  formatTimeoutDuration,
+  isExpectedChildStdinClosureError,
+} from "./execution-utils.js";
 import type {
   ExecutionOutputPaths,
   InternalExecutionRunOptions,
@@ -15,11 +20,105 @@ import type {
   ExecutionRequest,
   ExecutionResult,
   ExecutionRunOptions,
+  ExecutionShellDialect,
   ExecutionStatus,
   ExecutionStreamResult,
 } from "@zcode/contracts";
 
 export class NodeExecutionAdapterResults extends NodeExecutionAdapterBase {
+  /**
+   * 装配一次执行的结果（docs/specs/windows-bash-process-tree-stop.md）。
+   *
+   * 状态裁决全部留在 results 层：执行器只提供事实（退出、超时、取消、输出），
+   * 避免 run() 同时承担事件接线、进程树回收与结果推导。
+   */
+  protected assembleExecutionResult(args: {
+    startedAt: Date;
+    completedAt: Date;
+    pid: number | undefined;
+    exitState: ExitState;
+    timedOut: boolean;
+    cancelled: boolean;
+    outputLimitExceeded: boolean;
+    timeoutMs: number;
+    /** Bash 直写模式：输出超限时的失败文案与通用 pipe 不同。 */
+    bashMergedOutput: boolean;
+    stdout: ExecutionStreamResult;
+    stderr: ExecutionStreamResult;
+    stdinWriteError: Error | undefined;
+    cwd?: { filePath: string | undefined; dialect: ExecutionShellDialect };
+  }): ExecutionResult {
+    const cancelled = args.bashMergedOutput && args.outputLimitExceeded ? true : args.cancelled;
+    const baseStatus = this.statusFromExit(
+      args.exitState,
+      args.timedOut,
+      cancelled,
+      args.outputLimitExceeded,
+    );
+    const unexpectedStdinFailure =
+      baseStatus === "completed" &&
+      args.stdinWriteError &&
+      !isExpectedChildStdinClosureError(args.stdinWriteError)
+        ? this.toFailure("unknown", args.stdinWriteError)
+        : undefined;
+    const failure = args.exitState.error
+      ? this.toFailure("spawn_error", args.exitState.error)
+      : args.bashMergedOutput && args.outputLimitExceeded
+        ? { type: "output_limit" as const, message: "Command killed: output file exceeded 5GB" }
+        : (this.statusFailure(args.timedOut, cancelled, args.outputLimitExceeded, args.timeoutMs) ??
+          unexpectedStdinFailure);
+    const status = unexpectedStdinFailure ? "failed" : baseStatus;
+    const resolvedCwd =
+      status === "completed" && args.exitState.code === 0 && args.cwd?.filePath
+        ? readCapturedCwd(args.cwd.filePath, { dialect: args.cwd.dialect })
+        : undefined;
+    return this.createResult({
+      status,
+      startedAt: args.startedAt,
+      completedAt: args.completedAt,
+      pid: args.pid,
+      exitCode: args.exitState.code,
+      signal: args.exitState.signal,
+      stdout: args.stdout,
+      stderr: args.stderr,
+      timedOut: args.timedOut,
+      cancelled,
+      error: failure,
+      resolvedCwd,
+    });
+  }
+
+  /**
+   * 进程树所有权不可用时的明确失败结果：命令未启动，不能宣称任何回收保证。
+   */
+  protected createOwnershipUnavailableResult(args: {
+    startedAt: Date;
+    stdout: ExecutionStreamResult;
+    stderr: ExecutionStreamResult;
+    message: string;
+  }): ExecutionResult {
+    return this.createSpawnFailureResult({ ...args, error: new Error(args.message) });
+  }
+
+  /** spawn 阶段失败（启动器/直接 spawn 抛错）的统一结果形态。 */
+  protected createSpawnFailureResult(args: {
+    startedAt: Date;
+    error: unknown;
+    stdout: ExecutionStreamResult;
+    stderr: ExecutionStreamResult;
+  }): ExecutionResult {
+    return this.createResult({
+      status: "spawn_error",
+      startedAt: args.startedAt,
+      completedAt: new Date(),
+      stdout: args.stdout,
+      stderr: args.stderr,
+      timedOut: false,
+      cancelled: false,
+      error: this.toFailure("spawn_error", args.error),
+    });
+  }
+
   protected emitResult(options: ExecutionRunOptions, result: ExecutionResult): void {
     if (result.status === "spawn_error" && result.error) {
       this.emit(options, { type: "failed", error: result.error, timestamp: result.completedAt });

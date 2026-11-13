@@ -162,6 +162,11 @@ const REQUIRED_ASAR_RUNTIME_MODULES = [
   // 已在线上触发安装包启动即报 Cannot find module 'ms'（Require stack: debug/src/common.js），
   // 自动更新链路直接崩。ms 是叶子包，显式注入即可让 debug 在 app.asar 内稳定解析。
   "ms",
+  // Host 生命周期 Job 通过外部模块 koffi 调 kernel32（SetInformationJobObject 等），
+  // tsup 已把 koffi 保留为运行时依赖。pnpm hoisted 布局下主包可能被裁掉它，
+  // 缺失时 Windows 容器与成员统计都会静默降级，退出清理不再有保证。
+  // 这里以 koffi 作为闭包根注入；它的 .node 由 afterPack 的 native unpack 规则落进 app.asar.unpacked。
+  "koffi",
 ];
 // pacman 依赖必须使用 Arch 官方仓库中的包名。electron-builder 的历史默认集合包含
 // 已移除的 libappindicator-gtk3/http-parser，且缺少 Electron 实际需要的运行库；显式

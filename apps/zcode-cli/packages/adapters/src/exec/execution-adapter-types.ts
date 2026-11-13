@@ -1,8 +1,9 @@
-import type { SpawnOptions } from "node:child_process";
+import type { ChildProcess, SpawnOptions } from "node:child_process";
 import type { ZCodeToolExecResource } from "@zcode/shared";
 import type { NetworkEgressEnvPolicy } from "../network/subprocess-env.js";
 import type { WindowsJobObjectController } from "../mcp/windows-job-object.js";
 import type { ResolvedSpawnCommand } from "./execution-command.js";
+import type { LauncherStartResult } from "./job-launcher-command.js";
 import type {
   BackgroundExecutionSnapshot,
   BackgroundExecutionStartResult,
@@ -74,6 +75,19 @@ export interface ActiveExecutionRecord {
   resolveCompletion: () => void;
   stop: (reason: StopReason) => void;
 }
+
+/**
+ * 启动一次执行的结果（docs/specs/windows-bash-process-tree-stop.md）：
+ * `spawned` 表示真实命令已（可）运行；`result` 表示本次执行在启动阶段就已结算。
+ */
+export type ExecutionSpawnOutcome =
+  | { kind: "result"; result: ExecutionResult }
+  | {
+      kind: "spawned";
+      child: ChildProcess;
+      job: Promise<WindowsJobObjectController | undefined> | undefined;
+      commandStart?: Promise<LauncherStartResult>;
+    };
 
 export interface NodeExecutionAdapterOptions {
   onToolExecResource?: (sample: ZCodeToolExecResource) => void;
