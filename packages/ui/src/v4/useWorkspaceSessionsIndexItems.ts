@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ZCodeTaskMeta } from "@zcode/shared";
 import { useBaseWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
-import { recordRendererPerformanceDuration } from "@/lib/rendererPerformanceDiagnostics.js";
+import { measureRendererPerformance } from "@/lib/rendererPerformanceDiagnostics.js";
 import { compareZCodeTaskListItems } from "@/lib/taskListOrdering.js";
 import { mapSessionSummaryToTaskMeta } from "@/v4/mapSessionSummaryToTaskMeta.js";
 import {
@@ -83,11 +83,6 @@ function buildScopeBindingKey(
   return `${buildSessionsIndexEntryKey(toRegistryScope(scope), agentService)}\0path:${scope.workspacePath}`;
 }
 
-/** 聚合耗时埋点用单调时钟；与 store 侧的 performance.now 口径一致。 */
-function diagnosticsNow(): number {
-  return typeof performance !== "undefined" ? performance.now() : Date.now();
-}
-
 /** store 尚未持有任何 snapshot（connecting/首帧未到）；error 不算 hydrating（避免永久 loading）。 */
 function isHydratingStore(store: SessionsIndexStore): boolean {
   return (
@@ -159,73 +154,68 @@ export function useWorkspaceSessionsIndexItems(
   // 从各 store 聚合会话 → ZCodeTaskMeta + hydration 状态（tick 驱动重算，引用稳定）。
   const previousItemsRef = useRef<ZCodeTaskMeta[]>([]);
   const previousHydratingRef = useRef<string[]>([]);
-  return useMemo(() => {
-    const startedAt = diagnosticsNow();
-    const metas: ZCodeTaskMeta[] = [];
-    const hydratingEndpointKeys = new Set<string>();
-    const sourceRevisionByScopeKey: Record<string, string> = {};
-    const previousByKey = new Map(
-      previousItemsRef.current.map((meta) => [buildTaskListItemIdentityKey(meta), meta]),
-    );
-    for (const scope of scopesRef.current) {
-      const sourceKey = entryKeyOf(scope);
-      const agentService = scope.agentService ?? baseAgentService;
-      const bindingRevision = agentService
-        ? buildScopeBindingKey(scope, agentService)
-        : `${sourceKey} service-unavailable`;
-      const store = subscriptionSet.getStore({
-        workspaceKey: workspaceKeyOf(scope),
-        ...(scope.endpointKey ? { endpointKey: scope.endpointKey } : {}),
-      });
-      if (!store) {
-        sourceRevisionByScopeKey[sourceKey] = `${bindingRevision}:missing`;
-        continue;
-      }
-      const storeState = store.getState();
-      sourceRevisionByScopeKey[sourceKey] =
-        `${bindingRevision}:${storeState.logEpoch ?? "none"}:${storeState.seq}:${store.getStatus()}`;
-      if (isHydratingStore(store)) {
-        hydratingEndpointKeys.add(scope.endpointKey ?? LOCAL_SESSIONS_INDEX_ENDPOINT);
-      }
-      for (const summary of store.getSessions()) {
-        metas.push(
-          mapSessionSummaryToTaskMeta(summary, {
-            workspacePath: scope.workspacePath,
-            ...(scope.workspaceIdentity ? { workspaceIdentity: scope.workspaceIdentity } : {}),
-            previous: previousByKey.get(buildSummaryIdentityKey(scope, summary.sessionId)),
-          }),
+  return useMemo(
+    () =>
+      measureRendererPerformance("sessions-index.items", () => {
+        const metas: ZCodeTaskMeta[] = [];
+        const hydratingEndpointKeys = new Set<string>();
+        const sourceRevisionByScopeKey: Record<string, string> = {};
+        const previousByKey = new Map(
+          previousItemsRef.current.map((meta) => [buildTaskListItemIdentityKey(meta), meta]),
         );
-      }
-    }
-    metas.sort((a, b) => compareZCodeTaskListItems(a, b, "updated"));
-    // 每个 tick 都全量重建 metas，即使内容完全没变（例如冷恢复把 seed 换成
-    // live 投影只改了列表不消费的 preview 字段），下游也会把"全新数组引用"当成新数据：
-    // grouped 视图整树 refresh、workspace 行缓存被 invalidate、各列表 republish——
-    // 表现为"打开一个历史任务，左侧列表整个重新加载"。这里做逐条引用稳定化：
-    // 内容等价复用旧对象；整表等价复用旧数组，让依赖数组身份的 effect 全部短路。
-    const items = stabilizeTaskListItems(previousItemsRef.current, metas);
-    previousItemsRef.current = items;
-    const nextHydrating = [...hydratingEndpointKeys].sort();
-    const hydrating =
-      nextHydrating.length === previousHydratingRef.current.length &&
-      nextHydrating.every((key, index) => key === previousHydratingRef.current[index])
-        ? previousHydratingRef.current
-        : nextHydrating;
-    previousHydratingRef.current = hydrating;
-    const result = {
-      items,
-      sourceRevisionByScopeKey,
-      hydratingEndpointKeys: hydrating,
-    };
-    // workUnits 固定为 metas 输出数，只能在构造结束后得知；用 record 收尾而不是
-    // measure 的第三参，避免为了计量再遍历一次。诊断未启动时 record 立即返回。
-    recordRendererPerformanceDuration(
-      "sessions-index.items",
-      diagnosticsNow() - startedAt,
-      items.length,
-    );
-    return result;
-  }, [signature, subscriptionSet, tick]);
+        for (const scope of scopesRef.current) {
+          const sourceKey = entryKeyOf(scope);
+          const agentService = scope.agentService ?? baseAgentService;
+          const bindingRevision = agentService
+            ? buildScopeBindingKey(scope, agentService)
+            : `${sourceKey} service-unavailable`;
+          const store = subscriptionSet.getStore({
+            workspaceKey: workspaceKeyOf(scope),
+            ...(scope.endpointKey ? { endpointKey: scope.endpointKey } : {}),
+          });
+          if (!store) {
+            sourceRevisionByScopeKey[sourceKey] = `${bindingRevision}:missing`;
+            continue;
+          }
+          const storeState = store.getState();
+          sourceRevisionByScopeKey[sourceKey] =
+            `${bindingRevision}:${storeState.logEpoch ?? "none"}:${storeState.seq}:${store.getStatus()}`;
+          if (isHydratingStore(store)) {
+            hydratingEndpointKeys.add(scope.endpointKey ?? LOCAL_SESSIONS_INDEX_ENDPOINT);
+          }
+          for (const summary of store.getSessions()) {
+            metas.push(
+              mapSessionSummaryToTaskMeta(summary, {
+                workspacePath: scope.workspacePath,
+                ...(scope.workspaceIdentity ? { workspaceIdentity: scope.workspaceIdentity } : {}),
+                previous: previousByKey.get(buildSummaryIdentityKey(scope, summary.sessionId)),
+              }),
+            );
+          }
+        }
+        metas.sort((a, b) => compareZCodeTaskListItems(a, b, "updated"));
+        // 每个 tick 都全量重建 metas，即使内容完全没变（例如冷恢复把 seed 换成
+        // live 投影只改了列表不消费的 preview 字段），下游也会把"全新数组引用"当成新数据：
+        // grouped 视图整树 refresh、workspace 行缓存被 invalidate、各列表 republish——
+        // 表现为"打开一个历史任务，左侧列表整个重新加载"。这里做逐条引用稳定化：
+        // 内容等价复用旧对象；整表等价复用旧数组，让依赖数组身份的 effect 全部短路。
+        const items = stabilizeTaskListItems(previousItemsRef.current, metas);
+        previousItemsRef.current = items;
+        const nextHydrating = [...hydratingEndpointKeys].sort();
+        const hydrating =
+          nextHydrating.length === previousHydratingRef.current.length &&
+          nextHydrating.every((key, index) => key === previousHydratingRef.current[index])
+            ? previousHydratingRef.current
+            : nextHydrating;
+        previousHydratingRef.current = hydrating;
+        return {
+          items,
+          sourceRevisionByScopeKey,
+          hydratingEndpointKeys: hydrating,
+        };
+      }),
+    [signature, subscriptionSet, tick],
+  );
 }
 
 function buildSummaryIdentityKey(scope: WorkspaceSessionsIndexScope, sessionId: string): string {

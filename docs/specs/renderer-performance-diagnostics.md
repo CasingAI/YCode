@@ -48,12 +48,13 @@ export type RendererPerformanceStage =
 | -------------------------- | ----------------------------------------------------------------------------- | ---------------------- |
 | `conversation.frame`       | `ConversationProjectionStore.handleFrame`（解码后的 store 应用与同步 notify） | 不提供                 |
 | `sessions-index.frame`     | `SessionsIndexStore.handleFrame`（解码后的 store 应用）                       | 不提供                 |
-| `sessions-index.items`     | `useWorkspaceSessionsIndexItems` 聚合输出                                     | 输出 metas 数          |
+| `sessions-index.items`     | `useWorkspaceSessionsIndexItems` 聚合 memo（整段同步计算用 measure 包裹）     | 本次省略               |
 | `conversation.share-units` | 会话分享 units 构建                                                           | 输入 rows 数           |
 | `conversation.turn-frame`  | `buildConversationTurnRenderUnitFrame` 调用点                                 | 输入 rows 数           |
 | `react.session-pane`       | React `<Profiler onRender>`                                                   | 不定义，调用方不得传递 |
 
 - `conversation.frame` 与 `sessions-index.frame` 只测已解码 store 应用和同步 notify，**不提供 workUnits**；不得为了埋点在 `handleFrame` 内解析或重新统计 wire 结构。
+- `sessions-index.items` 本次不提供 workUnits：聚合 memo 的整段同步计算由 `measureRendererPerformance` 包裹，未启动时直接执行且不读取 clock，也不为统计 units 增加额外遍历。
 - `workUnits` 只表达输入规模，不表达耗时、字节数或用户内容。
 - 对未定义 `workUnits` 的 stage，传入值必须被忽略且不进入摘要。
 - 同一 stage 的 `workUnits` 口径必须固定，不能在不同调用点混用 rows、metas 等不同单位。
@@ -72,6 +73,7 @@ export type RendererPerformanceStage =
 ### 3.3 窗口
 
 - 产品窗口固定为 10,000ms；`windowMs` 选项只用于测试注入，不作为用户设置暴露。
+- `windowMs` 只表示名义桶长，不保证实际跨度：`pagehide`/`stop` 提前结束或 timer 延迟都会让实际窗口跨度不等于 `windowMs`。下游不得用 `sum / windowMs` 推导精确占用率、速率或时间占比；本次不新增 elapsed 字段。
 - 窗口内只保存累计器：每个 stage 的 count、duration sum/max、slow count、workUnits sum/max；runtime 指标同理。
 - 不保存逐条 duration、entry、stack、URL、脚本地址或样本数组。
 - 窗口结束时若没有任何 stage 记录，也没有任何 runtime 样本，则不写日志（空窗不刷屏）。
@@ -321,6 +323,8 @@ interface RendererPerformanceSummaryV1 {
   - `blockingDuration`
   - `scripts[].duration`：按 entry 求和为 `scriptDurationMs`
   - `scripts[].forcedStyleAndLayoutDuration`：按 entry 求和为 `forcedStyleAndLayoutDurationMs`
+- `scripts` 为空数组时，`scriptDurationMs` 与 `forcedStyleAndLayoutDurationMs` 合法为 `0`：它只表示 LoAF 暴露的被归因 scripts 项总和为 0，不代表整段 JS 执行耗时为 0，浏览器可能未提供可归因脚本；不得称为“无 JS”。
+- `scripts` 属性缺失或非数组时，两个字段仍省略，不得用 `0` 伪装已观测；非空但所有项对应字段非法时同样省略。
 - phase 定义（同一 entry 内）：
   - `renderPhaseMs = styleAndLayoutStart - renderStart`，仅当两个时间戳都有效且 `styleAndLayoutStart >= renderStart`。
   - `styleAndLayoutPhaseMs = (startTime + duration) - styleAndLayoutStart`，仅当 `styleAndLayoutStart` 有效且不晚于 entry 结束。

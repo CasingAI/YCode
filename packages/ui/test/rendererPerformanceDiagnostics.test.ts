@@ -646,6 +646,45 @@ test("LoAF 字段缺失/非法时省略，合法 0 保留，长任务分开计�
   }
 });
 
+test("LoAF scripts 为空数组时被归因字段总和为 0，而非省略", () => {
+  const observers = createObservers({
+    supported: new Set(["long-animation-frame"]),
+  });
+  const harness = startHarness({ observerFactory: observers.observerFactory });
+  try {
+    observers.emit("long-animation-frame", [
+      { startTime: 0, duration: 10, scripts: [] } as PerformanceEntry,
+    ]);
+    harness.handle.flush();
+    const summary = latest(harness.summaries);
+    assert.equal(summary.runtime.loaf?.scriptDurationMsSum, 0);
+    assert.equal(summary.runtime.loaf?.scriptDurationMsMax, 0);
+    assert.equal(summary.runtime.loaf?.forcedStyleAndLayoutDurationMsSum, 0);
+    assert.equal(summary.runtime.loaf?.forcedStyleAndLayoutDurationMsMax, 0);
+  } finally {
+    harness.handle.stop();
+  }
+});
+
+test("LoAF scripts 属性缺失时被归因字段仍省略", () => {
+  const observers = createObservers({
+    supported: new Set(["long-animation-frame"]),
+  });
+  const harness = startHarness({ observerFactory: observers.observerFactory });
+  try {
+    observers.emit("long-animation-frame", [{ startTime: 0, duration: 10 } as PerformanceEntry]);
+    harness.handle.flush();
+    const summary = latest(harness.summaries);
+    const loaf = summary.runtime.loaf ?? {};
+    assert.equal("scriptDurationMsSum" in loaf, false);
+    assert.equal("scriptDurationMsMax" in loaf, false);
+    assert.equal("forcedStyleAndLayoutDurationMsSum" in loaf, false);
+    assert.equal("forcedStyleAndLayoutDurationMsMax" in loaf, false);
+  } finally {
+    harness.handle.stop();
+  }
+});
+
 test("observer 按回调交付窗口归属，不回填 startTime 所在旧窗口", () => {
   const observers = createObservers({
     supported: new Set(["longtask"]),

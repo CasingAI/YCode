@@ -85,6 +85,11 @@ function sumScriptField(
   scripts: readonly RendererPerformanceLoafScript[],
   field: "duration" | "forcedStyleAndLayoutDuration",
 ): number | undefined {
+  // 空数组是合法观测：LoAF 明确暴露了 scripts，只是没有可归因项，总和为 0；
+  // 这与 scripts 属性缺失或非数组（不可用，保持 undefined 省略）语义不同。
+  if (scripts.length === 0) {
+    return 0;
+  }
   let sum: number | undefined;
   for (const script of scripts) {
     const value = sanitizeRendererPerformanceNumber(script[field]);

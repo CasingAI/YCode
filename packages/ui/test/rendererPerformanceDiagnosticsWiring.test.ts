@@ -10,6 +10,7 @@ import type {
 } from "@zcode/shared/zcode-protocol-v4";
 import { conversationTopic } from "@zcode/shared/zcode-protocol-v4";
 import {
+  measureRendererPerformance,
   startRendererPerformanceDiagnostics,
   type RendererPerformanceDiagnosticsHandle,
   type RendererPerformanceScheduler,
@@ -22,7 +23,7 @@ import type { SessionsIndexTransport } from "@/v4/agentSessionsIndexTransport.js
 
 // 接线断言（docs/specs/renderer-performance-diagnostics.md）：
 // - store 的 handleFrame 必须整帧包一层 measure，且同步主体原样保留；
-// - 聚合 hook / SessionPane / Timeline 必须在固定 stage 上计时，workUnits 口径固定；
+// - 聚合 hook / SessionPane / Timeline 必须在固定 stage 上计时；sessions-index.items 本次省略 workUnits，其余 workUnits 口径固定；
 // - React Profiler 仅 Vite DEV 构建包住 SessionPane 内部渲染子树，生产不透传 Profiler。
 // 真实 store 帧路径用注入 clock/writer 的诊断实例验证，不依赖 DOM 或运行中的 YCode。
 
@@ -39,7 +40,11 @@ const sessionsItemsHookSource = readSource("../src/v4/useWorkspaceSessionsIndexI
 
 function countOccurrences(source: string, needle: string): number {
   let count = 0;
-  for (let index = source.indexOf(needle); index !== -1; index = source.indexOf(needle, index + needle.length)) {
+  for (
+    let index = source.indexOf(needle);
+    index !== -1;
+    index = source.indexOf(needle, index + needle.length)
+  ) {
     count += 1;
   }
   return count;
@@ -64,15 +69,19 @@ test("conversation.frame：整个 handleFrame 同步执行被 measure 包裹，�
     /measureRendererPerformance\("conversation\.frame", \(\) => \{\s*this\.handleFrameSync\(frame, delivery\);\s*\}\);/,
     "handleFrame 必须只加薄 wrapper 调用私有同步主体，且不传 workUnits",
   );
-  const wrapperStart = projectionStoreSource.indexOf('measureRendererPerformance("conversation.frame"');
+  const wrapperStart = projectionStoreSource.indexOf(
+    'measureRendererPerformance("conversation.frame"',
+  );
   const innerSignature = projectionStoreSource.indexOf("private handleFrameSync(");
   const closedGuard = projectionStoreSource.indexOf("if (this.closed) return;", innerSignature);
   assert.ok(wrapperStart < innerSignature, "wrapper 必须在私有主体之前");
   assert.ok(innerSignature < closedGuard, "closed 守卫必须留在同步主体内");
   // 订阅代际守卫（旧订阅迟到帧丢弃）同样必须保留在同步主体中。
   assert.ok(
-    projectionStoreSource.indexOf("frame.subscriptionId !== this.state.subscriptionId", innerSignature) >
+    projectionStoreSource.indexOf(
+      "frame.subscriptionId !== this.state.subscriptionId",
       innerSignature,
+    ) > innerSignature,
     "subscriptionId 代际守卫必须保留",
   );
 });
@@ -86,39 +95,79 @@ test("sessions-index.frame：整帧同步处理被 measure 包裹，且不传 wo
   const innerSignature = sessionsIndexStoreSource.indexOf("private handleFrameSync(");
   assert.notEqual(innerSignature, -1);
   assert.ok(
-    sessionsIndexStoreSource.indexOf("this.subscriptionId === null", innerSignature) > innerSignature,
+    sessionsIndexStoreSource.indexOf("this.subscriptionId === null", innerSignature) >
+      innerSignature,
     "own-subscription 过滤必须保留在同步主体内",
   );
 });
 
-test("sessions-index.items：聚合 memo 用 record 收尾，workUnits = 输出 metas 数", () => {
+test("sessions-index.items：整个聚合 memo 同步计算被 measure 包裹，不传 workUnits", () => {
   assert.equal(countOccurrences(sessionsItemsHookSource, '"sessions-index.items"'), 1);
   assert.equal(
-    countOccurrences(sessionsItemsHookSource, "recordRendererPerformanceDuration("),
+    countOccurrences(sessionsItemsHookSource, "measureRendererPerformance("),
     1,
-    "同一 memo 只能记录一次，避免与 measure 双计",
+    "同一 memo 只能测量一次，避免双计",
   );
-  const recordStart = sessionsItemsHookSource.indexOf('recordRendererPerformanceDuration(\n      "sessions-index.items"');
-  assert.notEqual(recordStart, -1);
-  const recordCall = sliceBetween(
+  assert.equal(
+    sessionsItemsHookSource.includes("recordRendererPerformanceDuration"),
+    false,
+    "已改用 measure 整段包裹，不得再手工 record",
+  );
+  assert.equal(
+    sessionsItemsHookSource.includes("diagnosticsNow"),
+    false,
+    "不得保留无条件读取 clock 的本地时钟",
+  );
+  assert.equal(
+    /performance\.now|Date\.now/.test(sessionsItemsHookSource),
+    false,
+    "未启用诊断时不得在 hook 内直接取时间",
+  );
+  assert.match(
     sessionsItemsHookSource,
-    '"sessions-index.items"',
-    "return result;",
+    /return useMemo\(\s*\(\) =>\s*measureRendererPerformance\("sessions-index\.items", \(\) => \{/,
+    "整段聚合计算必须包在 measure 内",
   );
-  assert.match(recordCall, /items\.length/, "workUnits 必须固定为聚合输出 metas 数");
-  assert.ok(
-    sessionsItemsHookSource.indexOf("const startedAt = diagnosticsNow();") <
-      sessionsItemsHookSource.indexOf("const metas: ZCodeTaskMeta[] = [];"),
-    "计时起点必须在全表构造之前",
+  const measureBlock = sliceBetween(
+    sessionsItemsHookSource,
+    'measureRendererPerformance("sessions-index.items"',
+    "}),\n    [signature, subscriptionSet, tick],",
+  );
+  assert.equal(
+    /items\.length/.test(measureBlock),
+    false,
+    "本次省略 workUnits，不得为了计数额外遍历输出",
   );
   assert.ok(
-    sessionsItemsHookSource.indexOf("stabilizeTaskListItems(") < recordStart,
-    "稳定化必须仍在计时区间内",
+    measureBlock.indexOf("const metas: ZCodeTaskMeta[] = [];") > 0,
+    "全表构造必须位于计时区间内",
   );
+  assert.ok(measureBlock.indexOf("stabilizeTaskListItems(") > 0, "稳定化必须仍在计时区间内");
   assert.ok(
-    sessionsItemsHookSource.includes("}, [signature, subscriptionSet, tick]);"),
+    sessionsItemsHookSource.includes("[signature, subscriptionSet, tick],\n  );"),
     "memo 依赖必须保持原样",
   );
+});
+
+test("未启动诊断时 measure 直接执行业务且不读取 clock", () => {
+  const originalNow = performance.now;
+  let nowCalls = 0;
+  performance.now = function patchedNow(this: Performance): number {
+    nowCalls += 1;
+    return originalNow.call(this);
+  };
+  try {
+    let ran = 0;
+    const value = measureRendererPerformance("sessions-index.items", () => {
+      ran += 1;
+      return 7;
+    });
+    assert.equal(value, 7);
+    assert.equal(ran, 1);
+    assert.equal(nowCalls, 0, "未启动时不得读取 clock");
+  } finally {
+    performance.now = originalNow;
+  }
 });
 
 test("conversation.share-units：SessionPane 分享 units 构建计时，workUnits = rows.length", () => {
@@ -139,10 +188,15 @@ test("conversation.turn-frame：仅主时间线帧构建计时，workUnits = row
     timelineSource,
     /measureRendererPerformance\(\s*"conversation\.turn-frame",\s*\(\) =>\s*buildConversationTurnRenderUnitFrame\(rows, \{/,
   );
-  const memo = sliceBetween(timelineSource, 'const renderUnits = useMemo(() => {', "}, [liveNowMs, rows, sessionPhase, windowConnectedToTail]);");
+  const memo = sliceBetween(
+    timelineSource,
+    "const renderUnits = useMemo(() => {",
+    "}, [liveNowMs, rows, sessionPhase, windowConnectedToTail]);",
+  );
   assert.match(memo, /rows\.length/, "workUnits 必须是输入 rows 数");
   assert.ok(
-    memo.indexOf("previousUnitFrameRef.current = frame;") > memo.indexOf("measureRendererPerformance("),
+    memo.indexOf("previousUnitFrameRef.current = frame;") >
+      memo.indexOf("measureRendererPerformance("),
     "previousFrame 必须在测量后写入，保持原帧链",
   );
   assert.ok(
@@ -178,13 +232,25 @@ test("react.session-pane：Profiler 仅在 Vite DEV 包住 SessionPane 内部子
     "Profiler 必须使用固定 id",
   );
   assert.ok(sessionPaneSource.includes('const SESSION_PANE_PROFILER_ID = "session-pane";'));
-  assert.equal(countOccurrences(sessionPaneSource, 'recordRendererPerformanceDuration("react.session-pane", actualDuration)'), 1);
+  assert.equal(
+    countOccurrences(
+      sessionPaneSource,
+      'recordRendererPerformanceDuration("react.session-pane", actualDuration)',
+    ),
+    1,
+  );
   const onRenderBlock = sliceBetween(
     sessionPaneSource,
     "const handleSessionPaneProfilerRender: ProfilerOnRenderCallback = (",
     "};",
   );
-  for (const forbidden of ["sessionId", "sessionKey", "workspacePath", "workspaceIdentity", "paneId"]) {
+  for (const forbidden of [
+    "sessionId",
+    "sessionKey",
+    "workspacePath",
+    "workspaceIdentity",
+    "paneId",
+  ]) {
     assert.equal(
       onRenderBlock.includes(forbidden),
       false,
@@ -193,10 +259,14 @@ test("react.session-pane：Profiler 仅在 Vite DEV 包住 SessionPane 内部子
   }
   // 包的是组件内部渲染子树：paneRoot 仍是原来的 session pane 根节点。
   assert.ok(
-    sessionPaneSource.includes("return <SessionPaneRenderProfiler>{paneRoot}</SessionPaneRenderProfiler>;"),
+    sessionPaneSource.includes(
+      "return <SessionPaneRenderProfiler>{paneRoot}</SessionPaneRenderProfiler>;",
+    ),
   );
   assert.ok(
-    sessionPaneSource.includes("const paneRoot = (\n    <div\n      data-testid={testId(TID_V4_SESSION_PANE, paneId)}"),
+    sessionPaneSource.includes(
+      "const paneRoot = (\n    <div\n      data-testid={testId(TID_V4_SESSION_PANE, paneId)}",
+    ),
     "Profiler 不得替换或改写 pane 根节点属性",
   );
   assert.ok(sessionPaneSource.includes("export function SessionPane({\n  paneId,"));
@@ -243,9 +313,9 @@ function stageWorkUnits(
   summary: RendererPerformanceSummaryV1,
   stage: string,
 ): { sum?: number; max?: number } {
-  const metrics = (summary.stages as Record<string, { workUnitsSum?: number; workUnitsMax?: number }>)[
-    stage
-  ];
+  const metrics = (
+    summary.stages as Record<string, { workUnitsSum?: number; workUnitsMax?: number }>
+  )[stage];
   return { sum: metrics?.workUnitsSum, max: metrics?.workUnitsMax };
 }
 
@@ -346,7 +416,10 @@ async function createSessionsIndexStore(): Promise<{
     unsubscribe: async () => {},
     resync: async () => ({ ack: { subscriptionId: "sub-1", mode: "resume" } }),
     onFrame: (
-      handler: (frame: SessionsIndexTopicFrame, context?: { deliveryKind: TopicFrameDeliveryKind }) => void,
+      handler: (
+        frame: SessionsIndexTopicFrame,
+        context?: { deliveryKind: TopicFrameDeliveryKind },
+      ) => void,
     ) => {
       frameHandler = handler;
       return () => {};
