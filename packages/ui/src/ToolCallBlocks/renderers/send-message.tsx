@@ -82,6 +82,18 @@ function resolveSendMessageKindLabelId(
   return "chat.toolCall.kind.sendMessage";
 }
 
+// 卡片、hover title 与打开侧栏请求共用同一目标标题口径，避免 tab 与卡片不一致。
+export function resolveSendMessageTargetTitle(
+  target: string | undefined,
+  indexedTitle: string | undefined,
+  fallbackTitle: string,
+): string | undefined {
+  if (!target) return undefined;
+  if (isSafeVisibleToolTitle(indexedTitle)) return indexedTitle.trim();
+  if (isSafeVisibleToolTitle(target)) return target.trim();
+  return fallbackTitle;
+}
+
 function readRawResultContent(raw: unknown): unknown {
   const rawRecord = toRecord(raw);
   const result = toRecord(rawRecord?.result);
@@ -131,18 +143,16 @@ export function SendMessageToolCallBlock(context: ToolCallBlockRenderContext) {
   const target = readStringField(input, ["to"]);
   const message = readStringField(input, ["message"]);
   const targetTitle = target ? context.agentTitleByIdentity?.get(target) : undefined;
-  const visibleTargetTitle = target
-    ? isSafeVisibleToolTitle(targetTitle)
-      ? targetTitle.trim()
-      : intl.formatMessage({ id: "chat.toolCall.sendMessage.targetFallback" })
-    : undefined;
-  // 折叠行收件人落点：可展示标题 > 可展示的原始 `to` > 本地化 fallback，恒有值且永不外露内部 ID。
-  // 原因：`to` 在 input schema 里是必填的 agent_<uuid> 形态，与缺失标题一样不可直接展示（已有测试禁止原文出现内部 ID）；
-  // 只有人工可读的 `to` 才允许直接作为「给 XXX」落点。展开态详情区继续沿用上面的 visibleTargetTitle，保持不变。
-  const collapsedTargetTitle =
-    visibleTargetTitle ??
-    (isSafeVisibleToolTitle(target) ? target.trim() : undefined) ??
-    intl.formatMessage({ id: "chat.toolCall.sendMessage.targetFallback" });
+  const fallbackTargetTitle = intl.formatMessage({
+    id: "chat.toolCall.sendMessage.targetFallback",
+  });
+  const visibleTargetTitle = resolveSendMessageTargetTitle(
+    target,
+    targetTitle,
+    fallbackTargetTitle,
+  );
+  // 折叠行收件人恒有值，且永不外露内部 ID。
+  const collapsedTargetTitle = visibleTargetTitle ?? fallbackTargetTitle;
   const primaryTitle =
     [summary, toolCall.title].find(isSafeVisibleToolTitle)?.trim() ?? "SendMessage";
   // streaming input 首帧可能还没有字段，不能为一个空详情面板提供展开入口。

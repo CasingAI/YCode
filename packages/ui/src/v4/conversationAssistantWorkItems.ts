@@ -149,9 +149,8 @@ function isAssistantWorkRow(row: ConversationRow): row is AssistantWorkRow {
 
 /**
  * 建立 SubagentRow entityId 到用户可见 Agent 标题的只读索引。
- *
- * 索引只消费已加载会话行中的 Agent/Subagent 投影；配对规则沿用回合内的
- * parentToolCallId 精确匹配和旧数据唯一剩余项回退，不改变工具执行或任务身份。
+ * 同一 entityId 可能同时有配对 Agent 行和续跑行：配对来源标题优先，续跑的安全
+ * summaryText 只补空位，不把裸 subagentType 当标题。
  */
 export function buildAgentTitleByIdentity(
   rows: readonly ConversationRow[],
@@ -180,7 +179,8 @@ export function buildAgentTitleByIdentity(
   const titleByIdentity = new Map<string, string>();
   for (const subagentRow of subagentRows) {
     const identity = subagentRow.entityId?.trim();
-    if (!identity) continue;
+    if (!identity || titleByIdentity.has(identity)) continue;
+    if (!agentRowBySubagentRowId.has(subagentRow.rowId)) continue;
 
     const agentRow = agentRowBySubagentRowId.get(subagentRow.rowId);
     const agentTitle = agentRow
@@ -191,6 +191,15 @@ export function buildAgentTitleByIdentity(
     );
     if (visibleTitle) {
       titleByIdentity.set(identity, visibleTitle.trim());
+    }
+  }
+  for (const subagentRow of subagentRows) {
+    const identity = subagentRow.entityId?.trim();
+    if (!identity || titleByIdentity.has(identity)) continue;
+    if (agentRowBySubagentRowId.has(subagentRow.rowId)) continue;
+
+    if (isSafeVisibleToolTitle(subagentRow.summaryText)) {
+      titleByIdentity.set(identity, subagentRow.summaryText.trim());
     }
   }
   return titleByIdentity;

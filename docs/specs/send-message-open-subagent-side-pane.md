@@ -52,11 +52,11 @@ CLI V4 projection rows（SubagentRow 唯一权威：entityId / childSessionId / 
   `commitOpenedSidePaneState` + `openSubagentSessionSidePane` 所有；
   tab id 仍为 `subagent-session:<workspaceKey>:<rootSessionId>:<childSessionId>`，
   同一三元组重复打开只聚焦已有 tab。
-- 打开请求的 `title` 取 `agentTitleByIdentity` 同一标题（缺席时回退 `subagentType`），
-  保证用户点击的可见标题与右侧 tab 标题逐字一致；与 Agent 工具行
-  （`ConversationAgentToolCallRow`）同一口径。轨迹中的内置子代理身份需使用既有 i18n 映射
-  展示（例如中文环境的 `Explore` 显示为“探索”），身份数据仍保留原始英文标识；描述标题与
-  第三方子代理名称保持原样。
+- 打开请求的 `title` 与 SendMessage 折叠行的目标标题同一口径：安全索引标题 → 安全原始
+  `to` → 本地化「目标子智能体」fallback；不使用裸 `subagentType` 作为 title 回退，
+  保证用户点击的可见标题与右侧 tab 标题逐字一致。内置子代理身份由索引标题的既有 i18n
+  映射展示（例如中文环境的 `Explore` 显示为“探索”），身份数据仍保留原始英文标识；
+  描述标题与第三方子代理名称保持原样。
 - workspace 身份（`workspacePath` / `workspaceIdentity?` / `remoteSessionId?`）与
   `rootSessionId` 回退全部由 `SessionPane.handleOpenSubagentSession` 既有逻辑补齐，
   行侧只交 `parentSessionId`（= 当前 `context.sessionId`）、`childSessionId`、
@@ -94,8 +94,8 @@ CLI V4 projection rows（SubagentRow 唯一权威：entityId / childSessionId / 
   但不含这条未投递的消息（transcript 里没有它）。
   收件人会话不可解析（无 childSessionId / 历史缺口）的行**保持可展开**，
   摘要与正文仍在本行展开区可读。
-- 显示安全：标题只用 `agentTitleByIdentity` 的可见标题或 `subagentType`，
-  内部 `agent_<uuid>` 永不外露（沿用 SendMessage 现有 fallback 规则）。
+- 显示安全：标题只用 `agentTitleByIdentity` 的可见标题、人工可读的 `to` 或本地化 fallback，
+  内部 `agent_<uuid>` 与裸 `subagentType` 永不作为普通标题外露。
 - Desktop continuous 与 Web/手机 replayable 继续使用既有 snapshot/delta 通道；
   本功能不新增队列、ACK、远端状态或协议字段（`packages/shared` 仅新增 test id 常量）。
 - 遥测：打开动作经 `runUserAction({ featureId: "conversation.subagent",
@@ -167,3 +167,5 @@ CLI V4 projection rows（SubagentRow 唯一权威：entityId / childSessionId / 
    running 投影时，采用行派生的 childSessionId/subagentType（合并只补缺不覆盖）。
 10. `pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed` 通过；
    `packages/ui` 相关测试通过。
+11. 目标会话身份可解析但标题索引没有安全标题时：SendMessage 折叠行显示本地化
+    「目标子智能体」，点击打开的 tab 标题与它逐字一致，不显示原始 `subagentType`。

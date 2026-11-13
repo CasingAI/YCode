@@ -1,8 +1,12 @@
-import { useCallback, useMemo } from "react";
+import { useMemo } from "react";
 import { TID_V4_ROW, TID_V4_SUBAGENT_OPEN_SIDE_PANE, testId } from "@zcode/shared";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { ToolCallBlock } from "@/ToolCallBlocks.js";
-import { getAgentPrimaryText } from "@/ToolCallBlocks/renderers/agentHelpers.js";
+import type { ToolSummaryAction } from "@/ToolCallBlocks/ToolSummaryRow.js";
+import {
+  getAgentPrimaryText,
+  formatAgentMessage,
+} from "@/ToolCallBlocks/renderers/agentHelpers.js";
 import type { ConversationAssistantWorkRenderItem } from "@/v4/conversationAssistantWorkItems.js";
 import type { ConversationRowRenderContext } from "@/v4/conversationRowContext.js";
 import { toolCallRowToLegacyNode } from "@/v4/toolCallRowAdapter.js";
@@ -37,6 +41,42 @@ function openSubagentSessionFromSummary({
   return true;
 }
 
+/** 子代理摘要卡的唯一下钻构造点；身份或宿主回调不齐备时返回 undefined。 */
+export function buildSubagentSummaryAction({
+  ariaLabel,
+  childSessionId,
+  context,
+  subagentType,
+  title,
+}: {
+  ariaLabel: string;
+  childSessionId?: string;
+  context: ConversationRowRenderContext;
+  subagentType: string;
+  title: string;
+}): ToolSummaryAction | undefined {
+  if (!childSessionId || !context.sessionId || !context.onOpenSubagentSession) {
+    return undefined;
+  }
+  return {
+    ariaLabel,
+    onActivate: () => {
+      runUserAction({
+        input: {
+          featureId: "conversation.subagent",
+          action: "open_side_pane",
+          trigger: "button",
+        },
+        operation: () =>
+          openSubagentSessionFromSummary({ childSessionId, context, subagentType, title }),
+        completed: { resultSource: "local_commit" },
+        failureStage: "subagent_open",
+      });
+    },
+    testId: testId(TID_V4_SUBAGENT_OPEN_SIDE_PANE, childSessionId),
+  };
+}
+
 export function ConversationAgentToolCallRow({
   item,
   context,
@@ -50,27 +90,20 @@ export function ConversationAgentToolCallRow({
   const subagentType = item.subagentRow.subagentType;
   // 与 Agent 摘要行复用同一 title resolver，保证右侧 tab 和用户点击的可见标题逐字一致。
   const title = getAgentPrimaryText(toolCallNode.toolCall, "", intl);
-  const canOpenChildSession = Boolean(
-    childSessionId && context.sessionId && context.onOpenSubagentSession,
-  );
-  const handleOpenChildSession = useCallback(() => {
-    runUserAction({
-      input: { featureId: "conversation.subagent", action: "open_side_pane", trigger: "button" },
-      operation: () =>
-        openSubagentSessionFromSummary({ childSessionId, context, subagentType, title }),
-      completed: { resultSource: "local_commit" },
-      failureStage: "subagent_open",
-    });
-  }, [childSessionId, context, subagentType, title]);
   const agentSummaryAction = useMemo(
     () =>
-      canOpenChildSession && childSessionId
-        ? {
-            onActivate: handleOpenChildSession,
-            testId: testId(TID_V4_SUBAGENT_OPEN_SIDE_PANE, childSessionId),
-          }
-        : undefined,
-    [canOpenChildSession, childSessionId, handleOpenChildSession],
+      buildSubagentSummaryAction({
+        ariaLabel: formatAgentMessage(
+          intl,
+          "chat.toolCall.agent.openInSidePane",
+          "Open on the right",
+        ),
+        childSessionId,
+        context,
+        subagentType,
+        title,
+      }),
+    [childSessionId, context, intl, subagentType, title],
   );
 
   // Agent 工具行和普通工具行同属工作流，不能在配对壳上额外加 px-4，

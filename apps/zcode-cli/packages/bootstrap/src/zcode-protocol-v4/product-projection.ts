@@ -5361,12 +5361,14 @@ export class ProductProjection {
     const existing = this.findSubagentLifecycleRow(agentId, payload, event);
     const parentToolCallId = this.stringPayload(payload, "parentToolCallId");
     const status = this.mapSubagentStatus(this.stringPayload(payload, "status"));
+    // 失败/取消的 error 不能覆盖生命周期行已有任务描述；仅在没有描述时回退。
+    const existingSummary = existing?.summaryText.trim() ? existing.summaryText : undefined;
     const summaryText =
       this.stringPayload(payload, "summaryText") ??
       this.stringPayload(payload, "result") ??
-      this.stringPayload(payload, "error") ??
       this.stringPayload(payload, "description") ??
-      existing?.summaryText ??
+      existingSummary ??
+      this.stringPayload(payload, "error") ??
       "";
     const reported = reportedUsageFromPayload(payload);
     this.recordSubagentReportedUsage(agentId, reported);

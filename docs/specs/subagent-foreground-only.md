@@ -81,6 +81,34 @@
 - child transcript 不可恢复时保留同一 `agentId`，走 `contextReset` 建立新 child context，并把 `contextResetGeneration` 推进。这是显式受控换绑，不是静默重绑。
 - 历史 `subagent_${agentId}` 命名的 child session 在首次被查询时校验并 lazy backfill 身份行；不做全库批量回填。
 - 冷恢复是**采用**，不是复活：它只恢复身份和 transcript 的可达性，不恢复任何已丢失的运行中状态或排队消息。
+- 冷恢复 snapshot 的 `description` 必须取真实任务短描述，不能取 `profile.description`：后者是 Subagent 类型说明（如 "General-purpose agent for …"），属于配置而不是任务。现有唯一持久来源是 child session 的 `title`——首次执行时由 `request.description.slice(0, 60) || "Subagent"` 与 child 行、身份绑定同事务落库，且 `subagent_child` 不参与自动或手动标题重生成。`title` 为空（空白）时才回退稳定短标识 `Recovered agent <agentId>`。历史空白描述落库的通用占位（如 `Subagent`）按普通 title 原样沿用，不为它新增语义判定。不新增 description 字段、不新增独立写入路径，也不把临时目录 `metadata.json` 当作权威来源。
+- `profile` 快照仍用于恢复同一逻辑 Agent 的配置与模型选择，只作为 `profileSnapshot` 续跑输入，不参与 `description` 投影。
+- fork / restart / resume 边界：live registry 命中的续跑沿用首次 spawn 的 `request.description`；跨进程冷恢复按上一条读取 child `title`（Fork 产生的 child 使用其自身持久化标题，如 `Fork of <sourceAgentId>`）。
+- 本次修复不新增 `contextReset` 换绑路径，也不改变既有 child 身份与 generation 语义。
+- 续跑 `SubagentSpawned` 事件的 `description` 必须沿用 snapshot 的 recovered description，不得在事件发射点用 profile 字段重新拼装。该字段是 `SubagentRow.summaryText` 与 SendMessage 目标标题的投影输入。
+- `TaskOutput` 与 `SendMessage` 冷恢复共享的是身份解析与任务标题读取：两者都走同一身份索引、都以 child `title`（空白回退 `Recovered agent <agentId>`）作为描述。二者安全校验不共享：`SendMessage` 执行 parent / workspace scope 校验，`TaskOutput` 沿用其既有的只读 child taskType 与身份一致性校验，不新增 scope 判定。该描述经 `TaskOutputResult.task.description` 进入卡片 `display.title`。
+
+事件顺序与所有者（冷恢复续跑）：
+
+```text
+SessionStore（唯一 owner：agentId → childSessionId 绑定、child.title）
+  └─ resolveSubagentIdentity(agentId) → { binding, child }   ← SendMessage 与 TaskOutput 共用
+       │  SendMessage 校验：taskType=subagent_child / parent / workspaceIdentity|workspaceRoot
+       │  TaskOutput 校验：沿用既有只读 child taskType 与身份一致性，不加 scope
+       ▼
+RuntimeTaskRegistry（本进程 live 状态 owner）
+  └─ register 终态 snapshot（description = child.title 或 `Recovered agent <agentId>`）
+       ▼
+CAS claim（execution generation++）→ resumeFromStore 续跑同一 child transcript
+       ▼
+runner 发出 SubagentSpawned { description = snapshot.description, resumed: true }
+       ▼
+conversation projection 写入 SubagentRow.summaryText
+       ▼
+SendMessage 目标标题 / 生命周期行（只读派生，无第二个状态 owner）
+```
+
+desktop continuous 与 mobile replayable 消费同一事件投影；冷恢复不产生新状态，只把持久身份与 child transcript 接入当前 registry，workspace scope、CAS/generation 与 stale-run 防护保持不变。
 
 - Bash 的后台命令、终端后台化和 `backgroundBashMaxMs`。
 - Legacy Workflow、Dynamic Workflow、Workflow resume、Cron/Automation 的独立生命周期。
@@ -106,3 +134,5 @@
 14. 重启后用同一 `agentId` 调 `TaskOutput`：返回历史终态与 child 输出摘要，不再是"找不到任务"。
 15. 并发两个 `SendMessage` 加一次旧 generation 的 stop：只启动一个 child，旧 stop 不 abort 新 execution。
 16. Agent 工具结果的模型可见文本在 `childSessionId` 存在时单起一行暴露该 id（含 HistoryRead 回读指引），缺席时不输出该行、不出现 `undefined`；`agentId` 行格式不变。
+17. live registry 为空、child `title` 保存真实任务短描述时，`SendMessage` 冷恢复续跑发出的 `SubagentSpawned.description` 与该 title 一致，且不等于绑定 profile 的 `description`（类型说明）；`SubagentRow.summaryText` 与 SendMessage 目标标题同源，不出现 profile 类型说明。
+18. child `title` 为空白时，冷恢复 description 为稳定的 `Recovered agent <agentId>`；不把 profile 说明、临时目录 metadata 或本次续跑消息当成任务描述。

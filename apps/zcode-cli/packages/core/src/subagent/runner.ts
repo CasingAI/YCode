@@ -60,6 +60,7 @@ import type { TurnAttachment } from "../agent/turn-state.js";
 import { EXPLORE_AGENT_ALLOWED_TOOLS } from "./explore-tools.js";
 import { formatLocalAgentTaskNotification } from "./completion-notification.js";
 import { filterSubagentChildToolNames } from "./tool-policy.js";
+import { resolveRecoveredAgentDescription } from "./recovered-agent-description.js";
 import {
   InMemoryRuntimeTaskRegistry,
   isTerminalRuntimeTask,
@@ -1028,7 +1029,7 @@ function hydrateTerminalAgentFromResolution(
     agentId: binding.agentId,
     agentType: binding.agentType || DEFAULT_SUBAGENT_TYPE,
     childSessionId: child.id,
-    description: profile?.description ?? `Recovered agent ${binding.agentId}`,
+    description: resolveRecoveredAgentDescription(child, binding.agentId),
     isBackgrounded: false,
     outputFile: undefined,
     parentToolCallId: request.parentToolCallId,

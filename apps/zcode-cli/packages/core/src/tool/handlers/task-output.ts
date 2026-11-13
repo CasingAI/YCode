@@ -28,6 +28,7 @@ import type {
   ToolPersistedModelContentInput,
 } from "../types.js";
 import { formatCompactFileSize, projectTask, throwIfAborted } from "./task-output-projection.js";
+import { resolveRecoveredAgentDescription } from "../../subagent/recovered-agent-description.js";
 
 const TASK_OUTPUT_DEFAULT_LENGTH = 32_000;
 const TASK_OUTPUT_MAX_LENGTH = 160_000;
@@ -198,6 +199,8 @@ async function loadDurableAgentTaskSnapshot(
   const messages = await sessionStore.messages({ sessionID: child.id });
   const lastAssistantText = findLastAssistantText(messages);
   const totalDurationMs = Math.max(0, child.time.updated - child.time.created);
+  // 与 SendMessage 冷恢复同源：任务名取 child title，避免 profile 类型说明进入标题。
+  const recoveredDescription = resolveRecoveredAgentDescription(child, binding.agentId);
   // 从 transcript 数真实 tool part，不用 0 兜底：投影里出现"0 次工具调用"会被读成
   // 这个 Agent 什么都没做，而实际可能做过几十次。
   const totalToolUseCount = messages.reduce(
@@ -210,7 +213,7 @@ async function loadDurableAgentTaskSnapshot(
     agentId: binding.agentId,
     agentType: binding.agentType,
     childSessionId: child.id,
-    description: `Recovered agent ${binding.agentId}`,
+    description: recoveredDescription,
     isBackgrounded: false,
     parentSessionId: child.parentID,
     startedAt: new Date(child.time.created),
@@ -230,7 +233,7 @@ async function loadDurableAgentTaskSnapshot(
             childSessionId: child.id,
             canContinue: true,
             agentType: binding.agentType,
-            description: `Recovered agent ${binding.agentId}`,
+            description: recoveredDescription,
             prompt: "",
             content: [{ type: "text", text: lastAssistantText }],
             totalToolUseCount,

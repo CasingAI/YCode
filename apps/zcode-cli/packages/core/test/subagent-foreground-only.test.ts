@@ -3,14 +3,19 @@ import test from "node:test";
 import {
   AgentInputJsonSchema,
   AgentRuntimeInputSchema,
+  SessionEventType,
   createSessionId,
   createToolCallId,
   createTraceId,
+  type TaskOutputResult,
+  type ToolExecutionContext,
 } from "@zcode/contracts";
 import { createExploreSubagentPort } from "../src/subagent/runner.js";
 import { parseAgentProfileFromMarkdown } from "../src/subagent/profile.js";
 import { createAgentToolEntry } from "../src/tool/handlers/agent.js";
+import { taskOutputToolEntry } from "../src/tool/handlers/task-output.js";
 import { BackgroundTaskTracker } from "../src/tool/executor/background-tasks.js";
+import { InMemoryRuntimeTaskRegistry } from "../src/runtime-task/registry.js";
 
 function request(overrides: Record<string, unknown> = {}) {
   return {
@@ -444,6 +449,7 @@ function durableResolution(options: {
   agentType?: string;
   taskType?: "subagent_child" | "interactive";
   parentSessionId?: string;
+  title?: string;
 }) {
   return {
     binding: {
@@ -467,7 +473,7 @@ function durableResolution(options: {
       taskType: options.taskType ?? ("subagent_child" as const),
       slug: "subagent",
       directory: options.workspaceRoot ?? "/workspace/demo",
-      title: "child",
+      title: options.title ?? "child",
       version: "0.0.0-test",
       time: { created: 1_000, updated: 2_000 },
     },
@@ -633,4 +639,127 @@ test("没有注入 resolver 时行为与旧实现一致", async () => {
 
   assert.equal(result.status, "failed");
   assert.match(result.message, /No local agent found/);
+});
+
+/** 收集续跑期间发给父会话的事件，用于断言投影输入。 */
+function collectSpawnedDescriptions(
+  events: { type: string; payload: unknown }[],
+): (string | undefined)[] {
+  return events
+    .filter((event) => event.type === SessionEventType.SubagentSpawned)
+    .map((event) => (event.payload as { description?: string }).description);
+}
+
+test("冷恢复续跑的任务描述取真实 child title，而不是 profile 类型说明", async () => {
+  const agentId = "agent_eeeeeeee-5555-5555-5555-555555555555";
+  const parentSessionId = String(createSessionId());
+  const taskTitle = "定位冷恢复描述来源";
+  const events: { type: string; payload: unknown }[] = [];
+  const port = createExploreSubagentPort({
+    runExploreAgent: async (child) => ({
+      response: "recovered answer",
+      traceId: child.traceContext.traceId,
+      events: [],
+    }),
+    emitParentEvent: async (event) => {
+      events.push({ type: event.type, payload: event.payload });
+    },
+    resolveSubagentIdentity: async () =>
+      durableResolution({
+        agentId,
+        parentSessionId,
+        workspaceRoot: "/workspace/demo",
+        title: taskTitle,
+      }),
+  });
+
+  const result = await port.sendMessage({
+    sessionId: parentSessionId as never,
+    to: agentId,
+    message: "继续",
+    parentToolCallId: createToolCallId(),
+    workspaceRoot: "/workspace/demo",
+    trace: { traceId: createTraceId() },
+  });
+
+  assert.equal(result.status, "success", JSON.stringify(result));
+  // description 直接投影到 SubagentRow.summaryText 与 SendMessage 目标标题，
+  // 取 profile.description 会把内置类型说明（"General-purpose agent for …"）当作任务名展示。
+  const descriptions = collectSpawnedDescriptions(events);
+  assert.deepEqual(descriptions, [taskTitle]);
+  assert.notEqual(descriptions[0], "recovered profile");
+});
+
+test("冷恢复在 child title 空白时回退稳定的 Recovered agent 标识", async () => {
+  const agentId = "agent_ffffffff-6666-6666-6666-666666666666";
+  const parentSessionId = String(createSessionId());
+  const events: { type: string; payload: unknown }[] = [];
+  const port = createExploreSubagentPort({
+    runExploreAgent: async (child) => ({
+      response: "recovered answer",
+      traceId: child.traceContext.traceId,
+      events: [],
+    }),
+    emitParentEvent: async (event) => {
+      events.push({ type: event.type, payload: event.payload });
+    },
+    resolveSubagentIdentity: async () =>
+      durableResolution({
+        agentId,
+        parentSessionId,
+        workspaceRoot: "/workspace/demo",
+        title: "   ",
+      }),
+  });
+
+  const result = await port.sendMessage({
+    sessionId: parentSessionId as never,
+    to: agentId,
+    message: "继续",
+    parentToolCallId: createToolCallId(),
+    workspaceRoot: "/workspace/demo",
+    trace: { traceId: createTraceId() },
+  });
+
+  assert.equal(result.status, "success", JSON.stringify(result));
+  assert.deepEqual(collectSpawnedDescriptions(events), [`Recovered agent ${agentId}`]);
+});
+
+function durableTaskOutputContext(agentId: string, title: string): ToolExecutionContext {
+  return {
+    toolCallId: "call_task_output_durable",
+    abortSignal: new AbortController().signal,
+    sessionId: "sess_parent_task_output" as never,
+    workingDirectory: "/workspace/demo",
+    workspaceRoot: "/workspace/demo",
+    runtimeTaskRegistry: new InMemoryRuntimeTaskRegistry(),
+    sessionStore: {
+      resolveSubagentIdentity: async () =>
+        durableResolution({ agentId, workspaceRoot: "/workspace/demo", title }),
+      messages: async () => [],
+    },
+  } as unknown as ToolExecutionContext;
+}
+
+test("TaskOutput 冷恢复的任务描述与 SendMessage 同源，取真实 child title", async () => {
+  const agentId = "agent_99999999-7777-7777-7777-777777777777";
+  const taskTitle = "汇总子代理调研结论";
+  const result = (await taskOutputToolEntry.handler(
+    { task_id: agentId, block: false, timeout: 15_000 },
+    durableTaskOutputContext(agentId, taskTitle),
+  )) as TaskOutputResult;
+
+  assert.equal(result.retrieval_status, "success", JSON.stringify(result));
+  assert.equal(result.task?.description, taskTitle);
+});
+
+test("TaskOutput 冷恢复在 child title 空白时回退 Recovered agent 标识", async () => {
+  const agentId = "agent_88888888-8888-8888-8888-888888888888";
+  const result = (await taskOutputToolEntry.handler(
+    { task_id: agentId, block: false, timeout: 15_000 },
+    durableTaskOutputContext(agentId, ""),
+  )) as TaskOutputResult;
+
+  assert.equal(result.retrieval_status, "success", JSON.stringify(result));
+  assert.equal(result.task?.description, `Recovered agent ${agentId}`);
 });

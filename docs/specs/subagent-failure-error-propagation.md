@@ -25,6 +25,7 @@
 
 - 只透传，不新增重试/兜底分支；provider 的重试/超时策略不在本 spec 范围。
 - 不新增 UI 组件；只保证数据到达 UI 已消费的 `subagentResult.error`。
+- `SubagentStopped.error` 仍原样保留在事件载荷、工具结果与失败输出；会话投影的生命周期行标题优先使用任务描述，不能用 `error` 覆盖已有描述（见 `tool-card-visible-titles.md`「生命周期终态标题」）。
 - 不改 `AgentFailedOutput` 的 zod 类型（`error: string`），不做协议破坏性变更。
 
 ## 验收场景
@@ -33,3 +34,4 @@
 2. 终端 `error` / 事件 `error` / artifact metadata 的字符串都等于同一份错误文本。
 3. UI Agent 卡的失败 tooltip 能拿到 `continuation.error`（display metadata 非空）。
 4. 无 message 的普通失败退回 fallback，不出现空文本。
+5. 失败/取消终态的生命周期行仍显示此前任务短描述；`error` 保留在事件与工具结果中，不占据行标题。

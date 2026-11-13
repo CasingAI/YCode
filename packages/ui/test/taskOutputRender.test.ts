@@ -2,8 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { TID_V4_SEND_MESSAGE_OPEN_SIDE_PANE } from "@zcode/shared";
-import type { RunningSubagentSummary, ToolCallRow } from "@zcode/shared/zcode-protocol-v4";
+import { TID_V4_SEND_MESSAGE_OPEN_SIDE_PANE, TID_V4_SUBAGENT_OPEN_SIDE_PANE } from "@zcode/shared";
+import type {
+  RunningSubagentSummary,
+  SubagentRow,
+  ToolCallRow,
+} from "@zcode/shared/zcode-protocol-v4";
 import { DEFAULT_CODE_PREVIEW_SETTINGS } from "../src/lib/codePreviewSettings.js";
 import { ZCodeIntlProvider } from "../src/i18n/IntlProvider.js";
 import { ConversationRowView } from "../src/v4/ConversationRowView.js";
@@ -1075,6 +1079,7 @@ function renderSendMessageRow(
   options: {
     toolName?: string;
     onOpenSubagentSession?: NonNullable<ConversationRowRenderContext["onOpenSubagentSession"]>;
+    agentTitleByIdentity?: ReadonlyMap<string, string>;
   } = {},
 ): string {
   const row = {
@@ -1096,7 +1101,7 @@ function renderSendMessageRow(
     codePreviewSettings: DEFAULT_CODE_PREVIEW_SETTINGS,
     sessionId: "sess_parent_001",
     rootSessionId: "sess_parent_001",
-    agentTitleByIdentity: new Map([[AGENT_ID, TITLE]]),
+    agentTitleByIdentity: options.agentTitleByIdentity ?? new Map([[AGENT_ID, TITLE]]),
     agentSessionByIdentity: new Map([
       [AGENT_ID, { childSessionId: CHILD_SESSION_ID, subagentType: "codeReview" }],
     ]),
@@ -1130,6 +1135,18 @@ test("SendMessage 运行中只要身份可解析就产出跳转入口", () => {
     assert.match(markup, /在右侧打开/);
     assert.match(markup, new RegExp(TITLE));
   }
+});
+
+test("SendMessage 索引无标题但会话身份可解析时，卡片使用本地化目标名", () => {
+  const markup = renderSendMessageRow("success", {
+    onOpenSubagentSession: OPEN_SUBAGENT_SESSION_STUB,
+    agentTitleByIdentity: new Map(),
+  });
+
+  assert.match(markup, /目标子智能体/);
+  assert.equal(markup.includes("codeReview"), false);
+  assert.match(markup, new RegExp(`${TID_V4_SEND_MESSAGE_OPEN_SIDE_PANE}-${CHILD_SESSION_ID}`));
+  assert.equal(markup.includes(AGENT_ID), false);
 });
 
 test("SendMessage 失败/取消态在身份可解析时同样产出跳转入口", () => {
@@ -1218,4 +1235,264 @@ test("会话级标题索引可被跨回合工具卡复用", () => {
 
   const titles = buildAgentTitleByIdentity(rows);
   assert.equal(titles.get(AGENT_ID), "跨回合任务");
+});
+
+// ---------------------------------------------------------------------------
+// 未配对 SubagentRow 状态卡（docs/specs/tool-card-visible-titles.md）
+// ---------------------------------------------------------------------------
+
+const PROFILE_DESCRIPTION = "General-purpose agent for researching complex questions";
+
+function subagentRow(overrides: Partial<SubagentRow> & { rowId: number }): SubagentRow {
+  return {
+    kind: "subagent",
+    turnId: "turn-1",
+    entityId: AGENT_ID,
+    subagentType: "general-purpose",
+    status: "running",
+    summaryText: "",
+    createdAt: 1,
+    createdAtSeq: 1,
+    ...overrides,
+  } as SubagentRow;
+}
+
+function renderSubagentRow(
+  row: SubagentRow,
+  context: ConversationRowRenderContext = agentTitleContext(),
+): string {
+  return renderToStaticMarkup(
+    createElement(
+      ZCodeIntlProvider,
+      { initialLocale: "zh-CN" },
+      createElement(ConversationRowView, { row, context }),
+    ),
+  );
+}
+
+function agentTitleContext(
+  overrides: Partial<ConversationRowRenderContext> = {},
+): ConversationRowRenderContext {
+  return {
+    workspacePath: "/workspace",
+    theme: "system",
+    codePreviewSettings: DEFAULT_CODE_PREVIEW_SETTINGS,
+    sessionId: "sess_parent_001",
+    rootSessionId: "sess_parent_001",
+    ...overrides,
+  };
+}
+
+test("同一 entityId 的配对 Agent 标题优先于续跑重建行的 summaryText", () => {
+  // 冷恢复续跑会追加一条 parentToolCallId 指向 SendMessage 的 SubagentRow；
+  // 早先按行顺序覆盖索引时，这条行的 profile 说明会盖掉 spawn 轮 Agent 的真实标题。
+  const rows = [
+    {
+      kind: "toolCall",
+      rowId: 1,
+      turnId: "turn-1",
+      toolCallId: "agent-call",
+      toolName: "Agent",
+      status: "success",
+      inputText: "{}",
+      input: { description: "复核 Description 截断改动", subagent_type: "codeReview" },
+    },
+    subagentRow({ rowId: 2, turnId: "turn-1", parentToolCallId: "agent-call" }),
+    subagentRow({
+      rowId: 3,
+      turnId: "turn-1",
+      parentToolCallId: "send-message-call",
+      summaryText: PROFILE_DESCRIPTION,
+    }),
+    {
+      kind: "toolCall",
+      rowId: 4,
+      turnId: "turn-2",
+      toolCallId: "send-message-call",
+      toolName: "SendMessage",
+      status: "success",
+      inputText: "{}",
+      input: { to: AGENT_ID },
+    },
+  ] as AssistantWorkRow[];
+
+  const titles = buildAgentTitleByIdentity(rows);
+
+  assert.equal(titles.get(AGENT_ID), "复核 Description 截断改动");
+
+  // SendMessage 卡与未配对续跑卡都必须用配对来源的标题。
+  const sendMessageMarkup = renderToStaticMarkup(
+    createElement(
+      ZCodeIntlProvider,
+      { initialLocale: "zh-CN" },
+      createElement(ConversationRowView, {
+        row: rows[3] as unknown as ToolCallRow,
+        context: agentTitleContext({ agentTitleByIdentity: titles }),
+      }),
+    ),
+  );
+  assert.match(sendMessageMarkup, /复核 Description 截断改动/);
+  assert.equal(sendMessageMarkup.includes(AGENT_ID), false);
+
+  const resumedMarkup = renderSubagentRow(
+    subagentRow({
+      rowId: 3,
+      parentToolCallId: "send-message-call",
+      summaryText: PROFILE_DESCRIPTION,
+    }),
+    agentTitleContext({ agentTitleByIdentity: titles }),
+  );
+  assert.match(resumedMarkup, /复核 Description 截断改动/);
+  assert.equal(resumedMarkup.includes(PROFILE_DESCRIPTION), false);
+});
+
+test("未配对 SubagentRow 的裸 subagentType 不进标题索引", () => {
+  const rows = [
+    subagentRow({ rowId: 1, subagentType: "general-purpose", summaryText: "" }),
+  ] as AssistantWorkRow[];
+
+  const titles = buildAgentTitleByIdentity(rows);
+
+  assert.equal(titles.size, 0);
+
+  // 索引缺席时 TaskOutput 不能因此回退成英文类型原文，而要走本地化标题。
+  const markup = renderTaskOutput({
+    input: { task_id: AGENT_ID },
+    agentTitleByIdentity: titles,
+  });
+  assert.match(markup, /任务输出/);
+  assert.equal(markup.includes("general-purpose"), false);
+});
+
+test("配对 Agent 行缺 description 时仍按 Agent 卡口径回退 subagent_type", () => {
+  // 第一遍只跳过「没有配对宿主」的行；配对行自身缺描述时仍可回退类型，
+  // 与 getAgentPrimaryText / Agent 卡保持一致，四个 renderer 拿到同一标题。
+  const rows = [
+    {
+      kind: "toolCall",
+      rowId: 1,
+      turnId: "turn-1",
+      toolCallId: "agent-call",
+      toolName: "Agent",
+      status: "success",
+      inputText: "{}",
+      input: { subagent_type: "codeReview" },
+    },
+    subagentRow({ rowId: 2, parentToolCallId: "agent-call", subagentType: "codeReview" }),
+  ] as AssistantWorkRow[];
+
+  const titles = buildAgentTitleByIdentity(rows);
+
+  assert.equal(titles.get(AGENT_ID), "codeReview");
+  assert.equal(titles.get(AGENT_ID)?.startsWith("agent_"), false);
+});
+
+test("孤立 running 未配对行渲染本地化状态卡与侧栏入口", () => {
+  const markup = renderSubagentRow(
+    subagentRow({ rowId: 7, childSessionId: CHILD_SESSION_ID }),
+    agentTitleContext({
+      agentTitleByIdentity: new Map([[AGENT_ID, TITLE]]),
+      onOpenSubagentSession: OPEN_SUBAGENT_SESSION_STUB,
+    }),
+  );
+
+  assert.match(markup, /子智能体/);
+  assert.match(markup, new RegExp(TITLE));
+  assert.match(markup, /运行中/);
+  assert.match(markup, new RegExp(`${TID_V4_SUBAGENT_OPEN_SIDE_PANE}-${CHILD_SESSION_ID}`));
+  assert.match(markup, /role="button"/);
+  assert.equal(markup.includes(AGENT_ID), false);
+  // 不得回退成 `general-purpose · running — summary` 裸行。
+  assert.equal(markup.includes("general-purpose · running"), false);
+});
+
+test("未配对行没有索引标题时使用安全 summaryText", () => {
+  const markup = renderSubagentRow(
+    subagentRow({ rowId: 8, summaryText: "检查设置页空状态", status: "running" }),
+  );
+
+  assert.match(markup, /检查设置页空状态/);
+  assert.match(markup, /运行中/);
+  assert.equal(markup.includes(TID_V4_SUBAGENT_OPEN_SIDE_PANE), false);
+});
+
+test("无标题无 summary 的 Explore 成功行显示本地化类型名与已完成", () => {
+  const markup = renderSubagentRow(
+    subagentRow({ rowId: 9, subagentType: "Explore", status: "success", summaryText: "" }),
+  );
+
+  assert.match(markup, /探索/);
+  assert.match(markup, /已完成/);
+  // 不得显示英文类型原文或英文状态。
+  assert.equal(markup.includes("Explore · success"), false);
+  assert.equal(markup.includes(">Explore<"), false);
+  assert.equal(markup.includes(">success<"), false);
+});
+
+test("无标题的 built-in general-purpose 行显示本地化类型名", () => {
+  const markup = renderSubagentRow(
+    subagentRow({ rowId: 10, subagentType: "general-purpose", status: "running" }),
+  );
+
+  assert.match(markup, /通用/);
+  assert.match(markup, /运行中/);
+  assert.equal(markup.includes(">general-purpose<"), false);
+});
+
+test("第三方子代理类型在原样显示的同时仍保留本地化状态", () => {
+  const markup = renderSubagentRow(
+    subagentRow({ rowId: 11, subagentType: "codeReview", status: "failed" }),
+  );
+
+  assert.match(markup, /codeReview/);
+  assert.match(markup, /失败/);
+});
+
+test("失败与取消的未配对 SubagentRow 保留任务短描述并显示本地化状态", () => {
+  const failed = renderSubagentRow(
+    subagentRow({ rowId: 15, status: "failed", summaryText: "复核冷恢复描述" }),
+  );
+  assert.match(failed, /复核冷恢复描述/);
+  assert.match(failed, /失败/);
+  assert.equal(failed.includes(">failed<"), false);
+
+  const cancelled = renderSubagentRow(
+    subagentRow({ rowId: 16, status: "cancelled", summaryText: "复核冷恢复描述" }),
+  );
+  assert.match(cancelled, /复核冷恢复描述/);
+  assert.match(cancelled, /已取消/);
+  assert.equal(cancelled.includes(">cancelled<"), false);
+});
+
+test("分享只读视图无宿主回调时无侧栏入口但状态可见", () => {
+  const markup = renderSubagentRow(
+    subagentRow({ rowId: 12, childSessionId: CHILD_SESSION_ID, status: "success" }),
+    agentTitleContext(),
+  );
+
+  assert.equal(markup.includes(TID_V4_SUBAGENT_OPEN_SIDE_PANE), false);
+  assert.equal(markup.includes("在右侧打开"), false);
+  assert.match(markup, /已完成/);
+});
+
+test("缺少 childSessionId 时未配对行不可点击但状态仍渲染", () => {
+  const markup = renderSubagentRow(
+    subagentRow({ rowId: 13 }),
+    agentTitleContext({ onOpenSubagentSession: OPEN_SUBAGENT_SESSION_STUB }),
+  );
+
+  assert.equal(markup.includes(TID_V4_SUBAGENT_OPEN_SIDE_PANE), false);
+  assert.match(markup, /运行中/);
+});
+
+test("缺少父 sessionId 时未配对行不可点击", () => {
+  const markup = renderSubagentRow(subagentRow({ rowId: 14, childSessionId: CHILD_SESSION_ID }), {
+    workspacePath: "/workspace",
+    theme: "system",
+    codePreviewSettings: DEFAULT_CODE_PREVIEW_SETTINGS,
+    onOpenSubagentSession: OPEN_SUBAGENT_SESSION_STUB,
+  } as ConversationRowRenderContext);
+
+  assert.equal(markup.includes(TID_V4_SUBAGENT_OPEN_SIDE_PANE), false);
+  assert.match(markup, /运行中/);
 });

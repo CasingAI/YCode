@@ -14,6 +14,7 @@ import {
 import {
   ArchiveIcon,
   ArrowRightLeftIcon,
+  BotIcon,
   CheckIcon,
   CopyIcon,
   FileIcon,
@@ -122,6 +123,13 @@ import { WorkflowToolSummary } from "@/v4/WorkflowToolSummary.js";
 import { readWorkflowName } from "@/ToolCallBlocks/renderers/createWorkflowInput.js";
 import { isAmendWorkflowToolCall } from "@/lib/workflowToolNames.js";
 import { ToolCallBlock } from "@/ToolCallBlocks.js";
+import { ToolLayout } from "@/ToolCallBlocks/ToolLayout.js";
+import { formatAgentMessage } from "@/ToolCallBlocks/renderers/agentHelpers.js";
+import { isSafeVisibleToolTitle } from "@/ToolCallBlocks/renderers/visibleToolIdentity.js";
+import { resolveSendMessageTargetTitle } from "@/ToolCallBlocks/renderers/send-message.js";
+import { resolveBuiltInSubagentChatTypeLabel } from "@/lib/builtInSubagentDisplay.js";
+import { resolveSubagentColorFromName, SUBAGENT_TEXT_COLOR_CLASS } from "@/lib/subagentColors.js";
+import { buildSubagentSummaryAction } from "@/v4/ConversationAgentToolCallRow.js";
 import { resolveWorkflowRunOpenToolCallId } from "@/v4/workflowRunCardJoin.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { runUserAction, runUserActionAsync } from "@/lib/userActionTelemetry.js";
@@ -2878,6 +2886,7 @@ const ToolCallRowView = memo(function ToolCallRowView({
 }) {
   // toolCall 行回接 ToolCallBlocks（execute/read/edit/... renderer 按
   // tool identity 分流）。适配 memo 按 row 引用：row.delta/upserted 换新对象才重建。
+  const { intl } = useZCodeIntl();
   const toolCallNode = useMemo(() => toolCallRowToLegacyNode(row), [row]);
   // workflow run 详情入口的门控：run 身份走 workflowRuns 投影（schema 里 toolCallId 就是
   // 「工具卡 → 详情页的关联键」），不从工具输出里读——v4 行的 output 只剩一句散文。
@@ -2890,18 +2899,8 @@ const ToolCallRowView = memo(function ToolCallRowView({
     (row.display?.kind === "resume_workflow_run"
       ? context.workflowRunByRunId?.get(row.display.runId)
       : undefined);
-  // SendMessage 行「已发送 给 XXX」的可打开身份：目标取自 ToolCallBlock 传给
-  // renderer 的同一 legacy node 的 input.to（`agent_<uuid>` 形态，与
-  // SubagentRow.entityId 同源；v4 行的 raw 从不携带 input 记录——桥接
-  // （toolCallRowAdapter.ts）只写 error/output/display 等，input 唯一通道是
-  // row.input / inputText 流式预览，与渲染器（send-message.tsx）的读取同源），
-  // 会话身份取自 `agentSessionByIdentity` 派生索引（SubagentRow 投影，唯一权威）。
-  // 五者齐备才产出 action，缺一即回退现状（不可点、可展开），不报错：
-  // 工具名非 SendMessage / to 缺席 / 无可打开身份 /
-  // 无当前会话 / 宿主未注入打开回调（如分享只读视图）。
-  // 工具调用状态不参与判定：SendMessage 的工具完成指的是「收件人这一轮回复结束」，
-  // 不是「消息已投递」——发给运行中子代理是即时投递，收件人会话明明已存在，
-  // 若拿工具完成当投递信号，子智能体还在跑时这一行会被误判为不可点。
+  // SendMessage 行只有目标身份、当前会话与宿主回调齐备时才可下钻；
+  // 工具调用状态不参与判定（它表示收件人这一轮回复结束，不是消息已投递）。
   const sendMessageTarget = useMemo(() => {
     if (normalizeZCodeToolName(row.toolName) !== "RelayToSubagent") return undefined;
     const input = toolCallNode.toolCall.input;
@@ -2912,14 +2911,23 @@ const ToolCallRowView = memo(function ToolCallRowView({
   const sendMessageSession = sendMessageTarget
     ? context.agentSessionByIdentity?.get(sendMessageTarget)
     : undefined;
-  const sendMessageTitle =
-    sendMessageTarget !== undefined
-      ? (context.agentTitleByIdentity?.get(sendMessageTarget) ?? sendMessageSession?.subagentType)
-      : undefined;
+  const sendMessageTitle = useMemo(
+    () =>
+      sendMessageTarget
+        ? resolveSendMessageTargetTitle(
+            sendMessageTarget,
+            context.agentTitleByIdentity?.get(sendMessageTarget),
+            intl.formatMessage({ id: "chat.toolCall.sendMessage.targetFallback" }),
+          )
+        : undefined,
+    [context.agentTitleByIdentity, intl, sendMessageTarget],
+  );
   const handleOpenSendMessageTarget = useCallback(() => {
     const onOpenSubagentSession = context.onOpenSubagentSession;
     const parentSessionId = context.sessionId;
-    if (!sendMessageSession || !parentSessionId || !onOpenSubagentSession) return;
+    if (!sendMessageSession || !parentSessionId || !onOpenSubagentSession || !sendMessageTitle) {
+      return;
+    }
     runUserAction({
       input: {
         featureId: "conversation.subagent",
@@ -2932,7 +2940,7 @@ const ToolCallRowView = memo(function ToolCallRowView({
           parentSessionId,
           childSessionId: sendMessageSession.childSessionId,
           subagentType: sendMessageSession.subagentType,
-          title: sendMessageTitle ?? sendMessageSession.subagentType,
+          title: sendMessageTitle,
         }),
       completed: { resultSource: "local_commit" },
       failureStage: "subagent_open",
@@ -3104,18 +3112,85 @@ const ToolCallRowView = memo(function ToolCallRowView({
   );
 });
 
-const SubagentRowView = memo(function SubagentRowView({ row }: { row: SubagentRow }) {
-  // subagent 行已经和 Agent/Task 工具行配对渲染；裸行只保留异常兜底摘要，
-  // 避免再生成一个“子会话”卡片或第二套下钻入口。
-  const summary = (
-    <>
-      {row.subagentType} · {row.status}
-      {row.summaryText ? ` — ${row.summaryText}` : ""}
-    </>
+const SubagentRowView = memo(function SubagentRowView({
+  row,
+  context,
+}: {
+  row: SubagentRow;
+  context: ConversationRowRenderContext;
+}) {
+  const { intl } = useZCodeIntl();
+  // 未配对记录仍承载运行状态，不能按重复行隐藏。
+  const identity = row.entityId?.trim();
+  const indexedTitle = identity ? context.agentTitleByIdentity?.get(identity) : undefined;
+  const typeLabel = resolveBuiltInSubagentChatTypeLabel(row.subagentType, (messageId, fallback) =>
+    formatAgentMessage(intl, messageId, fallback),
   );
+  const primaryTitle =
+    [indexedTitle, row.summaryText, typeLabel].find(isSafeVisibleToolTitle)?.trim() ??
+    formatAgentMessage(intl, "chat.toolCall.agent.fallback", "SubAgent");
+  // 主标题已经退到类型显示名时不再重复同一个词做类型副标题。
+  const typeLabelText =
+    isSafeVisibleToolTitle(typeLabel) && typeLabel.trim() !== primaryTitle
+      ? typeLabel.trim()
+      : undefined;
+  const kindLabel = formatAgentMessage(intl, "chat.toolCall.agent.fallback", "SubAgent");
+  const statusLabel = intl.formatMessage({ id: `subagentDirectory.status.${row.status}` });
+  const isRunning = row.status === "running";
+  const summaryAction = useMemo(
+    () =>
+      buildSubagentSummaryAction({
+        ariaLabel: formatAgentMessage(
+          intl,
+          "chat.toolCall.agent.openInSidePane",
+          "Open on the right",
+        ),
+        childSessionId: row.childSessionId,
+        context,
+        subagentType: row.subagentType,
+        title: primaryTitle,
+      }),
+    [context, intl, primaryTitle, row.childSessionId, row.subagentType],
+  );
+  const primaryText = useMemo(
+    () => <span className="min-w-0 truncate">{primaryTitle}</span>,
+    [primaryTitle],
+  );
+  // 类型名与 Agent 卡同款着色，内置名走 i18n，第三方身份原样显示。
+  const kindDetail = useMemo(
+    () =>
+      typeLabelText ? (
+        <span
+          className={cn(
+            "inline-flex max-w-36 items-center truncate font-mono text-ui-base font-medium leading-[1.5]",
+            SUBAGENT_TEXT_COLOR_CLASS[resolveSubagentColorFromName(row.subagentType)],
+          )}
+          title={typeLabelText}
+        >
+          {typeLabelText}
+        </span>
+      ) : undefined,
+    [row.subagentType, typeLabelText],
+  );
+
   return (
     <RowShell rowId={row.rowId}>
-      <div className="text-ui-sm text-[var(--color-foreground-subtle)]">{summary}</div>
+      {/* 不新挂 data-conversation-selectable：裸兜底行此前不可参与划选，本改动只管标题与下钻。 */}
+      <ToolLayout
+        toolId={`subagent:${row.rowId}`}
+        icon={<BotIcon className="size-4 shrink-0 text-foreground-subtle" />}
+        canToggle={false}
+        forceOpen={false}
+        summaryAction={summaryAction}
+        kindLabel={kindLabel}
+        kindDetail={kindDetail}
+        primaryText={primaryText}
+        statusLabel={statusLabel}
+        showStatusLabel
+        showFailureStatus={row.status === "failed"}
+        isRunning={isRunning}
+        title={primaryTitle}
+      />
     </RowShell>
   );
 });
@@ -3241,7 +3316,7 @@ function RowViewSwitch({
         <ToolCallRowView row={row} context={context} />
       );
     case "subagent":
-      return <SubagentRowView row={row} />;
+      return <SubagentRowView row={row} context={context} />;
     case "artifact":
       return <ArtifactRowView row={row} />;
     default:
