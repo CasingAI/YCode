@@ -74,6 +74,14 @@
   自定义 `a` 渲染器拦截不到。`messageRehypePlugins` 把默认 sanitize 条目的
   `protocols.href` 加 `ycode`（其余原样，不动 sanitize/harden 本体，不引入新插件）。
   开关关闭时 ycode 链接走既有回退（非文件、非 http 外链 → 不可点 span），不产生可点死链。
+- 生产压缩同样必须放行：识别 sanitize 条目只能依赖 Streamdown `defaultRehypePlugins`
+  的稳定语义键 `sanitize`（对象键不参与压缩）。不得用 `plugin[0].name` 判断——
+  生产构建会把 `rehypeSanitize` 压缩改名，判断失效后放行被静默跳过，
+  ycode 链接在正式包里退化成 `[blocked]` 文本；开发态不压缩，源码测试看不出来。
+- 放行范围不因压缩修复而扩大：仍只给 `href` 追加 `ycode`，保留 Streamdown 默认 schema
+  与其余安全设置；`javascript:`、`data:`、`vbscript:` 等敏感协议继续由 sanitize/harden
+  拦截，不产生可点链接。本地文件链接不在此列，仍走既有处理路径：相对/裸路径先按既有规则
+  规整，`file:` 仍由安全层拦截，本次调整不新增限制。
 - `MessageResponse`（`packages/ui/src/components/ai-elements/message.tsx`）保留
   `renderZCodeSessionCitations` + `sessionCitationExistingSessionIds` +
   `onOpenSessionCitation`；`a` 渲染器按 scheme 先于文件链接分流，渲染会话芯片
@@ -176,6 +184,17 @@
 - 顶部第二行工具过程摘要照旧（仍读工具 display）。
 - 模型提示：`v4-bridge.ts buildAiHistorySearchPrompt` 教链接形态；
   `history-search.ts modelInstructions` 教链接形态。
+
+## 验证
+
+- 单测：`packages/ui/test/sessionCitationRender.test.ts` 覆盖常规渲染管线；
+  `packages/ui/test/sessionCitationMinifiedRender.test.ts` 用仓库现有 Vite 生产默认压缩
+  压缩真实 `message.tsx`（含 Streamdown sanitize 条目）后再 SSR，断言 ycode 引用仍渲染成
+  可点芯片、无 `[blocked]`，且 `javascript:`/`data:`/`vbscript:` 等敏感协议仍被拦截；
+  同时校验产物中的 sanitize attacher 已改名，避免未压缩构建造成假绿灯。
+  仅未压缩源码的 SSR 绿灯不算覆盖生产压缩路径。
+- E2E 验收场景：正式包中助手正文出现 `[片段](ycode://session/open?sessionId=…)` 时
+  应渲染可点会话芯片而非带 `[blocked]` 的文本；点击后切换会话并高亮 `search` 片段。
 
 ## 明确不做
 

@@ -858,7 +858,9 @@ const messageRehypePlugins: PluggableList = [
   rewriteLocalFileMarkdownTargetsRehypePlugin,
   ...Object.entries(defaultRehypePlugins).flatMap(([name, plugin]): Pluggable[] => {
     const mapped: Pluggable = (() => {
-      if (!Array.isArray(plugin) || plugin[0]?.name !== "rehypeSanitize") return plugin;
+      // 生产压缩会改写 attacher 函数名，不能按 name 识别；Streamdown 用对象键表达
+      // 插件语义，键名不参与压缩，按 `sanitize` 定位，避免放行静默失效。
+      if (!Array.isArray(plugin) || name !== "sanitize") return plugin;
       // 会话引用放行：默认 sanitize 的 href 协议表不含 ycode，ycode 链接会在
       // sanitize 阶段被剥 href、再被 harden 标 `[blocked]`，自定义 a 渲染器拦截不到。
       // 这里只给 href 加 ycode（规范式唯一载体；旧 zcode-session 形态已清除、不再放行），
