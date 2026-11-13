@@ -203,6 +203,8 @@ body {
   --color-accent: var(--color-sky-50);
   --color-find-highlight: #fde68a;
   --color-find-highlight-active: #facc15;
+  --color-find-highlight-foreground: var(--color-neutral-700);
+  --color-find-highlight-active-foreground: var(--color-neutral-700);
   --color-border: color-mix(in oklab, var(--color-neutral-950) 10%, transparent);
   /* 高对比强调边框：与 --color-border 同源色、65% 不透明，任意背景上不被吃掉。 */
   --color-border-contrast: color-mix(in oklab, var(--color-neutral-950) 65%, transparent);
@@ -361,6 +363,8 @@ body {
   --color-accent: color-mix(in oklab, var(--color-sky-950) 50%, transparent);
   --color-find-highlight: #713f12;
   --color-find-highlight-active: #a16207;
+  --color-find-highlight-foreground: var(--color-neutral-200);
+  --color-find-highlight-active-foreground: var(--color-white);
   --color-border: color-mix(in oklab, var(--color-neutral-50) 10%, transparent);
   /* 高对比强调边框：与 --color-border 同源色、65% 不透明，任意背景上不被吃掉。 */
   --color-border-contrast: color-mix(in oklab, var(--color-neutral-50) 65%, transparent);
@@ -522,6 +526,8 @@ body {
   --color-accent: #ebf4ff;
   --color-find-highlight: #fff4eb;
   --color-find-highlight-active: #ffb26b;
+  --color-find-highlight-foreground: var(--color-neutral-700);
+  --color-find-highlight-active-foreground: var(--color-neutral-700);
   --color-border: rgba(13, 13, 13, 0.1);
   /* 高对比强调边框：与 --color-border 同源色、65% 不透明，任意背景上不被吃掉。 */
   --color-border-contrast: rgba(13, 13, 13, 0.65);
@@ -674,6 +680,8 @@ body {
   --color-accent: #001d3d;
   --color-find-highlight: #542500;
   --color-find-highlight-active: #ff8a30;
+  --color-find-highlight-foreground: var(--color-neutral-200);
+  --color-find-highlight-active-foreground: var(--color-neutral-950);
   --color-border: rgba(255, 255, 255, 0.1);
   /* 高对比强调边框：与 --color-border 同源色、65% 不透明，任意背景上不被吃掉。 */
   --color-border-contrast: rgba(255, 255, 255, 0.65);

@@ -176,6 +176,8 @@ The dynamic-workflow timeline draws with a feature-scoped token family:
 - **Tag**: `--color-tag`
 - **Find Highlight**: `--color-find-highlight`, `--color-find-highlight-active`
   Use only for in-page/text search result highlights. The base token marks all matches; the active token marks the currently selected match.
+- **Find Highlight Text**: `--color-find-highlight-foreground`, `--color-find-highlight-active-foreground`
+  Every find background is painted with its paired foreground. Dark bases keep light text; bright active bases use dark ink. Keep at least 4.5:1 contrast in every theme; never use pixel inversion.
 - **Hover**: `--color-hover`
 - **Selected**: `--color-selected`
 - **Primary**: `--color-primary`

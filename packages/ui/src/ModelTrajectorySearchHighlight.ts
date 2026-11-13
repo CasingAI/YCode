@@ -3,14 +3,15 @@ import { findTrajectoryTextMatches, type TrajectorySearchMatch } from "@/ModelTr
 const HIGHLIGHT_NAME = "zcode-model-trajectory-find";
 const ACTIVE_HIGHLIGHT_NAME = "zcode-model-trajectory-find-active";
 const STYLE_ID = "zcode-model-trajectory-find-highlight-style";
+// 与会话查找共用成对前景 token：深底用主题正文色，亮橙底用配对深色。
 const HIGHLIGHT_STYLE = `
 ::highlight(${HIGHLIGHT_NAME}) {
   background-color: var(--color-find-highlight, #fde68a);
-  color: var(--color-foreground);
+  color: var(--color-find-highlight-foreground, var(--color-foreground));
 }
 ::highlight(${ACTIVE_HIGHLIGHT_NAME}) {
   background-color: var(--color-find-highlight-active, #facc15);
-  color: var(--color-foreground);
+  color: var(--color-find-highlight-active-foreground, var(--color-foreground));
 }
 `;
 

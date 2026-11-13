@@ -6,18 +6,20 @@ const ACTIVE_FIND_HIGHLIGHT_NAME = "zcode-v4-conversation-find-active";
 const SEARCH_RESULT_HIGHLIGHT_NAME = "zcode-v4-conversation-search-result";
 
 const FIND_STYLE_ID = "zcode-v4-conversation-find-highlight-style";
+// 深底与亮橙底需要方向相反的前景：普通命中沿用主题正文色，当前命中/跳转取配对前景，
+// 否则深色主题下浅字压在亮橙底上对比度不足。fallback 保持旧行为。
 const FIND_HIGHLIGHT_STYLE = `
 ::highlight(${FIND_HIGHLIGHT_NAME}) {
   background-color: var(--color-find-highlight, #fde68a);
-  color: var(--color-foreground);
+  color: var(--color-find-highlight-foreground, var(--color-foreground));
 }
 ::highlight(${ACTIVE_FIND_HIGHLIGHT_NAME}) {
   background-color: var(--color-find-highlight-active, #facc15);
-  color: var(--color-foreground);
+  color: var(--color-find-highlight-active-foreground, var(--color-foreground));
 }
 ::highlight(${SEARCH_RESULT_HIGHLIGHT_NAME}) {
   background-color: var(--color-find-highlight-active, #facc15);
-  color: var(--color-foreground);
+  color: var(--color-find-highlight-active-foreground, var(--color-foreground));
 }
 `;
 
