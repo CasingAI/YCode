@@ -560,7 +560,11 @@ export function getSidePaneTabTitle(
   // 而 browser-use tab 无 source 字段 → 读 undefined.title 触发 React 崩溃（整棵 workspace 子树挂掉）。
   // 用页面标题（agent 导航后由 getState 回填），缺省复用 browser.title 文案。
   if (tab.type === "browser-use") {
-    return tab.title?.trim() || formatMessage({ id: "browser.title" });
+    const pageTitle = tab.title?.trim() || formatMessage({ id: "browser.title" });
+    // 同一父 root 可能挂着多个 child 页面；归属标题由可信子代理投影在 ready/同步时冻结在
+    // tab 上，不再从 subagent-session tab 反查，因此关闭会话 tab 不会让标题失去归属。
+    const viewerTitle = tab.viewerTitle?.trim();
+    return viewerTitle ? `${pageTitle} · ${viewerTitle}` : pageTitle;
   }
 
   return tab.source.title || formatMessage({ id: "codeViewer.title" });

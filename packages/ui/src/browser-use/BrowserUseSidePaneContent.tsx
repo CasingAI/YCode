@@ -62,6 +62,7 @@ export function BrowserUseSidePaneContent({
       aria-hidden={!isSelected}
       inert={!isSelected ? true : undefined}
       data-browser-use-tab-id={tab.tabId}
+      data-browser-use-session-id={tab.sessionId}
       data-browser-screenshot-surface-state={screenshotSurfaceRequest ? "preparing" : undefined}
       className={cn(
         "h-full min-h-0 bg-background",

@@ -48,11 +48,13 @@ import {
   getActiveSidePaneTab,
   getVisibleSidePaneTabs,
   sidePaneOwnerKey,
+  type SubagentViewerAttribution,
   markBrowserUseSidePaneTabOperation,
   reorderSidePaneTab,
   resolveSidePaneScopeState,
   restoreSidePaneTab,
   setActiveSidePaneTab,
+  stampBrowserUseViewerAttribution,
   syncSubagentSessionSidePaneTabs,
   toggleBrowserSidePane,
   toggleGitSidePane,
@@ -317,6 +319,14 @@ export function useAppPanels(options: {
     [activeWorkspaceKey, sidePaneOwnerId, workspaceRemoteSessionId],
   );
 
+  // 子代理查看归属（viewerRootSessionId/viewerTitle）不在 UI 侧另存父子表：唯一来源是根会话
+  // conversation 投影经 SessionPane 的同步通路，唯一写入函数是 stampBrowserUseViewerAttribution。
+  // 这里只保留各 root 最近一次投影，专门覆盖 **ready 晚于投影** 的顺序：那时同步已在 tab 建好
+  // 之前跑过，不会再有第二次投影变化，必须在 tab 出现时用同一份投影补写。反向顺序（ready 先到）
+  // 由同步函数直接写。两条路径都写 tab 上同一组派生字段，且 stamp 只覆盖投影内的 childSessionId，
+  // 因此按 root 分开保存不会让 split pane 里另一个 root 的投影覆盖本 root 的待补写归属。
+  const subagentViewerAttributionByRootRef = useRef(new Map<string, SubagentViewerAttribution>());
+
   const syncSidePaneCollapsedWithTabs = useCallback(
     (next: WorkspaceSidePaneState | null) => {
       if (!hasVisibleSidePaneTabs(next)) {
@@ -569,7 +579,14 @@ export function useAppPanels(options: {
         payload,
         activeScope,
       );
-      commitSidePaneState(() => result.state);
+      // ready 晚于投影：同步函数的第二次投影变化不会再来，这里用该 root 最近一次投影把归属
+      // 补写到刚建的 tab 上（同一函数、同一字段），保证"投影先到"的顺序同样可见。
+      // stamp 只命中投影里的 childSessionId，因此遍历多个 root 的待补写归属不会串用。
+      let state: WorkspaceSidePaneState | null = result.state;
+      for (const attribution of subagentViewerAttributionByRootRef.current.values()) {
+        state = stampBrowserUseViewerAttribution(state, attribution) ?? state;
+      }
+      commitSidePaneState(() => state);
       if (result.shouldReveal) revealSidePaneForCurrentOwner();
       logger.info(
         `[App] ${result.shouldReveal ? "展开并激活" : "后台挂载"} browser-use tab workspace=${payload.workspaceKey} sessionId=${payload.sessionId} tabId=${payload.tabId}`,
@@ -925,6 +942,19 @@ export function useAppPanels(options: {
 
   const handleSyncSubagentSessionTabs = useCallback(
     (request: import("@/lib/workspaceSidePane.js").SyncSubagentSessionTabsRequest) => {
+      // 投影是子代理查看归属的唯一来源。按 root 记下最近一次投影，让两种到达顺序都能落到
+      // tab 上：ready 晚于投影时由 ready 处理函数用这份最近投影补写；投影晚于 ready 时
+      // 同步函数本身直接写。两条路径都只写 tab 上同一组派生字段，且只覆盖投影内的
+      // childSessionId，因此按 root 分开保存不会让另一个 root 的投影覆盖本 root 的待补写归属。
+      if (request.workspaceKey !== undefined) {
+        subagentViewerAttributionByRootRef.current.set(request.rootSessionId, {
+          rootSessionId: request.rootSessionId,
+          childSessionIds: request.validChildSessionIds,
+          workspaceKey: request.workspaceKey,
+          remoteSessionId: request.remoteSessionId,
+          ...(request.childTitles ? { childTitles: request.childTitles } : {}),
+        });
+      }
       // 分支 edit/retry 的失效 tab 属于投影清理，不进入“最近关闭”。
       commitSidePaneState((current) => syncSubagentSessionSidePaneTabs(current, request));
     },

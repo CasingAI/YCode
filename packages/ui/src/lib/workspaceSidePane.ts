@@ -117,6 +117,16 @@ export interface BrowserUseSidePaneTab {
   browserUseOperationUntil?: number;
   /** 模型布局命令对应的单调版本；目标 view 据此重建 ResizeObserver 基线。 */
   browserUseResizeBaselineVersion?: number;
+  /**
+   * 查看归属根会话：由根会话 conversation 投影 `snapshot.subagents` 冻结而来。
+   *
+   * 只决定"哪个 root 的侧栏可以查看这个 child 页面"，不改变 `sessionId`/`ownerTaskId`
+   * 的执行 owner，也不是 Main/Host 的事实。一旦冻结就不因投影收缩、会话 tab 关闭、
+   * 执行结束或 grant 撤销而清除——否则用户正在看的页面会变成不可达 guest。
+   */
+  viewerRootSessionId?: string | null;
+  /** 冻结时的子代理简短标题，仅用于同 root 多 child 的 tab 标题后缀。 */
+  viewerTitle?: string | null;
 }
 
 export interface OpenBackgroundBashSideTabRequest {
@@ -564,6 +574,14 @@ export interface SyncSubagentSessionTabsRequest {
   rootSessionId: string;
   parentSessionId: string;
   validChildSessionIds: readonly string[];
+  /**
+   * 同步来源的 workspace/remote scope。由根会话的 SessionPane 带上，用于把查看归属冻结到
+   * browser-use tab；缺席时只做原有的 subagent-session tab 回收，不写归属。
+   */
+  workspaceKey?: string;
+  remoteSessionId?: string | null;
+  /** childSessionId → 投影里的简短标题，仅用于 tab 标题后缀。 */
+  childTitles?: Readonly<Record<string, string>>;
 }
 
 export interface OpenScopedSubagentSideTabRequest extends OpenSubagentSideTabRequest {
@@ -1182,6 +1200,81 @@ function sidePaneTabMatchesRemoteSession(
 }
 
 /**
+ * 可信的子代理查看归属输入：来自根会话 conversation 投影 `snapshot.subagents`，
+ * 经 SessionPane 同步通路送达。它只用来给 browser-use tab 冻结展示归属。
+ */
+export interface SubagentViewerAttribution {
+  rootSessionId: string;
+  childSessionIds: readonly string[];
+  /** 投影所属 workspace/remote；缺席时不做 workspace 收窄（旧调用路径）。 */
+  workspaceKey?: string;
+  remoteSessionId?: string | null;
+  /** childSessionId → 投影里的简短标题。 */
+  childTitles?: Readonly<Record<string, string>>;
+}
+
+function browserUseTabMatchesAttribution(
+  tab: BrowserUseSidePaneTab,
+  attribution: SubagentViewerAttribution,
+): boolean {
+  if (!attribution.childSessionIds.includes(tab.sessionId)) return false;
+  if (attribution.workspaceKey !== undefined && tab.workspaceKey !== attribution.workspaceKey) {
+    return false;
+  }
+  if (
+    attribution.remoteSessionId !== undefined &&
+    (tab.remoteSessionId ?? null) !== (attribution.remoteSessionId ?? null)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * 把投影里的父子关系冻结到 browser-use tab 的展示归属上。
+ *
+ * 这是 viewerRootSessionId/viewerTitle 的唯一写入函数，两处调用对应两种到达顺序：投影先到时由
+ * 同步通路直接写；ready 先到时由 useAppPanels 在 tab 建好后用最近一次投影补写。冻结后不再清除，
+ * 避免投影收缩或用户关闭子代理会话 tab 让页面变成不可达 guest。
+ */
+export function stampBrowserUseViewerAttribution(
+  current: WorkspaceSidePaneState | null,
+  attribution: SubagentViewerAttribution,
+): WorkspaceSidePaneState | null {
+  if (!current || attribution.childSessionIds.length === 0) return current;
+  let didUpdate = false;
+  const tabs = current.tabs.map((tab) => {
+    if (tab.type !== "browser-use" || !browserUseTabMatchesAttribution(tab, attribution)) {
+      return tab;
+    }
+    const viewerTitle = attribution.childTitles?.[tab.sessionId]?.trim() || undefined;
+    // 已冻结的归属不被另一 root 覆盖，也不因标题缺席而回退；只有尚未归属或同 root 时更新。
+    if (
+      tab.viewerRootSessionId !== undefined &&
+      tab.viewerRootSessionId !== null &&
+      tab.viewerRootSessionId !== attribution.rootSessionId
+    ) {
+      return tab;
+    }
+    const nextRootSessionId = attribution.rootSessionId;
+    const nextViewerTitle = viewerTitle ?? tab.viewerTitle ?? undefined;
+    if (
+      tab.viewerRootSessionId === nextRootSessionId &&
+      (tab.viewerTitle ?? undefined) === nextViewerTitle
+    ) {
+      return tab;
+    }
+    didUpdate = true;
+    return {
+      ...tab,
+      viewerRootSessionId: nextRootSessionId,
+      viewerTitle: nextViewerTitle ?? null,
+    };
+  });
+  return didUpdate ? { ...current, tabs } : current;
+}
+
+/**
  * 新建 tab 在提交到共享侧栏状态时统一冻结工作区与对话归属。
  * browser-use 自带事件来源归属，因此已打标的 tab 绝不能被当前 UI scope 覆盖。
  */
@@ -1210,6 +1303,22 @@ export function stampSidePaneTabsOwnership(
   return changed ? { ...state, tabs } : state;
 }
 
+/**
+ * browser-use tab 在给定 scope 下是否可见。
+ *
+ * 只有两种来源：自己的页面（`sessionId === ownerTaskId`），或查看归属冻结在本 root 的
+ * child 页面（`viewerRootSessionId === ownerTaskId`）。workspace 由调用方先收窄，
+ * remote scope 在这里必须严格一致；不看 `subagent-session` tab 是否存在。
+ */
+function isBrowserUseTabVisibleForScope(
+  tab: BrowserUseSidePaneTab,
+  scope: SidePaneVisibilityScope,
+): boolean {
+  if (!sidePaneTabMatchesRemoteSession(tab, scope.remoteSessionId)) return false;
+  if (tab.sessionId === scope.ownerTaskId) return true;
+  return scope.ownerTaskId !== null && (tab.viewerRootSessionId ?? null) === scope.ownerTaskId;
+}
+
 function getVisibleSidePaneTabsByScope(
   tabs: WorkspaceSidePaneTab[],
   scope: SidePaneVisibilityScope,
@@ -1224,7 +1333,9 @@ function getVisibleSidePaneTabsByScope(
     ) {
       return false;
     }
-    if (tab.type === "browser-use") return tab.sessionId === scope.ownerTaskId;
+    if (tab.type === "browser-use") {
+      return isBrowserUseTabVisibleForScope(tab, scope);
+    }
     if (
       tab.type === "subagent-session" ||
       tab.type === "subagent-directory" ||
@@ -1448,6 +1559,11 @@ function openBrowserUseSidePane(
           browserUseResizeBaselineVersion: existing.browserUseResizeBaselineVersion,
         }
       : {}),
+    // 查看归属是冻结的展示快照：ready/visibility 重放不得把它抹掉。
+    ...((existing?.viewerRootSessionId ?? null) !== null
+      ? { viewerRootSessionId: existing!.viewerRootSessionId }
+      : {}),
+    ...((existing?.viewerTitle ?? null) !== null ? { viewerTitle: existing!.viewerTitle } : {}),
   };
 
   if (options.activate !== false) {
@@ -1770,25 +1886,38 @@ export function syncSubagentSessionSidePaneTabs(
   current: WorkspaceSidePaneState | null,
   options: SyncSubagentSessionTabsRequest,
 ): WorkspaceSidePaneState | null {
+  // 同步是 viewerRootSessionId/viewerTitle 的唯一写入口：即使 subagent-session tab 的 GC
+  // 无事可做，只要投影带 workspace scope，也要把 child 归属冻结到已存在的 browser-use tab。
+  const withAttribution =
+    options.workspaceKey === undefined
+      ? current
+      : stampBrowserUseViewerAttribution(current, {
+          rootSessionId: options.rootSessionId,
+          childSessionIds: options.validChildSessionIds,
+          workspaceKey: options.workspaceKey,
+          remoteSessionId: options.remoteSessionId,
+          childTitles: options.childTitles,
+        });
   if (!current) return null;
+  const base = withAttribution ?? current;
   const validChildSessionIds = new Set(options.validChildSessionIds);
-  const removedTabs = current.tabs.filter(
+  const removedTabs = base.tabs.filter(
     (tab) =>
       tab.type === "subagent-session" &&
       tab.rootSessionId === options.rootSessionId &&
       tab.parentSessionId === options.parentSessionId &&
       !validChildSessionIds.has(tab.childSessionId),
   );
-  if (removedTabs.length === 0) return current;
+  if (removedTabs.length === 0) return base === current ? current : base;
   const removedIds = new Set(removedTabs.map((tab) => tab.id));
-  const tabs = current.tabs.filter((tab) => !removedIds.has(tab.id));
+  const tabs = base.tabs.filter((tab) => !removedIds.has(tab.id));
   if (tabs.length === 0) return null;
-  if (!removedIds.has(current.activeTabId)) return { ...current, tabs };
+  if (!removedIds.has(base.activeTabId)) return { ...base, tabs };
   const directory = tabs.find(
     (tab) => tab.type === "subagent-directory" && tab.rootSessionId === options.rootSessionId,
   );
   if (directory) return { tabs, activeTabId: directory.id };
-  const removedIndex = current.tabs.findIndex((tab) => tab.id === current.activeTabId);
+  const removedIndex = base.tabs.findIndex((tab) => tab.id === base.activeTabId);
   const previous = tabs[Math.max(0, Math.min(removedIndex - 1, tabs.length - 1))];
   return { tabs, activeTabId: previous?.id ?? tabs.at(-1)!.id };
 }
@@ -2028,7 +2157,11 @@ export function isSidePaneTabVisibleForParent(
     return false;
   }
   if (tab.type === "browser-use") {
-    return tab.sessionId === parentSessionId;
+    if (!sidePaneTabMatchesRemoteSession(tab, remoteSessionId)) return false;
+    return (
+      tab.sessionId === parentSessionId ||
+      (parentSessionId !== null && (tab.viewerRootSessionId ?? null) === parentSessionId)
+    );
   }
   // 归属于某条对话（而非 workspace 全局）的 tab 按 parentSessionId 收窄。
   if (

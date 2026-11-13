@@ -4794,17 +4794,33 @@ export function SessionPane({
   const sandboxProjection = snapshot?.sandbox ?? EMPTY_SANDBOX_PROJECTION;
   useEffect(() => {
     if (!sessionId || subagents.revision === 0 || !onSyncSubagentSessionTabs) return;
+    // 归属必须是"投影所属 root 会话"：嵌套子代理会话不写，避免把孙页面记到当前 child 上。
+    if (rootSessionId && rootSessionId !== sessionId) return;
+    const childTitles: Record<string, string> = {};
+    for (const child of subagents.running) {
+      const title = child.title.trim();
+      if (title) childTitles[child.childSessionId] = title;
+    }
     onSyncSubagentSessionTabs({
       rootSessionId: rootSessionId ?? sessionId,
       parentSessionId: sessionId,
       validChildSessionIds: subagents.childSessionIds,
+      // 投影来源 scope 随请求一起送达：browser-use tab 的查看归属要与根会话同一
+      // workspace/remote，才不会被别的 scope 串用。
+      workspaceKey: workspaceIdentity?.trim() || workspacePath,
+      remoteSessionId: remoteSessionId ?? null,
+      ...(Object.keys(childTitles).length > 0 ? { childTitles } : {}),
     });
   }, [
     onSyncSubagentSessionTabs,
+    remoteSessionId,
     rootSessionId,
     sessionId,
     subagents.childSessionIds,
     subagents.revision,
+    subagents.running,
+    workspaceIdentity,
+    workspacePath,
   ]);
   useEffect(() => {
     if (!selectionSideChat || !sessionId) return;

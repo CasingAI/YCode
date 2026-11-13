@@ -88,16 +88,36 @@
 - 水位不能覆盖“新 epoch 已接管、但新执行尚未签发 grant”的窗口：此时旧 grant 仍在内存表里。因此 broker 在每次带 grant 的 `list`/`execute` 触达 Main 前，必须 await 父 runtime 注入的权威 claim 校验（SessionStore `renewSubagentExecutionClaim`，与消息持久化同一口径）；返回 false 或抛错都按“浏览器不可用”拒绝并删除 grant，不新建 lease/counter。工具 dispatch 的其余路径仍不在本 spec 范围。
 - 父会话 close、turn end 或 UI 关闭 side pane 都不等价于撤销 child grant；grant 的撤销只由对应 child execution 的终态触发。
 
+### 查看归属（父会话查看子代理页面）
+
+子代理页面必须由用户手动选择后才显示；查看归属只是既有 side pane 的展示字段，不改变任何执行 owner。
+
+**可信的父子关系只有一处**：根会话的 conversation 投影 `snapshot.subagents`（`childSessionIds` 与 `running[].title`），由 CLI 按真实 subagent 会话事实推送。UI 通过既有 `SessionPane.onSyncSubagentSessionTabs` 通路把它送到 side pane；不遍历 session、不按 ID 前缀/路径猜父子、不读 `subagent-session` 这类临时 UI tab 推断关系。
+
+- child browser-use tab 在 `ready` 后继续进入共享 side pane 状态，`sessionId` 与执行资源 owner 始终是 `childSessionId`；`ownerTaskId` 不被改成父会话。
+- 可行的查看归属**冻结在 browser-use tab 自身**：`viewerRootSessionId`（等于投影所属 root 会话，即同步请求的 `rootSessionId`）与 `viewerTitle`（该 child 在投影中的简短标题）。两者是源关系的 derived 展示快照，唯一写入入口是下面的同步通路；不是授权、不是 Main/Host owner，不新建 tab、webview 或第二条浏览器资源路径。
+- 可见判据：`sessionId === scope.ownerTaskId`（自己的页面）或 `viewerRootSessionId === scope.ownerTaskId`（本 root 的子代理页面），且 `workspaceKey` 与 `remoteSessionId` 都严格匹配活动 scope。别 root、别 workspace、别 remote 的 child 页面一律不进入 strip。
+- **冻结不看用户是否点击过 Agent**：child `ready` 后，只要投影已归属到该 root，父会话现有 tab strip 就能发现并手动选择实时页面；不自动弹面板、不抢焦点、不切换 active tab。又因为冻结发生在 tab 上，关闭 `subagent-session` 会话 tab 不会隐藏或销毁该页面。
+- 两种到达顺序都必须成立：
+  - 投影先到、`ready` 后到：同步已记录归属，`ready` 建 tab 时直接带上 `viewerRootSessionId`/`viewerTitle`。
+  - `ready` 先到、投影后到：tab 先以未归属状态后台挂载，投影到达后由同步幂等地补写归属，此后立即可见。
+- 投影移除 child（分支 edit/retry、目录失效）只影响后续同步，不反向清除已冻结的归属：用户正在看的页面不因投影收缩而消失。页面是否仍可查看不依赖 grant、执行态或 turn 状态。
+- 后台 `ready` / `visibility` 事件只挂载或更新对应 guest，不切换 active tab、不展开父侧栏、不抢焦点；`shouldReveal` 仍严格等于 `payload.sessionId === scope.ownerTaskId`。只有用户点击 tab 才激活。
+- 同 root 下多个 child 各自只归属自己的 `childSessionId`；tab 标题优先显示页面标题，有 `viewerTitle` 时追加简短后缀以区分同一父会话下的多个子代理。
+- 关闭 browser-use tab 删除 shell，之后 operation/visibility 迟到事件不得重建，`ready` 重放按 `tabId` 幂等更新同一 shell。关闭其他 tab / 关闭全部按可见集合处理；可见的 child 页面不会因关闭其他而隐藏，关闭全部必须收全该 scope 的全部可见 tab，不留下不可达 guest。
+
 ## 状态所有权
 
-| 事实                                                           | 唯一 owner                                       | 不负责                                             |
-| -------------------------------------------------------------- | ------------------------------------------------ | -------------------------------------------------- |
-| 是否允许 child 使用浏览器、grant 的签发与撤销                  | 父 runtime                                       | 不保存页面、不直接操作 Main                        |
-| grant 的当前有效集合与 `parentSessionId → childSessionId` 校验 | 当前 App 的 Protocol browser broker（内存表）    | 不持久化、不跨进程、不拥有页面                     |
-| 执行代际与旧执行防护                                           | 现有 SessionStore `SubagentExecutionFence`       | 不保存浏览器 grant；broker 每次请求前 await 它复核 |
-| 页面 owner、tab 生命周期、CDP 资源                             | Main `BrowserGuestManager`                       | 不判断父/子业务授权                                |
-| workspace / remote / delivery 事实                             | 父顶层 active session 的 Protocol session record | 不从模型参数或 child 元数据重建                    |
-| UI 侧栏 tab 与展开状态                                         | 现有 side pane projection                        | 不成为授权来源，不新建状态                         |
+| 事实                                                           | 唯一 owner                                                                                                                               | 不负责                                                                                                       |
+| -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| 是否允许 child 使用浏览器、grant 的签发与撤销                  | 父 runtime                                                                                                                               | 不保存页面、不直接操作 Main                                                                                  |
+| grant 的当前有效集合与 `parentSessionId → childSessionId` 校验 | 当前 App 的 Protocol browser broker（内存表）                                                                                            | 不持久化、不跨进程、不拥有页面                                                                               |
+| 执行代际与旧执行防护                                           | 现有 SessionStore `SubagentExecutionFence`                                                                                               | 不保存浏览器 grant；broker 每次请求前 await 它复核                                                           |
+| 页面 owner、tab 生命周期、CDP 资源                             | Main `BrowserGuestManager`                                                                                                               | 不判断父/子业务授权                                                                                          |
+| workspace / remote / delivery 事实                             | 父顶层 active session 的 Protocol session record                                                                                         | 不从模型参数或 child 元数据重建                                                                              |
+| UI 侧栏 tab 与展开状态                                         | 现有 side pane projection                                                                                                                | 不成为授权来源，不新建状态                                                                                   |
+| 父/根会话可查看哪些 child browser tab                          | 现有 side pane 状态：由根会话 conversation 投影 `snapshot.subagents` 派生并冻结到 browser-use tab 的 `viewerRootSessionId`/`viewerTitle` | 不改 `sessionId`/`ownerTaskId`，不复制 Main owner，不查全量 session 树，不从临时 `subagent-session` tab 反推 |
+| child 页面的执行资源、tab 生命周期与 CDP                       | Main `BrowserGuestManager`（按 `sessionId=childSessionId`）                                                                              | 不因 UI 查看关联改变 scope 或新建第二份页面                                                                  |
 
 `workspaceKey` 统一使用 `workspaceIdentity?.trim() || workspacePath`。远程链路继续携带 `remoteSessionId`；child 页面使用父 session record 的 workspace/remote，但 `sessionId` 使用 child。
 
@@ -127,7 +147,11 @@ sequenceDiagram
   B-->>R: 结果
   P->>B: revoke(grantId)（success / failure / cancel）
   Note over M: 页面保留，owner 仍为 childSessionId
-  U->>U: 仅在当前查看 child 时展开；父会话只后台挂载
+  M-->>U: ready(childSessionId, tabId)（activate=false，后台挂载）
+  U->>U: 不切换 active tab、不展开父侧栏
+  P-->>U: conversation 投影 subagents.childSessionIds（经 SessionPane 同步通路）
+  U->>U: 按投影把 viewerRootSessionId/viewerTitle 冻结到 browser-use tab
+  U->>U: 用户点击 child browser tab 才激活；内容仍以 childSessionId 挂载同一个 guest
 ```
 
 失败路径：
@@ -268,10 +292,17 @@ A 必须先落地；B–E 依赖 A。A 未合并前不要各自复制一份 gran
 9. 同一 `agentId` 的 `SendMessage` 续跑签发新 grant；旧 grant 的迟到请求被拒绝，即使新 grant 已存在。
 10. 进程重启后旧 child 直接调用浏览器被拒绝；重新以前台方式执行后才恢复。
 11. 两个 child 并发：各自只能看到自己的 tab；交叉操作被 scope 拒绝。
-12. child 页面触发 popup：新页面 owner 是同一 child；父会话 side pane 不展开，查看 child 时才出现。
-13. 父会话查看自己的页面时，child 的 `newTab`/`activateTab` 不会切换父会话当前 tab 或展开父 side pane。
+12. child 页面触发 popup：新页面 owner 是同一 child；父会话 side pane 不自动展开，但该 child 页面在投影归属父 root 后即可在父侧栏 strip 中选择查看，无需先打开子代理会话。
+13. 父会话查看自己的页面时，child 的 `newTab`/`activateTab` 不会切换父会话当前 tab、不会展开父 side pane，也不会激活 child browser tab。
 14. 远程 workspace：child 页面携带父 record 的 `workspaceIdentity` 与 `remoteSessionId`；workspace 不同或 remote 不匹配时 grant 校验失败。
 15. child 与父共享同一登录态；不宣称该共享是安全沙箱。
+16. 父 root 下有两个 child A/B：A/B 的 `ready` 后台挂载后，只要投影已归属父 root，父侧栏 strip 同时可选择 A 与 B 的 browser tab（标题带各自归属）；不自动展开、不抢焦点；两个 tab 互不串用归属。
+17. `ready` 与投影两种到达顺序都成立：投影先到→`ready` 建 tab 即带归属并立即可见；`ready` 先到→先后台挂载，投影到达后补写归属即可见。两种顺序下 active tab 与折叠态都不变。
+18. 用户点击父侧栏中的 child browser tab：显示同一个后台已挂载的 `<webview>`（同一 `tabId`，不新建 guest），内容组件收到的 `sessionId` 仍是 `childSessionId`；切走再切回不重建 guest。
+19. 其他 root、其他 workspace 或 remote 不匹配的 child browser tab 即使在状态中存在也不可见；实现不得按 ID 前缀/路径推断父子关系，也不得遍历全部 session，更不得以 `subagent-session` tab 是否存在作为可见前提。
+20. 用户关闭 child browser tab 后，迟到的 operation/visibility 事件不得重建 shell；同一 `tabId` 的 `ready` 重放按幂等路径更新；关闭 `subagent-session` 会话 tab 不隐藏也不销毁已创建的 child guest。grant 撤销或执行结束后 tab 仍可查看。
+21. 用户在 child browser tab 上「关闭其他」不得使该页面变为不可见；「关闭全部」必须同时收掉父 scope 下全部可见 tab（含 child 页面），不留下既不显示也无法关闭的 guest。
+22. 用户从未点击 Agent / 子代理会话入口，仅发生过 child `ready` 与投影同步：父侧栏 strip 已能发现并手动选择该 child 页面；不需要先打开任何 `subagent-session` tab。
 
 ## 自动化验证边界
 
