@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Composer toolbar fit fixture</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: system-ui, sans-serif;
+      }
+
+      #root {
+        padding: 8px;
+      }
+
+      .frame {
+        width: 700px;
+      }
+
+      .toolbar {
+        display: flex;
+        gap: 12px;
+        align-items: flex-end;
+        width: 100%;
+      }
+
+      .leading {
+        flex: 1 1 0;
+        min-width: 0;
+        display: flex;
+        align-items: center;
+      }
+
+      .leading-content {
+        flex: 0 0 auto;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+
+      .mode,
+      .cua {
+        height: 28px;
+        padding: 0 8px;
+        overflow: hidden;
+        white-space: nowrap;
+        border: 1px solid #999;
+        background: #fff;
+      }
+
+      .cua {
+        width: 96px;
+      }
+
+      [data-composer-compact="true"] {
+        width: 28px !important;
+        padding: 0 !important;
+      }
+
+      .trailing {
+        flex: none;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .prefix-line {
+        width: 80px;
+        overflow: hidden;
+        white-space: nowrap;
+      }
+
+      .composer-provider-prefix {
+        display: inline-block;
+        white-space: nowrap;
+      }
+
+      .toolbar[data-composer-provider-compact="true"] .prefix-line {
+        width: 0;
+      }
+
+      .toolbar[data-composer-provider-compact="true"] .composer-provider-prefix {
+        display: none;
+      }
+
+      .composer-model-trigger {
+        width: 200px;
+        max-width: var(--composer-model-max-width, 16rem);
+        height: 28px;
+        padding: 0 6px;
+        overflow: hidden;
+        white-space: nowrap;
+        border: 1px solid #999;
+        background: #fff;
+      }
+
+      .toolbar[data-composer-model-icon="true"] .composer-model-trigger {
+        width: 28px;
+        max-width: 28px;
+        padding: 0;
+      }
+
+      .toolbar[data-composer-model-icon="true"] .model-label {
+        display: none;
+      }
+
+      .send {
+        width: 32px;
+        height: 32px;
+        padding: 0;
+      }
+
+      .mode-wrap {
+        position: relative;
+        display: inline-flex;
+      }
+
+      .tooltip {
+        position: absolute;
+        bottom: 100%;
+        left: 0;
+        padding: 4px 6px;
+        border: 1px solid #ccc;
+        background: #fafafa;
+        pointer-events: none;
+        white-space: nowrap;
+      }
+
+      .unrelated,
+      .noise {
+        position: absolute;
+        visibility: hidden;
+        width: 0;
+        height: 0;
+        overflow: hidden;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./app.tsx"></script>
+  </body>
+</html>

@@ -61,10 +61,8 @@ import {
   SidePaneTabDragOverlay,
   SortableSidePaneTabTrigger,
 } from "@/app-shell/SidePaneTabTrigger.js";
-import {
-  resolveSidePaneTabsOverflow,
-  SIDE_PANE_DEFAULT_EXPANDED_RATIO,
-} from "@/app-shell/sidePaneLayout.js";
+import { SIDE_PANE_DEFAULT_EXPANDED_RATIO } from "@/app-shell/sidePaneLayout.js";
+import { useSidePaneTabsOverflow } from "@/app-shell/useSidePaneTabsOverflow.js";
 import {
   resolveWorkspaceSidePanePanelSurfaceClassName,
   resolveWorkspaceSidePanePanelTopInsetClassName,
@@ -117,10 +115,6 @@ import {
 
 const SIDE_PANE_CONTENT_WIDTH_LOCK_DURATION_MS = 200;
 const PREVIEW_PANE_RESIZE_SETTLE_DELAY_MS = 220;
-type TabsScrollMaskEdges = {
-  left: boolean;
-  right: boolean;
-};
 type OpenTabLauncherItem = {
   id: OpenTabLauncherItemId;
   label: string;
@@ -128,10 +122,6 @@ type OpenTabLauncherItem = {
   onOpen: () => void;
 };
 const EMPTY_SIDE_PANE_TABS: WorkspaceSidePaneState["tabs"] = [];
-const EMPTY_TABS_SCROLL_MASK_EDGES: TabsScrollMaskEdges = {
-  left: false,
-  right: false,
-};
 
 function SuspendedBrowserSidePaneContent({
   tab,
@@ -433,7 +423,7 @@ export function AnimatedSidePanePanel({
   onBrowserPageMetadataChange: (tabId: string, metadata: BrowserSidePaneMetadata) => void;
   onSelectGitSource: (value: GitChangeSourceId) => void;
 }) {
-  const { intl } = useZCodeIntl();
+  const { intl, locale } = useZCodeIntl();
   const isOfficeMode = useIsOfficeMode();
   const developerToolsEnabled = useDeveloperToolsVisibility();
   const isDragCollapsible = !isVisible;
@@ -466,11 +456,17 @@ export function AnimatedSidePanePanel({
   const [lockedContentWidthPx, setLockedContentWidthPx] = useState<number | null>(null);
   const shouldMountContent = shouldMountSidePaneContent(isVisible, tabs);
   const [hasRenderedSidePane, setHasRenderedSidePane] = useState(shouldMountContent);
-  const [isTabsOverflowing, setIsTabsOverflowing] = useState(false);
-  const [tabsScrollMaskEdges, setTabsScrollMaskEdges] = useState<TabsScrollMaskEdges>({
-    left: false,
-    right: false,
-  });
+  // 侧栏几何缓存与 mask 派生独立于组件其余状态：标签对象身份变化只失效几何，
+  // observer 跟随真实 DOM 节点与 owner/可见性，不会被普通渲染拆装。
+  const { isOverflowing: isTabsOverflowing, maskEdges: tabsScrollMaskEdges } =
+    useSidePaneTabsOverflow({
+      viewportRef: tabsScrollViewportRef,
+      contentRef: tabsScrollContentRef,
+      tabCount: visibleTabs.length,
+      visibleTabs,
+      invalidationKey: `${workspaceKey}\u0000${sidePaneOwnerId ?? ""}\u0000${locale}`,
+      enabled: hasRenderedSidePane && sidePaneState !== null,
+    });
   const [draggingTabId, setDraggingTabId] = useState<string | null>(null);
   const sidePaneVisibleInlineSizePx = useViewportInlineIntersectionSize(
     panelElementRef,
@@ -595,94 +591,6 @@ export function AnimatedSidePanePanel({
           width: `${lockedContentWidthPx}px`,
         }
       : undefined;
-
-  useEffect(() => {
-    const viewport = tabsScrollViewportRef.current;
-    const content = tabsScrollContentRef.current;
-
-    if (!viewport || !content) {
-      setIsTabsOverflowing(false);
-      // sidePaneState 为空或内容尚未挂载时 refs 会持续为空。
-      // 这里不能每次写入新的 mask 对象，否则 effect 会在空 tabs 阶段反复触发更新。
-      setTabsScrollMaskEdges((current) =>
-        current.left || current.right ? EMPTY_TABS_SCROLL_MASK_EDGES : current,
-      );
-      return;
-    }
-
-    const updateOverflowState = () => {
-      const maxScrollLeft = Math.max(0, viewport.scrollWidth - viewport.clientWidth);
-      const addButton = viewport.parentElement?.querySelector<HTMLElement>(
-        "[data-side-pane-add-tab-trigger]",
-      );
-      const addButtonWidth = addButton?.getBoundingClientRect().width ?? 0;
-      // 旧判定直接读取 content.scrollWidth，但 overflow 状态本身会把新增按钮
-      // 移进/移出 content 并改变 viewport 宽度，临界区会形成 ResizeObserver 反馈环。
-      // 这里统一还原“新增按钮位于 tabs 末尾”的假想布局，只用稳定的最小宽度预算判定。
-      const isOverflowing = resolveSidePaneTabsOverflow({
-        addButtonInside: Boolean(addButton && content.contains(addButton)),
-        addButtonWidth,
-        tabCount: visibleTabs.length,
-        viewportWidth: viewport.clientWidth,
-      });
-      // 新增按钮在 tabs 尚可等宽收缩时跟随末尾，只有达到 60px 下限仍溢出后才固定到右侧。
-      setIsTabsOverflowing(isOverflowing);
-      // tabs 溢出时不能两侧一直显示渐变 mask：滚动到起点/终点也像还能继续滚。
-      // 这里把 mask 和实际 scrollLeft 绑定，只提示仍可继续滚动的一侧。
-      setTabsScrollMaskEdges((current) => {
-        const next = {
-          left: isOverflowing && viewport.scrollLeft > 1,
-          right: isOverflowing && viewport.scrollLeft < maxScrollLeft - 1,
-        };
-
-        if (current.left === next.left && current.right === next.right) {
-          return current;
-        }
-
-        return next;
-      });
-    };
-
-    // RAF-based debounce to coalesce resize events
-    let rafId: number | null = null;
-    let latestCallback = updateOverflowState;
-    const debouncedUpdate = () => {
-      if (rafId !== null) return;
-      rafId = requestAnimationFrame(() => {
-        rafId = null;
-        latestCallback();
-      });
-    };
-
-    updateOverflowState();
-    viewport.addEventListener("scroll", updateOverflowState, {
-      passive: true,
-    });
-
-    if (typeof ResizeObserver === "undefined") {
-      window.addEventListener("resize", debouncedUpdate);
-      return () => {
-        viewport.removeEventListener("scroll", updateOverflowState);
-        window.removeEventListener("resize", debouncedUpdate);
-        if (rafId !== null) cancelAnimationFrame(rafId);
-      };
-    }
-
-    const resizeObserver = new ResizeObserver(() => {
-      latestCallback = updateOverflowState;
-      debouncedUpdate();
-    });
-    resizeObserver.observe(viewport);
-    resizeObserver.observe(content);
-    window.addEventListener("resize", debouncedUpdate);
-
-    return () => {
-      resizeObserver.disconnect();
-      viewport.removeEventListener("scroll", updateOverflowState);
-      window.removeEventListener("resize", debouncedUpdate);
-      if (rafId !== null) cancelAnimationFrame(rafId);
-    };
-  }, [visibleTabs]);
 
   useEffect(() => {
     const viewport = tabsScrollViewportRef.current;

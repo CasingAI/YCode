@@ -27,3 +27,34 @@ export function resolveSidePaneTabsOverflow({
     viewportWidthWithAddButtonInside + SIDE_PANE_TAB_OVERFLOW_TOLERANCE_PX
   );
 }
+
+export type SidePaneTabsMaskEdges = {
+  left: boolean;
+  right: boolean;
+};
+
+export const EMPTY_SIDE_PANE_TABS_MASK_EDGES: SidePaneTabsMaskEdges = {
+  left: false,
+  right: false,
+};
+
+/**
+ * 由 overflow 事实与当前 scrollLeft 派生两端 mask。
+ *
+ * 只接收位置和已测得的 maxScrollLeft，不接触 DOM：普通滚动路径因此可以复用几何缓存，
+ * 不必重复读取 scrollWidth/clientWidth。1px 容差与滚动判定保持一致，避免贴边时两端同时亮。
+ */
+export function resolveSidePaneTabsMaskEdges({
+  isOverflowing,
+  scrollLeft,
+  maxScrollLeft,
+}: {
+  isOverflowing: boolean;
+  scrollLeft: number;
+  maxScrollLeft: number;
+}): SidePaneTabsMaskEdges {
+  return {
+    left: isOverflowing && scrollLeft > 1,
+    right: isOverflowing && scrollLeft < maxScrollLeft - 1,
+  };
+}

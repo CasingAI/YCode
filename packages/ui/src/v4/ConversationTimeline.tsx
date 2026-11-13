@@ -281,6 +281,26 @@ interface ConversationScrollMemoryScopeSnapshot {
   state: ChatSessionScrollMemoryState;
 }
 
+/**
+ * 时间线滚动几何快照。只在同一次同步片段内传递：调用方确认没有位置写入、尺寸
+ * 变更或跨异步边界后，才允许把已读值继续用于记忆构造，避免重复 getter。
+ */
+interface TimelineScrollMetrics {
+  scrollTop: number;
+  viewportHeight: number;
+  contentHeight: number;
+}
+
+/**
+ * 待派发的合成 scroll 通知。元素 + 真实会话作用域用于判定失效，token 保证旧
+ * microtask 既不清除也不派发后来居上的新请求。
+ */
+interface PendingScrollNotification {
+  element: HTMLDivElement;
+  scope: string;
+  token: number;
+}
+
 type PendingScrollMemoryRestoreWait = "rows" | "content";
 
 interface PendingScrollMemoryRestore extends ConversationScrollMemoryScopeSnapshot {
@@ -2227,22 +2247,19 @@ function ConversationTimelineImpl({
     return () => window.removeEventListener("resize", sync);
   }, [syncMessageLayerMask, renderUnits.length === 0]);
 
-  const buildCurrentScrollMemoryState = useCallback(
-    (element: HTMLDivElement): ChatSessionScrollMemoryState => {
-      const metrics = {
-        scrollTop: element.scrollTop,
-        viewportHeight: element.clientHeight,
-        contentHeight: element.scrollHeight,
-      };
+  // following 判定与返回字段共用同一组 metrics：同一次调用内只读一次
+  // scrollTop/clientHeight/scrollHeight，避免多次 getter 之间读到不一致的几何。
+  const buildCurrentScrollMemoryStateFromMetrics = useCallback(
+    (metrics: TimelineScrollMetrics): ChatSessionScrollMemoryState => {
       const wasPinnedToBottom = reconcileFollowingForContentAnchor({
         following: followingRef.current,
         metrics,
         lastObservedScrollTop: lastObservedScrollTopRef.current,
       });
       return {
-        scrollTop: element.scrollTop,
-        scrollHeight: element.scrollHeight,
-        clientHeight: element.clientHeight,
+        scrollTop: metrics.scrollTop,
+        scrollHeight: metrics.contentHeight,
+        clientHeight: metrics.viewportHeight,
         wasPinnedToBottom,
         updatedAt: Date.now(),
       };
@@ -2250,20 +2267,65 @@ function ConversationTimelineImpl({
     [],
   );
 
+  const buildCurrentScrollMemoryState = useCallback(
+    (element: HTMLDivElement): ChatSessionScrollMemoryState =>
+      buildCurrentScrollMemoryStateFromMetrics({
+        scrollTop: element.scrollTop,
+        viewportHeight: element.clientHeight,
+        contentHeight: element.scrollHeight,
+      }),
+    [buildCurrentScrollMemoryStateFromMetrics],
+  );
+
   const cacheCurrentScrollMemoryState = useCallback(
-    (element: HTMLDivElement): ChatSessionScrollMemoryState => {
-      const state = buildCurrentScrollMemoryState(element);
+    (element: HTMLDivElement, metrics?: TimelineScrollMetrics): ChatSessionScrollMemoryState => {
+      // metrics 只能来自同一同步片段内、尚未发生位置写入的读取。位置写入后必须
+      // 省略该参数，让这里重新读取写后实际值，不能复用写前快照。
+      const state = metrics
+        ? buildCurrentScrollMemoryStateFromMetrics(metrics)
+        : buildCurrentScrollMemoryState(element);
       if (scrollMemoryKey) {
         latestScrollMemoryStateRef.current = { key: scrollMemoryKey, state };
       }
       return state;
     },
-    [buildCurrentScrollMemoryState, scrollMemoryKey],
+    [buildCurrentScrollMemoryState, buildCurrentScrollMemoryStateFromMetrics, scrollMemoryKey],
   );
 
+  // 合成 scroll 通知的 pending 只绑定滚动元素、真实会话作用域与调度 token。
+  // 作用域取 scrollMemoryKey（已含 workspace/pane/session），draft 回退 sessionKey；
+  // windowEpoch 不参与：同一会话的窗口代际更新后仍需要一次最终通知，不能因此吞掉。
+  const scrollNotificationScopeRef = useRef(scrollMemoryKey ?? sessionKey);
+  // 作用域只能在提交阶段推进：并发渲染中被放弃的 render 同样会执行函数体，若在这里
+  // 直接写 ref，microtask flush 会拿未提交的 scope 比对，把已提交的 pending 通知误判为
+  // 跨作用域而吞掉（真实 React transition + Suspense 已复现）。此 layout effect 声明在
+  // 所有会触发 notify 的 effect 之前，保证同一 commit 内先推进 scope 再派发；卸载失效
+  // 仍由下方 token 递增负责。
+  useLayoutEffect(() => {
+    scrollNotificationScopeRef.current = scrollMemoryKey ?? sessionKey;
+  });
+  const pendingScrollNotificationRef = useRef<PendingScrollNotification | null>(null);
+  const scrollNotificationTokenRef = useRef(0);
+
   const notifyScrollObserversAfterCommit = useCallback((element: HTMLDivElement) => {
+    const scope = scrollNotificationScopeRef.current;
+    const pending = pendingScrollNotificationRef.current;
+    // 同一元素、同一真实会话作用域在 microtask flush 前只派发一次；监听者仍在
+    // flush 时读取最终真实 offset，不把合并挪到 rAF/timer。
+    if (pending && pending.element === element && pending.scope === scope) {
+      return;
+    }
+    const token = scrollNotificationTokenRef.current + 1;
+    scrollNotificationTokenRef.current = token;
+    pendingScrollNotificationRef.current = { element, scope, token };
     scheduleMicrotask(() => {
+      const current = pendingScrollNotificationRef.current;
+      // 旧 token 的 flush 不能清除或派发后来居上的新请求。
+      if (!current || current.token !== token) return;
+      pendingScrollNotificationRef.current = null;
+      // 元素替换、卸载或真实作用域更换后，旧通知失效。
       if (scrollRef.current !== element) return;
+      if (scrollNotificationScopeRef.current !== current.scope) return;
       element.dispatchEvent(new Event("scroll"));
     });
   }, []);
@@ -2639,21 +2701,24 @@ function ConversationTimelineImpl({
     markLayoutScrollGuard,
   ]);
 
-  const saveCurrentScrollMemory = useCallback(() => {
-    const key = scrollMemoryKey;
-    const element = scrollRef.current;
-    if (!key) return;
-    const pendingRestore = pendingDetachedScrollRestoreRef.current;
-    const cached = latestScrollMemoryStateRef.current;
-    const cachedState = cached?.key === key ? cached.state : null;
-    const state =
-      pendingRestore?.key === key
-        ? pendingRestore.state
-        : element
-          ? cacheCurrentScrollMemoryState(element)
-          : cachedState;
-    if (state) saveChatSessionScrollMemoryState(key, state);
-  }, [cacheCurrentScrollMemoryState, scrollMemoryKey]);
+  const saveCurrentScrollMemory = useCallback(
+    (metrics?: TimelineScrollMetrics) => {
+      const key = scrollMemoryKey;
+      const element = scrollRef.current;
+      if (!key) return;
+      const pendingRestore = pendingDetachedScrollRestoreRef.current;
+      const cached = latestScrollMemoryStateRef.current;
+      const cachedState = cached?.key === key ? cached.state : null;
+      const state =
+        pendingRestore?.key === key
+          ? pendingRestore.state
+          : element
+            ? cacheCurrentScrollMemoryState(element, metrics)
+            : cachedState;
+      if (state) saveChatSessionScrollMemoryState(key, state);
+    },
+    [cacheCurrentScrollMemoryState, scrollMemoryKey],
+  );
 
   const restoreScrollMemory = useCallback(
     (state: ChatSessionScrollMemoryState) => {
@@ -2827,7 +2892,14 @@ function ConversationTimelineImpl({
     if (scrollSource === "user") {
       pendingDetachedScrollRestoreRef.current = null;
       userAdjustedScrollSinceRestoreRef.current = true;
-      saveCurrentScrollMemory();
+      // 本片段到此没有写 scrollTop（折叠补偿会先 markLayoutScrollGuard 并被归类为
+      // layout），也没有跨微任务/异步，因此复用上面同一组 metrics，避免再构造记忆时
+      // 重复 getter。任何写后场景都必须调用 saveCurrentScrollMemory() 重新读取实际值。
+      saveCurrentScrollMemory({
+        scrollTop,
+        viewportHeight,
+        contentHeight,
+      });
     }
     maybePrefetchOlder(element, "scroll");
     maybePrefetchNewer(element);
@@ -3299,6 +3371,10 @@ function ConversationTimelineImpl({
     return () => {
       // 真正卸载时 DOM 尚在；scope 更新则由 before-mutation capture 读取旧 DOM。
       saveCurrentScrollMemoryRef.current();
+      // 卸载后旧元素的合成 scroll 通知必须失效：清 pending 并推进 token，
+      // 已排队的旧 flush 既不清新请求也不派发。
+      pendingScrollNotificationRef.current = null;
+      scrollNotificationTokenRef.current += 1;
     };
   }, []);
 
