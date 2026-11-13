@@ -1,7 +1,7 @@
 import type { MarkdownSelectionTarget } from "@/lib/conversationSelectionReference.js";
 /* eslint-disable max-lines -- PreviewPane 内容路由同时承载文本、图片、媒体、Office、PDF 和 PPTX 渲染。 */
 import type { BundledTheme } from "shiki";
-import { useMemo, type Ref, type SyntheticEvent, type UIEventHandler } from "react";
+import { useMemo, type ReactNode, type Ref, type SyntheticEvent, type UIEventHandler } from "react";
 import type { FileBinaryPreview, FileTextSlice } from "@zcode/shared";
 import { inferCodeLanguage } from "@/lib/codeViewer.js";
 import type { CodeViewerSource } from "@/lib/codeViewer.js";
@@ -22,6 +22,8 @@ import type { CodeCommentPreview, CodeCommentRange } from "@/lib/codeCommentCont
 import type { Theme } from "@/useTheme.js";
 import type { OfficeFilePreviewKind } from "@/lib/officeFilePreview.js";
 import { PreviewPaneOfficeContent } from "@/previewPaneOfficeContent.js";
+import { PreviewPaneVirtualTextContent } from "@/previewPaneVirtualTextContent.js";
+import { shouldUseVirtualizedPreviewText } from "@/previewPaneTextRead.js";
 import type { PptxElementReferenceSource } from "@/lib/pptxElementReference.js";
 import type { MediaCodeViewerSource, PptxReferencePreviewNavigation } from "@/lib/codeViewer.js";
 import { resolveCodeReviewContentProjection } from "@/previewPaneCodeReview.js";
@@ -29,7 +31,8 @@ import { resolveCodeReviewContentProjection } from "@/previewPaneCodeReview.js";
 interface PreviewPaneContentProps {
   source: CodeViewerSource;
   filePreview: FileTextSlice | null;
-  fileTooLarge: boolean;
+  /** 文本只读预览提示：非法编码或旧 Host 截断时保留已读正文。 */
+  textNotices?: readonly string[];
   loadingInitial: boolean;
   loadingImagePreview: boolean;
   imagePreviewUrl: string | null;
@@ -87,10 +90,33 @@ function getPreviewPaneErrorTextClass(
   return error === fileMissingMessage ? "text-foreground-subtlest" : "text-destructive";
 }
 
+function withPreviewTextNotices(
+  notices: readonly string[] | undefined,
+  content: ReactNode,
+): ReactNode {
+  if (!notices?.length) {
+    return content;
+  }
+
+  return (
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      <div
+        role="note"
+        className="shrink-0 border-b border-border/60 bg-surface-hover px-3 py-1.5 text-ui-base text-foreground-subtle"
+      >
+        {notices.map((notice) => (
+          <p key={notice}>{notice}</p>
+        ))}
+      </div>
+      <div className="min-h-0 flex-1 overflow-hidden">{content}</div>
+    </div>
+  );
+}
+
 export function PreviewPaneContent({
   source,
   filePreview,
-  fileTooLarge,
+  textNotices,
   loadingInitial,
   loadingImagePreview,
   imagePreviewUrl,
@@ -164,6 +190,11 @@ export function PreviewPaneContent({
     source.type === "multi-file-diff" ? source.path : null,
     source.type === "multi-file-diff" ? source.title : null,
   ]);
+  // 大文本只决定用哪种渲染器，不改正文、读取结果或滚动容器所有者。
+  const shouldVirtualizeFileText = useMemo(
+    () => shouldUseVirtualizedPreviewText(filePreview?.content ?? ""),
+    [filePreview?.content],
+  );
 
   if (source.type === "patch") {
     return (
@@ -375,14 +406,6 @@ export function PreviewPaneContent({
     );
   }
 
-  if (fileTooLarge) {
-    return (
-      <div className="p-3 text-ui-base text-foreground-subtle">
-        {intl.formatMessage({ id: "codeViewer.fileTooLarge" })}
-      </div>
-    );
-  }
-
   if (!filePreview) {
     return null;
   }
@@ -411,7 +434,8 @@ export function PreviewPaneContent({
   const isMarkdownFile = fileLanguage === "markdown";
   const isSvgFile = isSvgPath(source.path);
   if (source.type !== "code-review" && isMarkdownFile && markdownViewMode === "preview") {
-    return (
+    return withPreviewTextNotices(
+      textNotices,
       <MarkdownPreviewContent
         selectionTarget={markdownSelectionTarget}
         sourceKey={source.path ?? source.title}
@@ -420,15 +444,34 @@ export function PreviewPaneContent({
         content={filePreview.content}
         workspacePath={workspacePath}
         onOpenBrowserUrl={onOpenBrowserUrl}
-      />
+      />,
     );
   }
 
   if (source.type !== "code-review" && isSvgFile && svgViewMode === "preview") {
-    return <SvgPreviewContent title={source.title} svgContent={filePreview.content} />;
+    return withPreviewTextNotices(
+      textNotices,
+      <SvgPreviewContent title={source.title} svgContent={filePreview.content} />,
+    );
   }
 
-  return (
+  if (source.type !== "code-review" && shouldVirtualizeFileText) {
+    return withPreviewTextNotices(
+      textNotices,
+      <PreviewPaneVirtualTextContent
+        code={filePreview.content}
+        title={source.path ?? source.title}
+        showLineNumbers={codePreviewSettings.showLineNumbers}
+        wrapLongLines={wrapLongLines}
+        fontSizePx={codePreviewSettings.fontSizePx}
+        onScroll={onScroll}
+        scrollContainerRef={scrollContainerRef}
+      />,
+    );
+  }
+
+  return withPreviewTextNotices(
+    textNotices,
     <CodeContent
       code={filePreview.content}
       language={fileLanguage}
@@ -453,6 +496,6 @@ export function PreviewPaneContent({
       onDeleteCodeComment={source.type === "code-review" ? undefined : onDeleteCodeComment}
       onScroll={onScroll}
       scrollContainerRef={scrollContainerRef}
-    />
+    />,
   );
 }

@@ -27,7 +27,7 @@ export async function readCurrentFilesEditorPath<T>(options: {
   path: string;
   request?: FilesPendingOpen;
   read: () => Promise<T>;
-  accept?: (result: T) => void;
+  accept?: (result: T) => unknown;
   reject?: (error: unknown) => void;
 }): Promise<T | null> {
   let valid = true;
@@ -52,7 +52,7 @@ export async function readCurrentFilesEditorPath<T>(options: {
     const result = await options.read();
     // 改名会替换并重新准入打开请求；旧读取不得用旧 path 创建缓冲，也不能清掉新请求。
     if (!isCurrent()) return null;
-    options.accept?.(result);
+    await options.accept?.(result);
     return result;
   } catch (error) {
     // 同一文件改名后再改回可复用旧 ID；旧失败也不能把新读取的 loading 状态改成 error。
@@ -69,7 +69,7 @@ export async function readCurrentFilesEditorPath<T>(options: {
  * 提交一次统一读取决策结果；打开与恢复共用同一个提交口。
  *
  * `targetId` 仅接受仍为 loading、同一工作区身份且未被编辑的文本缓冲。
- * 磁盘已超过可编辑阈值时在原 ID 内转为只读大文本，不把首窗正文写进缓冲。
+ * 磁盘已超硬上限时在原 ID 内留下显式 `too-large` 错误态，不把任何正文写进缓冲。
  */
 export function commitFilesEditorTextReadResult(options: {
   store: FilesEditorStore;
@@ -101,6 +101,10 @@ export function commitFilesEditorTextReadResult(options: {
       state.convertTextBufferToPreview(options.targetId);
       return "binary";
     }
+    if (options.result.mode === "too-large") {
+      state.setTextLoadState(options.targetId, "error", "too-large");
+      return "too-large";
+    }
     if (options.result.mode === "large-text") {
       state.convertTextBufferToLargeText(options.targetId, {
         totalBytes: options.result.totalBytes,
@@ -128,6 +132,17 @@ export function commitFilesEditorTextReadResult(options: {
       options.mode,
     );
     return "binary";
+  }
+  if (options.result.mode === "too-large") {
+    // 合法文本超过单字符串硬上限：不构造正文、不回退固定块，只留明确错误态。
+    const opened = createTextFileBuffer({
+      workspace: options.workspace,
+      path: options.path,
+      text: "",
+    });
+    state.openBuffer(opened, options.mode);
+    state.setTextLoadState(opened.id, "error", "too-large");
+    return "too-large";
   }
   if (options.result.mode === "large-text") {
     const buffer = createLargeTextFileBuffer({

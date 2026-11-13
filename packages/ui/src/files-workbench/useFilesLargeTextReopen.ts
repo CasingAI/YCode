@@ -17,13 +17,19 @@ import { readCurrentFilesEditorPath } from "@/files-workbench/filesEditorFileIO.
 import type { FilesEditorStore } from "@/files-workbench/filesEditorStore.js";
 import type {
   FilesBuffer,
+  FilesLargeTextBuffer,
   FilesPendingOpen,
+  FilesRetainedLargeTextDraftLookup,
   FilesWorkspaceRef,
 } from "@/files-workbench/filesEditorTypes.js";
 
 interface FilesLargeTextReopenOptions {
   store: FilesEditorStore;
   persist: () => void;
+  /** 仍有索引库块补丁草稿时保持固定块模型，不能把草稿变成孤儿记录。 */
+  loadRetainedLargeTextDraft?: (
+    buffer: FilesLargeTextBuffer,
+  ) => Promise<FilesRetainedLargeTextDraftLookup>;
   resolveServices: (workspace: FilesWorkspaceRef) => {
     fileService: {
       readTextFileWindow: (args: {
@@ -76,7 +82,7 @@ export function useFilesLargeTextReopen(options: FilesLargeTextReopenOptions) {
         path,
         request,
         read: () => readFilesTextForOpen(resolveServices(workspace).fileService, path),
-        accept: (result) => {
+        accept: async (result) => {
           if (seqRef.current.get(target.id) !== seq) return;
           const latest = findFilesBuffer(store.getState(), target.id);
           if (
@@ -90,19 +96,54 @@ export function useFilesLargeTextReopen(options: FilesLargeTextReopenOptions) {
           }
           if (result.mode === "binary") {
             store.getState().convertTextBufferToPreview(latest.id);
-          } else if (result.mode === "editable") {
-            store.getState().completeLargeTextAsText(latest.id, { text: result.text });
-            store.getState().markSaved(latest.id, {
+          } else if (result.mode === "editable" || result.mode === "too-large") {
+            const retained = options.loadRetainedLargeTextDraft
+              ? await options.loadRetainedLargeTextDraft(latest)
+              : ({ kind: "missing" } as const);
+            if (seqRef.current.get(target.id) !== seq) return;
+            const current = findFilesBuffer(store.getState(), latest.id);
+            // 第二个 await 之后重新校验完整身份，避免改名 / 换工作区 / 换远程会话后误套旧结果。
+            if (
+              !current ||
+              !isFilesLargeTextBuffer(current) ||
+              current.path !== path ||
+              filesWorkspaceKey(current.workspace) !== filesWorkspaceKey(workspace) ||
+              (current.workspace.workspaceRemoteSessionId?.trim() ?? "") !== remoteSessionId
+            ) {
+              return;
+            }
+            if (retained.kind === "error") {
+              // 读取失败不能当成没有草稿；保留固定块标签，用户可再次重开重试。
+              logger.warn("[files-workbench] 重新打开大文件时读取保留草稿失败", {
+                path,
+                error: retained.error,
+              });
+              return;
+            }
+            if (retained.kind === "ready") {
+              store.getState().setLargeTextTotalBytes(current.id, retained.baseTotalBytes);
+              store
+                .getState()
+                .initializeLargeTextEdit(current.id, retained.baseVersion, retained.baseTotalBytes);
+              persist();
+              return;
+            }
+            if (result.mode === "too-large") {
+              store.getState().completeLargeTextAsText(current.id, { text: "" });
+              store.getState().setTextLoadState(current.id, "error", "too-large");
+              persist();
+              return;
+            }
+            store.getState().completeLargeTextAsText(current.id, { text: result.text });
+            store.getState().markSaved(current.id, {
               path,
               text: result.text,
-              workspace: latest.workspace,
+              workspace: current.workspace,
               version: result.version,
             });
           } else {
             store.getState().setLargeTextTotalBytes(latest.id, result.totalBytes, result.reason);
-            store
-              .getState()
-              .initializeLargeTextEdit(latest.id, result.version, result.totalBytes);
+            store.getState().initializeLargeTextEdit(latest.id, result.version, result.totalBytes);
             const large = findFilesBuffer(store.getState(), latest.id);
             if (large && isFilesLargeTextBuffer(large)) {
               // 用户显式重开接受磁盘上的新版本：先失效同 owner 的旧窗口与在途请求，

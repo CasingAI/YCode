@@ -1302,8 +1302,12 @@ const enUS: Record<string, string> = {
   "codeViewer.pptx.exportPdfSuccess": "PDF saved to {path}",
   "codeViewer.pptx.exportPdfFailed": "Failed to export PDF",
   "codeViewer.empty": "File is empty",
-  "codeViewer.fileTooLarge":
-    "This file exceeds the 256 KB preview limit. Open it in another editor to view the full contents.",
+  "codeViewer.textPreviewEncoding":
+    "This file is not valid UTF-8 text. Only the content read so far is shown, and nothing is written back to the file.",
+  "codeViewer.textPreviewTruncated":
+    "The current host does not support segmented reads. Only the beginning of the file is shown.",
+  "codeViewer.textPreviewTooLarge":
+    "This file exceeds the single-string size limit. Only the beginning of the file is shown.",
   "codeViewer.viewCode": "View code",
   "codeViewer.viewDiff": "View diff",
   "codeViewer.openSourcePreview": "Source preview",
@@ -1558,6 +1562,7 @@ const enUS: Record<string, string> = {
   "filesWorkbench.emptyEditor": "Open a file to start editing",
   "filesWorkbench.loadingFile": "Loading file…",
   "filesWorkbench.loadFileError": "Could not load this file.",
+  "filesWorkbench.fileTooLarge": "This file is too large to open in the full editor.",
   "filesWorkbench.retryLoadFile": "Retry",
   "filesWorkbench.largeText.toolbar": "Large file browser",
   "filesWorkbench.largeText.readonly": "Read only",

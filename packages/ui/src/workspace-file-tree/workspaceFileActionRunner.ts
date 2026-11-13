@@ -1,6 +1,6 @@
 import type { IFileService } from "@zcode/services";
 import { filesEditorMutationMatchesPath } from "../files-workbench/filesEditorFileMutations.js";
-import { writeFilesEditorSession } from "../files-workbench/filesEditorPersistence.js";
+import { persistFilesEditorSession } from "../files-workbench/filesEditorSessionPersistenceOwner.js";
 import type { FilesEditorStore } from "../files-workbench/filesEditorStore.js";
 import type { FilesWorkspaceRef } from "../files-workbench/filesEditorTypes.js";
 import { disposeFilesMonacoModel } from "../files-workbench/filesMonacoModels.js";
@@ -57,7 +57,7 @@ export async function runWorkspaceFileMutation({
       for (const id of previousBufferIds) {
         if (!currentBufferIds.has(id)) disposeFilesMonacoModel(id);
       }
-      writeFilesEditorSession(editorStore.getState().snapshotSession());
+      persistFilesEditorSession(editorStore);
     }
 
     const clipboard = useWorkspaceFileActionStore.getState().clipboard;

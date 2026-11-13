@@ -101,8 +101,8 @@ export function useFilesWorkbenchOpen(options: {
             workspace,
             path,
             request,
-            // 打开与恢复共用同一读取决策：二进制转预览、≤ 8 MiB 完整读取可编辑、
-            // > 8 MiB 建立大文本缓冲，不在这里另判阈值。
+            // 打开与恢复共用同一读取决策：合法 UTF-8 完整读取为一份正文，
+            // 二进制转预览，非法 UTF-8 进入固定块安全模型，超硬上限显示明确错误。
             read: () => readFilesTextForOpen(resolveServices(workspace).fileService, path),
             accept: (readResult) =>
               commitFilesEditorTextReadResult({

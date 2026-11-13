@@ -17,13 +17,8 @@ import {
 } from "@/files-workbench/filesLargeTextWindowSeed.js";
 import { disposeFilesLargeTextWindow } from "@/files-workbench/filesLargeTextWindowStore.js";
 import type { FilesEditorStore } from "@/files-workbench/filesEditorStore.js";
-import type {
-  FilesDiskProbeFileService,
-} from "@/files-workbench/filesEditorDiskSync.js";
-import type {
-  FilesBuffer,
-  FilesExternalChange,
-} from "@/files-workbench/filesEditorTypes.js";
+import type { FilesDiskProbeFileService } from "@/files-workbench/filesEditorDiskSync.js";
+import type { FilesBuffer, FilesExternalChange } from "@/files-workbench/filesEditorTypes.js";
 
 function workspaceIdentityKey(workspace: {
   workspacePath: string;
@@ -122,6 +117,27 @@ export async function reloadFilesBufferFromDisk(options: {
 
   if (result.mode === "binary") {
     store.getState().convertTextBufferToPreview(bufferId, { allowDirty: true });
+    disposeFilesMonacoModel(bufferId);
+    options.persist();
+    return true;
+  }
+
+  if (result.mode === "too-large") {
+    // 合法文本超过单字符串硬上限：不保留半份正文，也不回退固定块。
+    // 能给到这里说明缓冲干净或调用方已允许丢弃草稿。
+    if (isFilesLargeTextBuffer(current)) {
+      store.getState().completeLargeTextAsText(bufferId, { text: "" });
+    } else if (isFilesTextBuffer(current)) {
+      store.getState().markSaved(bufferId, {
+        path,
+        text: "",
+        workspace: current.workspace,
+        preserveCurrentText: false,
+      });
+    } else {
+      return false;
+    }
+    store.getState().setTextLoadState(bufferId, "error", "too-large");
     disposeFilesMonacoModel(bufferId);
     options.persist();
     return true;

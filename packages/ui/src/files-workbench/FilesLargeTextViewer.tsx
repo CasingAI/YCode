@@ -107,7 +107,7 @@ export function FilesLargeTextDecodingNotices({
 }
 
 /**
- * `> 8 MiB` 文本的固定块视图。
+ * 非法 UTF-8 文本的固定块视图；合法文本不再按大小进入这里。
  *
  * 当前磁盘原块由 buffer 作用域的 range store 持有；未保存修改只存在于
  * Files Editor Store 的 `edit.changes`，本组件按当前块 offset 投影。

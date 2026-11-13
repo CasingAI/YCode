@@ -49,7 +49,7 @@ export interface FileTextSlice {
 /**
  * 单次按需文本窗口的最大原始字节数。
  *
- * 文件工作台对大文件只读窗口与 ≤ 8 MiB 完整读取都复用它；服务端必须硬夹紧，
+ * 文件工作台对完整正文读取与非法 UTF-8 的固定块视图都复用它；服务端必须硬夹紧，
  * 调用方也不能通过超大 length 让一次 RPC 拉回整份文件。
  */
 export const FILE_TEXT_WINDOW_MAX_BYTES = 256 * 1024;

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createFilesLargeTextDraftPersistence } from "@/files-workbench/filesLargeTextDraftPersistence.js";
 import {
+  FilesLargeTextDraftStorageError,
   createIndexedDbFilesLargeTextDraftStorage,
   filesLargeTextDraftBufferIdentity,
   type FilesDraftBuffer,
@@ -10,6 +11,7 @@ import {
   type FilesLargeTextDraftStorage,
 } from "@/files-workbench/filesLargeTextDraftStorage.js";
 import type { FilesEditorStore } from "@/files-workbench/filesEditorStore.js";
+import type { FilesRetainedLargeTextDraftLookup } from "@/files-workbench/filesEditorTypes.js";
 
 /**
  * 大文件块补丁草稿持久化接线。
@@ -37,6 +39,8 @@ export interface FilesLargeTextDraftPersistenceHandle {
   /** SaveAs 成功后按旧 owner 精确清理已提交草稿；失败保留记录。 */
   discardCommittedDraft: (owner: FilesLargeTextDraftOwner) => Promise<boolean>;
   migrateBufferId: (oldBufferId: string, newBufferId: string) => Promise<boolean>;
+  /** 是否仍有该路径的块补丁记录；`error` 不能当成没有草稿。 */
+  loadRetainedDraft: (buffer: FilesDraftBuffer) => Promise<FilesRetainedLargeTextDraftLookup>;
 }
 
 type DraftController = ReturnType<typeof createFilesLargeTextDraftPersistence>;
@@ -130,6 +134,29 @@ export function useFilesLargeTextDraftPersistence(
   const getSnapshot = useCallback(() => controller?.getSnapshot() ?? EMPTY_SNAPSHOT, [controller]);
   const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 
+  const loadRetainedDraft = useCallback(
+    async (buffer: FilesDraftBuffer): Promise<FilesRetainedLargeTextDraftLookup> => {
+      // 只读保留记录，不探测版本、不改编辑基准；读取失败必须与“没有草稿”区分。
+      try {
+        const record = await storage.load(filesLargeTextDraftBufferIdentity(buffer));
+        return record
+          ? {
+              kind: "ready",
+              baseVersion: record.baseVersion,
+              baseTotalBytes: record.baseTotalBytes,
+            }
+          : { kind: "missing" };
+      } catch (error) {
+        // 适配器明确不可用时不可能存在可读记录（如无 IndexedDB 环境），按 missing；
+        // 其它读取失败必须保留旧标签，不能误判为没有草稿。
+        return error instanceof FilesLargeTextDraftStorageError && error.kind === "unavailable"
+          ? { kind: "missing" }
+          : { kind: "error", error };
+      }
+    },
+    [storage],
+  );
+
   return {
     snapshot,
     flush: useCallback(() => controller?.flush() ?? Promise.resolve(), [controller]),
@@ -152,5 +179,6 @@ export function useFilesLargeTextDraftPersistence(
         controller?.migrateBufferId(oldBufferId, newBufferId) ?? Promise.resolve(false),
       [controller],
     ),
+    loadRetainedDraft,
   };
 }

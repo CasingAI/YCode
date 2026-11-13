@@ -65,7 +65,7 @@ import type {
   FilesEditorState,
   FilesOpenMode,
   FilesPersistedSession,
-  FilesTextBufferLoadState,
+  FilesTextLoadStateSetter,
   FilesWorkspaceRef,
 } from "@/files-workbench/filesEditorTypes.js";
 
@@ -101,7 +101,7 @@ export interface FilesEditorStoreState extends FilesEditorState, FilesLargeTextE
   removeView: (viewId: string) => void;
   closeGroup: (groupId: string) => void;
   updateText: (id: string, text: string) => void;
-  setTextLoadState: (id: string, loadState: FilesTextBufferLoadState | undefined) => void;
+  setTextLoadState: FilesTextLoadStateSetter;
   /**
    * 读取结果证明该路径是二进制时，在原 ID 内转为预览缓冲。
    * 布局、标签顺序和焦点保持不变；脏草稿不会被转换。
@@ -115,7 +115,7 @@ export interface FilesEditorStoreState extends FilesEditorState, FilesLargeTextE
     id: string,
     params?: { totalBytes?: number; readonlyReason?: "encoding"; allowDirty?: boolean },
   ) => void;
-  /** 大文本恢复决策发现磁盘已回到 ≤ 8 MiB：原 ID 内转为完整可编辑文本。 */
+  /** 大文本恢复决策发现磁盘已恢复为合法 UTF-8：原 ID 内转为完整可编辑文本。 */
   completeLargeTextAsText: (id: string, params: { text: string }) => void;
   /** 大文本决策拿到首窗后补全只读元数据；不保存窗口正文。 */
   setLargeTextTotalBytes: (
@@ -320,9 +320,8 @@ export function createFilesEditorStore() {
       set((state) => updateTextBuffer(state, id, { text }));
     },
 
-    setTextLoadState: (id, loadState) => {
-      set((state) => setTextBufferLoadStateInState(state, id, loadState));
-    },
+    setTextLoadState: (id, loadState, loadError) =>
+      set((state) => setTextBufferLoadStateInState(state, id, loadState, loadError)),
 
     convertTextBufferToPreview: (id, params) => {
       set((state) => convertTextBufferToPreviewInState(state, id, params));

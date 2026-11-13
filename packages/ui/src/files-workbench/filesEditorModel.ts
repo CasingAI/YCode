@@ -15,6 +15,7 @@ import type {
   FilesPersistedDraft,
   FilesPersistedOpenTab,
   FilesTextBuffer,
+  FilesTextBufferLoadError,
   FilesTextBufferLoadState,
   FilesWorkspaceRef,
 } from "@/files-workbench/filesEditorTypes.js";
@@ -272,6 +273,7 @@ export function updateTextBuffer(
       | "title"
       | "truncated"
       | "loadState"
+      | "loadError"
       | "diskVersion"
       | "externalChange"
     >
@@ -294,6 +296,7 @@ export function updateTextBuffer(
       next.title === buffer.title &&
       next.truncated === buffer.truncated &&
       next.loadState === buffer.loadState &&
+      next.loadError === buffer.loadError &&
       next.diskVersion === buffer.diskVersion &&
       next.externalChange?.kind === buffer.externalChange?.kind &&
       next.externalChange?.observedVersion === buffer.externalChange?.observedVersion &&
@@ -393,14 +396,16 @@ export function setTextBufferLoadStateInState(
   state: FilesEditorState,
   id: string,
   loadState: FilesTextBufferLoadState | undefined,
+  loadError?: FilesTextBufferLoadError,
 ): FilesEditorState {
+  // 只有 error 态保留明确原因；重新进入 loading / unloaded 时不能残留旧错误。
+  const nextLoadError = loadState === "error" ? loadError : undefined;
   let changed = false;
   const buffers = state.buffers.map((buffer) => {
-    if (!isFilesTextBuffer(buffer) || buffer.id !== id || buffer.loadState === loadState) {
-      return buffer;
-    }
+    if (!isFilesTextBuffer(buffer) || buffer.id !== id) return buffer;
+    if (buffer.loadState === loadState && buffer.loadError === nextLoadError) return buffer;
     changed = true;
-    return { ...buffer, loadState };
+    return { ...buffer, loadState, loadError: nextLoadError };
   });
   return changed ? { ...state, buffers } : state;
 }

@@ -33,7 +33,6 @@ import { usePptxFileWatch } from "@/hooks/usePptxFileWatch.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { usePdfViewerLabels, usePptxViewerLabels } from "@/hooks/usePreviewViewerLabels.js";
 import {
-  FILE_VIEWER_MAX_TEXT_BYTES,
   createDiffSourceFilePreviewSource,
   inferImageMediaType,
   inferMediaPreview,
@@ -81,6 +80,11 @@ import {
   readPptxPreviewData,
 } from "@/lib/pptxPreviewData.js";
 import { isMissingFileError } from "@/lib/fileReadError.js";
+import {
+  readPreviewPaneText,
+  resolvePreviewPaneTextNoticeIds,
+  resolvePreviewPaneTextReadState,
+} from "@/previewPaneTextRead.js";
 
 interface CodeViewerBreadcrumbData {
   rootLabel: string | null;
@@ -192,28 +196,6 @@ function readPreviewPaneScrollMetrics(
     scrollHeight: container.scrollHeight,
     scrollTop: container.scrollTop,
   };
-}
-
-function resolvePreviewPaneTextFileResult(result: FileTextSlice): {
-  filePreview: FileTextSlice | null;
-  fileTooLarge: boolean;
-} {
-  if (result.isBinary) {
-    return {
-      filePreview: result,
-      fileTooLarge: false,
-    };
-  }
-
-  return result.truncated
-    ? {
-        filePreview: null,
-        fileTooLarge: true,
-      }
-    : {
-        filePreview: result,
-        fileTooLarge: false,
-      };
 }
 
 function isSvgFilePath(path?: string): boolean {
@@ -512,7 +494,7 @@ export function PreviewPane({
     source?.workspaceIdentity,
   );
   const [filePreview, setFilePreview] = useState<FileTextSlice | null>(null);
-  const [fileTooLarge, setFileTooLarge] = useState(false);
+  const [textNotices, setTextNotices] = useState<readonly string[]>([]);
   const [loadingInitial, setLoadingInitial] = useState(false);
   const [loadingMediaPreview, setLoadingMediaPreview] = useState(false);
   const [mediaPreviewUrl, setMediaPreviewUrl] = useState<string | null>(null);
@@ -902,7 +884,7 @@ export function PreviewPane({
       scrollTop: 0,
     };
     setFilePreview(null);
-    setFileTooLarge(false);
+    setTextNotices([]);
     setError(null);
     setLoadingInitial(Boolean(fileSource));
     if (scrollContainerRef.current) {
@@ -915,23 +897,20 @@ export function PreviewPane({
       };
     }
 
-    // 把传输分块直接当成多个文档解码和渲染，会在 UTF-8 字符中间产生乱码，
-    // 同时让每块行号从 1 重置。文本预览现在只读取 service 允许的完整上限；
-    // 非二进制结果返回 truncated 时丢弃局部文本并提示文件过大，不再拼接分块。
-    void fileService
-      .readTextFile({
-        path: fileSource.path,
-        offset: 0,
-        length: FILE_VIEWER_MAX_TEXT_BYTES,
-      })
-      .then((result) => {
+    // 预览复用文件工作台的 typed 窗口读取：合法 UTF-8 逐窗读到 EOF 后连续拼接，
+    // 不再用单次 256 KiB 的 truncated 结果清空正文、按大小误报「文件过大」。
+    // 版本 / 偏移 / 总大小由共享读取器校验；这里只负责在换源或卸载后丢弃迟到结果。
+    void readPreviewPaneText(fileService, fileSource.path)
+      .then((read) => {
         if (disposed) {
           return;
         }
 
-        const nextFileState = resolvePreviewPaneTextFileResult(result);
+        const nextFileState = resolvePreviewPaneTextReadState(read, fileSource.path);
         setFilePreview(nextFileState.filePreview);
-        setFileTooLarge(nextFileState.fileTooLarge);
+        setTextNotices(
+          resolvePreviewPaneTextNoticeIds(nextFileState).map((id) => intl.formatMessage({ id })),
+        );
       })
       .catch((readError: unknown) => {
         if (disposed) {
@@ -1714,7 +1693,7 @@ export function PreviewPane({
           <PreviewPaneContent
             source={pptxSource ?? imageSource ?? pdfSource ?? mediaSource ?? source}
             filePreview={filePreview}
-            fileTooLarge={fileTooLarge}
+            textNotices={textNotices}
             loadingInitial={loadingInitial}
             loadingImagePreview={imagePreviewLoad.loading}
             imagePreviewUrl={imagePreviewLoad.url}

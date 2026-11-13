@@ -1,3 +1,4 @@
+import { logger } from "@/logger.js";
 import { persistableDrafts, persistableOpenTabs } from "@/files-workbench/filesEditorModel.js";
 import type {
   FilesEditorState,
@@ -6,14 +7,27 @@ import type {
   FilesPersistedSession,
 } from "@/files-workbench/filesEditorTypes.js";
 
+/**
+ * 文件工作台会话持久化。
+ *
+ * localStorage 保存标签与小体积完整文本草稿；超过本地预算的完整文本草稿
+ * 异步写入 IndexedDB，避免 10 MiB 级草稿在配额失败时被静默丢弃。
+ * 这里只做备份，运行时草稿 owner 仍是 Files Editor Store。
+ */
+
 const STORAGE_KEY = "zcode-files-editor-session-v1";
 
-interface StorageLike {
+/** 单个草稿进入 localStorage 的字符预算；超过即转 IndexedDB。 */
+export const FILES_TEXT_DRAFT_LOCAL_STORAGE_MAX_CHARS = 1024 * 1024;
+/** 整个会话的 localStorage 草稿总字符预算。 */
+export const FILES_LOCAL_STORAGE_SESSION_MAX_CHARS = 4 * 1024 * 1024;
+
+export interface FilesEditorSessionStorage {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
 }
 
-function getBrowserStorage(): StorageLike | undefined {
+export function getFilesEditorSessionBrowserStorage(): FilesEditorSessionStorage | undefined {
   if (typeof window === "undefined") {
     return undefined;
   }
@@ -89,13 +103,17 @@ function parseDraft(value: unknown): FilesPersistedDraft | undefined {
     savedText: draft.savedText,
     workspace: draft.workspace,
     untitled: draft.untitled === true,
+    // 合并 epoch 只接受有限数字；旧会话缺省时按本地优先处理。
+    ...(typeof draft.updatedAt === "number" && Number.isFinite(draft.updatedAt)
+      ? { updatedAt: draft.updatedAt }
+      : undefined),
     // 未知旧草稿不丢正文；只额外保留旧版截断标记，避免恢复后被误判为完整可保存。
     truncated: draft.truncated === true ? true : undefined,
   };
 }
 
 export function readFilesEditorSession(
-  storage: StorageLike | undefined = getBrowserStorage(),
+  storage: FilesEditorSessionStorage | undefined = getFilesEditorSessionBrowserStorage(),
 ): FilesPersistedSession | undefined {
   const raw = storage?.getItem(STORAGE_KEY);
   if (!raw) {
@@ -178,13 +196,115 @@ export function snapshotFilesEditorSession(state: FilesEditorState): FilesPersis
   };
 }
 
+export interface FilesEditorSessionSplitOptions {
+  /** 单个草稿进入 localStorage 的最大字符数（text + savedText）。 */
+  singleDraftMaxChars?: number;
+  /** 整个会话草稿进入 localStorage 的最大总字符数。 */
+  totalDraftMaxChars?: number;
+}
+
+export interface FilesEditorSessionSplit {
+  /** 仍需写入 localStorage 的标签与草稿。 */
+  session: FilesPersistedSession;
+  /** 超过本地预算、需要 IndexedDB 备份的完整文本草稿。 */
+  overflowDrafts: FilesPersistedDraft[];
+}
+
+function draftCharCount(draft: FilesPersistedDraft): number {
+  return draft.text.length + draft.savedText.length;
+}
+
+function sumDraftChars(drafts: readonly FilesPersistedDraft[]): number {
+  return drafts.reduce((total, draft) => total + draftCharCount(draft), 0);
+}
+
+/**
+ * 按本地预算拆分会话：先移出单个超大草稿，再从最大的开始移出，
+ * 直到剩余草稿总量不超过会话预算。
+ */
+export function splitFilesEditorSessionForStorage(
+  session: FilesPersistedSession,
+  options: FilesEditorSessionSplitOptions = {},
+): FilesEditorSessionSplit {
+  const singleMax = options.singleDraftMaxChars ?? FILES_TEXT_DRAFT_LOCAL_STORAGE_MAX_CHARS;
+  const totalMax = options.totalDraftMaxChars ?? FILES_LOCAL_STORAGE_SESSION_MAX_CHARS;
+  const overflowIds = new Set(
+    session.drafts.filter((draft) => draftCharCount(draft) > singleMax).map((draft) => draft.id),
+  );
+  const remaining = session.drafts.filter((draft) => !overflowIds.has(draft.id));
+  let remainingChars = sumDraftChars(remaining);
+  if (remainingChars > totalMax) {
+    const largestFirst = [...remaining].sort((left, right) => {
+      return draftCharCount(right) - draftCharCount(left);
+    });
+    for (const draft of largestFirst) {
+      if (remainingChars <= totalMax) break;
+      overflowIds.add(draft.id);
+      remainingChars -= draftCharCount(draft);
+    }
+  }
+  return {
+    session: {
+      ...session,
+      drafts: session.drafts.filter((draft) => !overflowIds.has(draft.id)),
+    },
+    overflowDrafts: session.drafts.filter((draft) => overflowIds.has(draft.id)),
+  };
+}
+
+function removeLargestDraft(
+  session: FilesPersistedSession,
+): { session: FilesPersistedSession; draft: FilesPersistedDraft } | undefined {
+  let largest: FilesPersistedDraft | undefined;
+  for (const draft of session.drafts) {
+    if (!largest || draftCharCount(draft) > draftCharCount(largest)) {
+      largest = draft;
+    }
+  }
+  if (!largest) return undefined;
+  return {
+    session: { ...session, drafts: session.drafts.filter((draft) => draft.id !== largest.id) },
+    draft: largest,
+  };
+}
+
+export type FilesEditorSessionWriteStatus = "written" | "quota" | "unavailable";
+
+export interface FilesEditorSessionWriteResult {
+  status: FilesEditorSessionWriteStatus;
+  /** 未写入 localStorage 的完整文本草稿；调用方必须交给 IndexedDB 备份。 */
+  overflowDrafts: FilesPersistedDraft[];
+}
+
+/**
+ * 写入 localStorage 会话。配额失败不是静默忽略：把最大的剩余草稿移出后重试，
+ * 并把所有未写入的草稿作为 `overflowDrafts` 返回给 IndexedDB 备份。
+ */
 export function writeFilesEditorSession(
   session: FilesPersistedSession,
-  storage: StorageLike | undefined = getBrowserStorage(),
-): void {
-  try {
-    storage?.setItem(STORAGE_KEY, JSON.stringify(session));
-  } catch {
-    // 隐私模式或配额满时忽略，不阻断编辑。
+  storage: FilesEditorSessionStorage | undefined = getFilesEditorSessionBrowserStorage(),
+  options: FilesEditorSessionSplitOptions = {},
+): FilesEditorSessionWriteResult {
+  const initial = splitFilesEditorSessionForStorage(session, options);
+  const overflowDrafts = [...initial.overflowDrafts];
+  if (!storage) {
+    // 没有 localStorage 时所有完整文本草稿都必须交给 IndexedDB，不能只备份超预算部分。
+    return { status: "unavailable", overflowDrafts: session.drafts };
+  }
+  let candidate = initial.session;
+  for (;;) {
+    try {
+      storage.setItem(STORAGE_KEY, JSON.stringify(candidate));
+      return { status: "written", overflowDrafts };
+    } catch (error) {
+      const next = removeLargestDraft(candidate);
+      if (!next) {
+        logger.warn("[files-workbench] 文件会话写入 localStorage 失败", { error });
+        return { status: "quota", overflowDrafts };
+      }
+      // 配额不足时把最大草稿转给 IndexedDB，并重试剩余标签与小草稿。
+      overflowDrafts.push(next.draft);
+      candidate = next.session;
+    }
   }
 }

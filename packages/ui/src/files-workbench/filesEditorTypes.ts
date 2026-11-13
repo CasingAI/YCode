@@ -2,6 +2,16 @@ export type FilesBufferKind = "text" | "preview" | "large-text";
 
 export type FilesTextBufferLoadState = "unloaded" | "loading" | "error";
 
+/** 加载失败的明确原因；`too-large` 表示合法文本超过单字符串硬上限。 */
+export type FilesTextBufferLoadError = "too-large";
+
+/** 文本缓冲加载状态写入；错误原因只与 `error` 态一起保留。 */
+export type FilesTextLoadStateSetter = (
+  id: string,
+  loadState: FilesTextBufferLoadState | undefined,
+  loadError?: FilesTextBufferLoadError,
+) => void;
+
 /** 工作台打开方式：预览可被下一次单击替换；固定不会。 */
 export type FilesOpenMode = "preview" | "keep";
 
@@ -10,6 +20,17 @@ export interface FilesWorkspaceRef {
   workspaceIdentity?: string;
   workspaceRemoteSessionId?: string;
 }
+
+/**
+ * legacy large-text 标签恢复前对保留块补丁记录的只读查询。
+ *
+ * `missing` 才能转完整正文；`error` 表示 IndexedDB 读取失败，必须保留旧标签
+ * 以便重试，不能把失败当成“没有草稿”而切模型造成孤儿记录。
+ */
+export type FilesRetainedLargeTextDraftLookup =
+  | { kind: "missing" }
+  | { kind: "ready"; baseVersion: string; baseTotalBytes: number }
+  | { kind: "error"; error: unknown };
 
 export interface FilesMonacoRevealPosition {
   workspace: FilesWorkspaceRef;
@@ -57,6 +78,8 @@ export interface FilesTextBuffer {
   truncated?: boolean;
   /** 干净文件标签恢复后延迟读取正文；已加载缓冲不设置此字段。 */
   loadState?: FilesTextBufferLoadState;
+  /** `loadState: "error"` 时的明确原因；不写入持久化。 */
+  loadError?: FilesTextBufferLoadError;
   /** 预览标签；固定打开为 undefined。 */
   preview?: boolean;
   /**
@@ -199,6 +222,11 @@ export interface FilesPersistedDraft {
   savedText: string;
   workspace: FilesWorkspaceRef;
   untitled: boolean;
+  /**
+   * localStorage 草稿的合并 epoch；与 IndexedDB 记录 `updatedAt` 比较，
+   * 决定冷启动时同 id 的本地草稿还是异步大草稿胜出。旧会话可缺省。
+   */
+  updatedAt?: number;
   /**
    * 旧版 256 KiB 截断草稿标记。新代码不再产生截断文本，但必须保留该标记，
    * 避免把不完整正文当成完整草稿恢复后可保存。

@@ -75,7 +75,14 @@ export function FilesEditorContent({
           className="flex h-full flex-col items-center justify-center gap-2 text-center text-ui-sm text-foreground-subtle"
           role="alert"
         >
-          <span>{intl.formatMessage({ id: "filesWorkbench.loadFileError" })}</span>
+          <span>
+            {intl.formatMessage({
+              id:
+                buffer.loadError === "too-large"
+                  ? "filesWorkbench.fileTooLarge"
+                  : "filesWorkbench.loadFileError",
+            })}
+          </span>
           <button
             type="button"
             className="rounded-md border border-border px-2 py-1 text-ui-sm hover:bg-surface-hover"

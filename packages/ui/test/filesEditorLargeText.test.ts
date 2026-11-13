@@ -16,7 +16,10 @@ import {
   useFilesEditorStoreApi,
 } from "../src/files-workbench/FilesEditorStoreProvider.js";
 import { useFilesWorkbenchController } from "../src/files-workbench/useFilesWorkbenchController.js";
-import { useFilesEditorRestore } from "../src/files-workbench/useFilesEditorRestore.js";
+import {
+  useFilesEditorRestore,
+  hydrateFilesEditorSession,
+} from "../src/files-workbench/useFilesEditorRestore.js";
 import {
   canSaveFilesBuffer,
   createLargeTextFileBuffer,
@@ -28,7 +31,7 @@ import { createFilesEditorStore } from "../src/files-workbench/filesEditorStore.
 import type { FilesEditorStore } from "../src/files-workbench/filesEditorStore.js";
 import { saveFilesTextBuffer } from "../src/files-workbench/filesEditorSaveIO.js";
 import {
-  FILES_EDITABLE_TEXT_MAX_BYTES,
+  FILES_FULL_TEXT_MAX_BYTES,
   FilesTextReadChangedError,
   isFilesTextReadMissingError,
   readFilesTextForOpen,
@@ -40,7 +43,9 @@ import { acquireFilesLargeTextWindow } from "../src/files-workbench/filesLargeTe
 import { filesLargeTextWindowOwner } from "../src/files-workbench/filesLargeTextWindowSeed.js";
 import type {
   FilesBuffer,
+  FilesLargeTextBuffer,
   FilesPersistedSession,
+  FilesRetainedLargeTextDraftLookup,
   FilesWorkspaceRef,
 } from "../src/files-workbench/filesEditorTypes.js";
 
@@ -142,7 +147,15 @@ function renderController(services: IServiceAccessor) {
   return captured;
 }
 
-function captureRestore(store: FilesEditorStore, services: IServiceAccessor) {
+function captureRestore(
+  store: FilesEditorStore,
+  services: IServiceAccessor,
+  options?: {
+    loadRetainedLargeTextDraft?: (
+      buffer: FilesLargeTextBuffer,
+    ) => Promise<FilesRetainedLargeTextDraftLookup>;
+  },
+) {
   let loader!: ReturnType<typeof useFilesEditorRestore>;
   function Capture() {
     loader = useFilesEditorRestore({
@@ -150,6 +163,7 @@ function captureRestore(store: FilesEditorStore, services: IServiceAccessor) {
       restoreEnabled: false,
       persist: () => undefined,
       resolveServices: () => services,
+      ...options,
     });
     return null;
   }
@@ -167,19 +181,28 @@ function sessionWithLargeTab(id: string, path: string): FilesPersistedSession {
   };
 }
 
-test("读取决策只在 8 MiB 阈值处切换可编辑与只读大文本", () => {
+test("读取决策：合法 UTF-8 一律完整正文，只有非法字节或硬上限才降级", () => {
+  assert.equal(resolveFilesTextReadMode({ isBinary: false, totalBytes: 10 }), "editable");
   assert.equal(
-    resolveFilesTextReadMode({ isBinary: false, totalBytes: FILES_EDITABLE_TEXT_MAX_BYTES }),
+    resolveFilesTextReadMode({ isBinary: false, totalBytes: 10 * 1024 * 1024 }),
     "editable",
   );
   assert.equal(
-    resolveFilesTextReadMode({ isBinary: false, totalBytes: FILES_EDITABLE_TEXT_MAX_BYTES + 1 }),
+    resolveFilesTextReadMode({ isBinary: false, totalBytes: FILES_FULL_TEXT_MAX_BYTES }),
+    "editable",
+  );
+  assert.equal(
+    resolveFilesTextReadMode({ isBinary: false, totalBytes: FILES_FULL_TEXT_MAX_BYTES + 1 }),
+    "too-large",
+  );
+  assert.equal(
+    resolveFilesTextReadMode({ isBinary: false, totalBytes: 3, hasDecodingErrors: true }),
     "large-text",
   );
   assert.equal(resolveFilesTextReadMode({ isBinary: true, totalBytes: 10 }), "binary");
 });
 
-test("≤ 8 MiB 文本按窗口完整读取，后续窗口都带首窗版本且不丢不重", async () => {
+test("任意大小合法 UTF-8 文本按窗口完整读取，后续窗口都带首窗版本且不丢不重", async () => {
   const text = "A".repeat(600 * 1024);
   const reader = createWindowReader(text);
 
@@ -197,17 +220,29 @@ test("≤ 8 MiB 文本按窗口完整读取，后续窗口都带首窗版本且�
   assert.equal(reader.calls[2]?.expectedVersion, "v1");
 });
 
-test("> 8 MiB 文本只读首窗即判定，不继续扫描全文", async () => {
-  const reader = createWindowReader("head", { totalBytes: FILES_EDITABLE_TEXT_MAX_BYTES + 1 });
+test("超过单字符串硬上限的文本只读首窗即判定，不继续扫描全文", async () => {
+  const reader = createWindowReader("head", { totalBytes: FILES_FULL_TEXT_MAX_BYTES + 1 });
 
   const result = await readFilesTextForOpen(reader, "/work/huge.txt");
 
-  assert.equal(result.mode, "large-text");
-  assert.equal(result.totalBytes, FILES_EDITABLE_TEXT_MAX_BYTES + 1);
+  assert.equal(result.mode, "too-large");
+  assert.equal(result.totalBytes, FILES_FULL_TEXT_MAX_BYTES + 1);
+  assert.equal("text" in result, false);
   assert.equal(reader.calls.length, 1);
 });
 
-test("首窗存在解码错误时即使 ≤ 8 MiB 也只读首窗，不返回可编辑", async () => {
+test("10 MiB 合法文本不再因旧 8 MiB 阈值转只读，而是完整读取", async () => {
+  const text = "J".repeat(10 * 1024 * 1024);
+  const reader = createWindowReader(text);
+
+  const result = await readFilesTextForOpen(reader, "/work/allpatch.json");
+
+  assert.equal(result.mode, "editable");
+  assert.equal(result.mode === "editable" ? result.text : "", text);
+  assert.ok(reader.calls.length > 30);
+});
+
+test("首窗存在解码错误时只读首窗，不返回可编辑", async () => {
   const reader = createWindowReader("bad bytes", { hasDecodingErrors: () => true });
 
   const result = await readFilesTextForOpen(reader, "/work/lossy.txt");
@@ -242,12 +277,12 @@ test("后续窗口存在解码错误时整份转只读，保留首窗前缀且�
   assert.equal(reader.calls.length, 2);
 });
 
-test("稀疏 > 1 GiB 文件只做一次有界决策读取", async () => {
+test("稀疏 > 硬上限文件只做一次有界决策读取", async () => {
   const reader = createWindowReader("", { totalBytes: 2 * 1024 * 1024 * 1024 });
 
   const result = await readFilesTextForOpen(reader, "/work/sparse.log");
 
-  assert.equal(result.mode, "large-text");
+  assert.equal(result.mode, "too-large");
   assert.equal(reader.calls.length, 1);
   assert.equal(reader.calls[0]?.length, FILE_TEXT_WINDOW_MAX_BYTES);
 });
@@ -288,18 +323,18 @@ test("保存前完整读取超过 256KiB 的磁盘正文，而不是把首窗当
   assert.equal(reader.calls.length, 3);
 });
 
-test("保存前发现磁盘 > 8 MiB 时立即停止，不继续读大文件", async () => {
-  const reader = createWindowReader("head", { totalBytes: FILES_EDITABLE_TEXT_MAX_BYTES + 1 });
+test("保存前发现磁盘超过硬上限时立即停止，不继续读大文件", async () => {
+  const reader = createWindowReader("head", { totalBytes: FILES_FULL_TEXT_MAX_BYTES + 1 });
 
   const result = await readFilesTextForSave(reader, "/work/huge.txt");
 
-  assert.equal(result.mode, "large-text");
+  assert.equal(result.mode, "too-large");
   assert.equal(reader.calls.length, 1);
 });
 
-test("打开 > 8 MiB 文本建立可编辑 large-text 缓冲，不写 text/savedText 并保存首窗版本", async () => {
+test("打开非法 UTF-8 文本建立 fixed-block 缓冲，不写 text/savedText 并保存首窗版本", async () => {
   const path = "/work/huge.log";
-  const reader = createWindowReader("head", { totalBytes: FILES_EDITABLE_TEXT_MAX_BYTES + 1 });
+  const reader = createWindowReader("head", { hasDecodingErrors: () => true });
   const { controller, store } = renderController(servicesWith(reader));
 
   await controller.openExistingPath(workspace, path);
@@ -311,11 +346,11 @@ test("打开 > 8 MiB 文本建立可编辑 large-text 缓冲，不写 text/saved
   assert.ok(buffer.kind === "large-text");
   assert.equal(buffer.path, path);
   assert.equal(buffer.workspace, workspace);
-  assert.equal(buffer.totalBytes, FILES_EDITABLE_TEXT_MAX_BYTES + 1);
+  assert.equal(buffer.totalBytes, 4);
   assert.equal("text" in buffer, false);
   assert.equal("savedText" in buffer, false);
   assert.equal(buffer.edit?.baseVersion, "v1");
-  assert.equal(buffer.edit?.baseTotalBytes, FILES_EDITABLE_TEXT_MAX_BYTES + 1);
+  assert.equal(buffer.edit?.baseTotalBytes, 4);
   assert.equal(canSaveFilesBuffer(buffer), true);
   assert.equal(isFilesBufferDirty(buffer), false);
   assert.deepEqual(state.openIds, [id]);
@@ -352,7 +387,7 @@ test("打开 > 8 MiB 文本建立可编辑 large-text 缓冲，不写 text/saved
   assert.equal("text" in tab, false);
 });
 
-test("打开 ≤ 8 MiB 但含解码错误的文本建立 encoding 只读缓冲并 seed 首窗", async () => {
+test("打开含解码错误的文本建立 encoding 只读缓冲并 seed 首窗", async () => {
   const path = "/work/lossy-small.txt";
   const reader = createWindowReader("A".repeat(600 * 1024), {
     hasDecodingErrors: () => true,
@@ -378,7 +413,7 @@ test("打开 ≤ 8 MiB 但含解码错误的文本建立 encoding 只读缓冲�
   lease.release();
 });
 
-test("≤ 8 MiB 多窗口文本完整合并后才建立可编辑缓冲", async () => {
+test("多窗口合法文本完整合并后才建立可编辑缓冲", async () => {
   const path = "/work/editable.txt";
   const text = "E".repeat(600 * 1024);
   const reader = createWindowReader(text);
@@ -398,7 +433,7 @@ test("≤ 8 MiB 多窗口文本完整合并后才建立可编辑缓冲", async (
 
 test("大文本没有块修改时不允许保存，也不触碰 commitTextFile", async () => {
   const commits: unknown[] = [];
-  const reader = createWindowReader("head", { totalBytes: FILES_EDITABLE_TEXT_MAX_BYTES + 1 });
+  const reader = createWindowReader("head", { hasDecodingErrors: () => true });
   const { controller, store } = renderController(
     servicesWith({
       ...reader,
@@ -411,7 +446,7 @@ test("大文本没有块修改时不允许保存，也不触碰 commitTextFile",
   const large = createLargeTextFileBuffer({
     workspace,
     path: "/work/huge.log",
-    totalBytes: FILES_EDITABLE_TEXT_MAX_BYTES + 1,
+    totalBytes: 9 * 1024 * 1024,
   });
   store.getState().openBuffer(large);
 
@@ -448,11 +483,11 @@ test("旧截断文本即使被直接调用保存也被底层 guard 阻止", asyn
   assert.equal(reader.calls.length, 0);
 });
 
-test("旧草稿保存先完整读取磁盘；磁盘跨过阈值时进入冲突且不提交", async () => {
+test("旧草稿保存先完整读取磁盘；磁盘出现非法 UTF-8 时进入冲突且不提交", async () => {
   const path = "/work/current.txt";
   const commits: unknown[] = [];
   const reader = createWindowReader("disk", {
-    totalBytes: FILES_EDITABLE_TEXT_MAX_BYTES + 1,
+    hasDecodingErrors: () => true,
   });
   const { controller, store } = renderController(
     servicesWith({
@@ -484,7 +519,7 @@ test("旧草稿版本未知时即使 force 也不按探测到的版本盲写", a
   const path = "/work/current.txt";
   const commits: { expectedVersion: string | null; write: { kind: string; text?: string } }[] = [];
   const reader = createWindowReader("disk", {
-    totalBytes: FILES_EDITABLE_TEXT_MAX_BYTES + 1,
+    hasDecodingErrors: () => true,
   });
   const { controller, store } = renderController(
     servicesWith({
@@ -803,7 +838,7 @@ test("保存 await 读盘期间缓冲不再可保存时放弃提交", async () =
   assert.deepEqual(commits, []);
 });
 
-test("恢复干净文本标签时磁盘已变大超过阈值，在原 ID 内转为只读大文本", async () => {
+test("恢复干净文本标签时磁盘出现非法 UTF-8，在原 ID 内转为固定块", async () => {
   const path = "/work/grown.txt";
   const id = filesFileBufferId(workspace, path);
   const store = createFilesEditorStore();
@@ -814,9 +849,7 @@ test("恢复干净文本标签时磁盘已变大超过阈值，在原 ID 内转�
     openTabs: [{ id, kind: "text", path, workspace }],
     drafts: [],
   });
-  const reader = createWindowReader("head", {
-    totalBytes: FILES_EDITABLE_TEXT_MAX_BYTES + 1,
-  });
+  const reader = createWindowReader("head", { hasDecodingErrors: () => true });
   const loader = captureRestore(store, servicesWith(reader));
 
   await loader.loadRestoredTextFile(id);
@@ -849,14 +882,12 @@ test("恢复 large-text 标签时不读盘，激活后按同一决策转回可�
   assert.equal(reader.calls.length, 1);
 });
 
-test("恢复 large-text 标签时磁盘仍大则保持只读，且本次会话不重复决策", async () => {
+test("恢复 large-text 标签时磁盘仍为非法 UTF-8 则保持只读，且本次会话不重复决策", async () => {
   const path = "/work/restored-huge.log";
   const id = filesFileBufferId(workspace, path);
   const store = createFilesEditorStore();
   store.getState().hydrateSession(sessionWithLargeTab(id, path));
-  const reader = createWindowReader("head", {
-    totalBytes: FILES_EDITABLE_TEXT_MAX_BYTES + 10,
-  });
+  const reader = createWindowReader("head", { hasDecodingErrors: () => true });
   const loader = captureRestore(store, servicesWith(reader));
 
   await loader.loadRestoredTextFile(id);
@@ -866,7 +897,7 @@ test("恢复 large-text 标签时磁盘仍大则保持只读，且本次会话�
   assert.equal(buffer.kind, "large-text");
   assert.ok(buffer.kind === "large-text");
   // 决策后补全 totalBytes 并 prime 首窗；后续激活不再重复恢复读取。
-  assert.equal(buffer.totalBytes, FILES_EDITABLE_TEXT_MAX_BYTES + 10);
+  assert.equal(buffer.totalBytes, 4);
   assert.equal(canSaveFilesBuffer(buffer), true);
   assert.equal(reader.calls.length, 1);
   let viewerReads = 0;
@@ -895,9 +926,7 @@ test("恢复 large 决策失败时 rangeStore 显示错误，retry 重新走统�
 
   let fail = true;
   let reads = 0;
-  const reader = createWindowReader("head", {
-    totalBytes: FILES_EDITABLE_TEXT_MAX_BYTES + 10,
-  });
+  const reader = createWindowReader("head", { hasDecodingErrors: () => true });
   const readWindow = reader.readTextFileWindow.bind(reader);
   reader.readTextFileWindow = async (request) => {
     reads += 1;
@@ -937,15 +966,13 @@ test("恢复 large 决策失败时 rangeStore 显示错误，retry 重新走统�
   assert.equal(ready.error, null);
   const buffer = store.getState().buffers[0]!;
   assert.ok(buffer.kind === "large-text");
-  assert.equal(buffer.totalBytes, FILES_EDITABLE_TEXT_MAX_BYTES + 10);
+  assert.equal(buffer.totalBytes, 4);
   lease.release();
 });
 
 test("seed 后关闭、转为文本或改名都会清理 rangeStore owner entry", async () => {
   const openLarge = async (path: string) => {
-    const reader = createWindowReader("head", {
-      totalBytes: FILES_EDITABLE_TEXT_MAX_BYTES + 1,
-    });
+    const reader = createWindowReader("head", { hasDecodingErrors: () => true });
     const rendered = renderController(servicesWith(reader));
     await rendered.controller.openExistingPath(workspace, path);
     const buffer = rendered.store.getState().buffers[0]!;
@@ -995,7 +1022,7 @@ test("seed 后关闭、转为文本或改名都会清理 rangeStore owner entry"
 test("已打开 large 标签再次打开时重新决策：外部缩小后转为可编辑", async () => {
   const path = "/work/reopen-shrunk.log";
   let content = "head";
-  let totalBytes = FILES_EDITABLE_TEXT_MAX_BYTES + 1;
+  let bad = true;
   let reads = 0;
   const reader = {
     async readTextFileWindow(request: { path: string; offset?: number }): Promise<FileTextWindow> {
@@ -1009,11 +1036,12 @@ test("已打开 large 标签再次打开时重新决策：外部缩小后转为�
         offset,
         bytesRead: nextOffset - offset,
         nextOffset,
-        totalBytes,
+        totalBytes: bytes.length,
         version: "v1",
         isBinary: false,
-        eof: nextOffset >= totalBytes,
-        truncated: nextOffset < totalBytes,
+        hasDecodingErrors: bad,
+        eof: true,
+        truncated: false,
       };
     },
   };
@@ -1025,7 +1053,7 @@ test("已打开 large 标签再次打开时重新决策：外部缩小后转为�
   assert.equal(reads, 1);
 
   content = "small";
-  totalBytes = 5;
+  bad = false;
   await controller.openExistingPath(workspace, path);
   await flushAsync();
 
@@ -1040,7 +1068,7 @@ test("已打开 large 标签再次打开时重新决策：外部缩小后转为�
 test("文件树重开已打开 large 标签时，pendingOpen 不会提前使读取结果失效", async () => {
   const path = "/work/reopen-with-request.log";
   let content = "head";
-  let totalBytes = FILES_EDITABLE_TEXT_MAX_BYTES + 1;
+  let bad = true;
   let reads = 0;
   const reader = {
     async readTextFileWindow(request: { path: string; offset?: number }): Promise<FileTextWindow> {
@@ -1054,11 +1082,12 @@ test("文件树重开已打开 large 标签时，pendingOpen 不会提前使读�
         offset,
         bytesRead: nextOffset - offset,
         nextOffset,
-        totalBytes,
+        totalBytes: bytes.length,
         version: "v1",
         isBinary: false,
-        eof: nextOffset >= totalBytes,
-        truncated: nextOffset < totalBytes,
+        hasDecodingErrors: bad,
+        eof: true,
+        truncated: false,
       };
     },
   };
@@ -1069,7 +1098,7 @@ test("文件树重开已打开 large 标签时，pendingOpen 不会提前使读�
   assert.ok(initial.kind === "large-text");
 
   content = "small";
-  totalBytes = 5;
+  bad = false;
   store.getState().requestOpenPath({ workspace, path });
   const request = store.getState().pendingOpen!;
   assert.equal(store.getState().beginPendingOpen(request), true);
@@ -1089,7 +1118,6 @@ test("显式重开仍为 large 时交付新首窗，已挂载 lease 不被替换
   const path = "/work/reopen-same-large.log";
   let version = "v1";
   let content = "head-v1";
-  const totalBytes = FILES_EDITABLE_TEXT_MAX_BYTES + 1;
   let reads = 0;
   const reader = {
     async readTextFileWindow(request: { path: string; offset?: number }): Promise<FileTextWindow> {
@@ -1103,11 +1131,12 @@ test("显式重开仍为 large 时交付新首窗，已挂载 lease 不被替换
         offset,
         bytesRead: nextOffset - offset,
         nextOffset,
-        totalBytes,
+        totalBytes: bytes.length,
         version,
         isBinary: false,
-        eof: nextOffset >= totalBytes,
-        truncated: nextOffset < totalBytes,
+        hasDecodingErrors: true,
+        eof: true,
+        truncated: false,
       };
     },
   };
@@ -1244,6 +1273,131 @@ test("恢复大文本期间改名后，旧读取结果不得写回旧路径", as
   const renamed = state.buffers[0]!;
   assert.equal(renamed.path, "/work/new.log");
   assert.equal(renamed.kind, "large-text");
+});
+
+test("会话异步读取期间新开文件并输入时，恢复结果不覆盖运行态", async () => {
+  const reader = createWindowReader("live");
+  const { controller, store } = renderController(servicesWith(reader));
+  let resolveSession!: (session: FilesPersistedSession | undefined) => void;
+  const sessionPromise = new Promise<FilesPersistedSession | undefined>((resolve) => {
+    resolveSession = resolve;
+  });
+  const hydration = hydrateFilesEditorSession({
+    store,
+    loadSession: () => sessionPromise,
+    persist: () => undefined,
+  });
+
+  await controller.openExistingPath(workspace, "/work/live.txt");
+  const live = store.getState().buffers[0]!;
+  assert.equal(live.kind, "text");
+  store.getState().updateText(live.id, "typed while restoring");
+
+  resolveSession(sessionWithLargeTab("file:restored-session", "/work/restored.log"));
+
+  assert.equal(await hydration, false);
+  const state = store.getState();
+  const current = state.buffers.find((buffer) => buffer.id === live.id);
+  assert.ok(current?.kind === "text");
+  assert.equal(current.text, "typed while restoring");
+  assert.equal(
+    state.buffers.some((buffer) => buffer.id === "file:restored-session"),
+    false,
+  );
+});
+
+test("运行态为空时会话读取完成后正常水合", async () => {
+  const store = createFilesEditorStore();
+  const path = "/work/idle-restored.log";
+  let persisted = 0;
+  const applied = await hydrateFilesEditorSession({
+    store,
+    loadSession: async () => sessionWithLargeTab(filesFileBufferId(workspace, path), path),
+    persist: () => {
+      persisted += 1;
+    },
+  });
+
+  assert.equal(applied, true);
+  assert.equal(persisted, 1);
+  assert.equal(store.getState().buffers[0]?.kind, "large-text");
+});
+
+test("恢复时读取保留块草稿失败保持 large 标签并可重试，不转完整正文", async () => {
+  const path = "/work/restored-retained.log";
+  const id = filesFileBufferId(workspace, path);
+  const store = createFilesEditorStore();
+  store.getState().hydrateSession(sessionWithLargeTab(id, path));
+  const reader = createWindowReader("head");
+  let retained: FilesRetainedLargeTextDraftLookup = {
+    kind: "error",
+    error: new Error("indexeddb unavailable"),
+  };
+  const loader = captureRestore(store, servicesWith(reader), {
+    loadRetainedLargeTextDraft: async () => retained,
+  });
+
+  await loader.loadRestoredTextFile(id);
+
+  const failed = store.getState().buffers[0]!;
+  assert.ok(failed.kind === "large-text");
+  assert.equal(failed.totalBytes, undefined);
+  assert.equal("text" in failed, false);
+  assert.equal(reader.calls.length, 1);
+
+  const lease = acquireFilesLargeTextWindow({
+    owner: filesLargeTextWindowOwner(failed),
+    initialTotalBytes: failed.totalBytes,
+    readWindow: async () => {
+      throw new Error("viewer must not bypass core retry");
+    },
+  });
+  assert.equal(lease.getSnapshot().phase, "error");
+
+  retained = { kind: "missing" };
+  lease.retry();
+  await flushAsync();
+  await flushAsync();
+
+  const recovered = store.getState().buffers[0]!;
+  assert.ok(recovered.kind === "text");
+  assert.equal(recovered.text, "head");
+  assert.equal(recovered.savedText, "head");
+  assert.equal(reader.calls.length, 2);
+  lease.release();
+});
+
+test("恢复 large 标签时读取保留块草稿失败，旧标签不会因磁盘合法而转完整正文", async () => {
+  const path = "/work/restored-retained-keep.log";
+  const id = filesFileBufferId(workspace, path);
+  const store = createFilesEditorStore();
+  store.getState().hydrateSession(sessionWithLargeTab(id, path));
+  let releaseLookup!: () => void;
+  const lookupGate = new Promise<void>((resolve) => {
+    releaseLookup = resolve;
+  });
+  const loader = captureRestore(store, servicesWith(createWindowReader("head")), {
+    loadRetainedLargeTextDraft: async () => {
+      await lookupGate;
+      return { kind: "error", error: new Error("idb read failed") };
+    },
+  });
+
+  const loading = loader.loadRestoredTextFile(id);
+  await Promise.resolve();
+  store.getState().applyFileMutation({
+    workspace,
+    kind: "rename",
+    path,
+    newPath: "/work/renamed-after-lookup.log",
+  });
+  releaseLookup();
+  await loading;
+
+  const renamed = store.getState().buffers[0]!;
+  assert.equal(renamed.path, "/work/renamed-after-lookup.log");
+  assert.equal(renamed.kind, "large-text");
+  assert.equal("text" in renamed, false);
 });
 
 test("持久化接受 large-text 标签并保留旧草稿的 truncated 标记", () => {

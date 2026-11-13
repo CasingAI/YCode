@@ -18,7 +18,6 @@ const imageSource = {
 const baseProps: PreviewPaneContentProps = {
   source: imageSource,
   filePreview: null,
-  fileTooLarge: false,
   loadingInitial: false,
   loadingImagePreview: false,
   imagePreviewUrl: "blob:preview-object-url",

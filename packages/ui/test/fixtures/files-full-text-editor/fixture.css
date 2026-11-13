@@ -1,0 +1,40 @@
+/* 只给隔离夹具排版，不替代生产 styles.css 的 Tailwind 产物。 */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: #f4f4f5;
+  color: #18181b;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+}
+
+.files-e2e-app {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  border: 1px solid #d4d4d8;
+  background: #ffffff;
+}
+
+.files-e2e-pane {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  border-right: 1px solid #d4d4d8;
+  flex-direction: column;
+}
+
+.files-e2e-pane:last-child {
+  border-right: 0;
+}
+
+.files-e2e-pane > section {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+}

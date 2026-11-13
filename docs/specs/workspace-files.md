@@ -74,7 +74,7 @@
 - 不同工作区的同一相对路径是两张标签，允许同时打开。
 - 标签主文案是文件名；同名且来自不同工作区时，tooltip 或副文案带工作区名。
 - **文本**：内嵌 Monaco 打开、编辑。工作台缓冲是正文的唯一权威；编辑器只是视图。用户输入写回缓冲；从缓冲程序化灌进编辑器时，不得再把这次灌入当作用户输入写回缓冲。换行符等规范化差异若形成来回改写，会把嵌套更新打到 React 上限，整块文件区被错误边界接管。
-- **大文本**：`≤ 8 MiB` 且所有窗口 UTF-8 无损的文本按有界分块完整读取后进入 Monaco 编辑；`> 8 MiB` 使用固定 256 KiB 块的按需编辑，只加载当前块，不把全文写入缓冲；任一非法 UTF-8 块只读并显示替换字符，其它块仍可编辑，保存时服务逐字节保留未触碰的坏字节。8 MiB 是「完整正文模型 / 固定块模型」的切换阈值，不是编辑能力上限。读取决策、块边界、补丁与冲突细则见 `workspace-large-text-files.md`。
+- **大文本**：不再以 8 MiB 等文件大小阈值切换「完整正文模型 / 固定块模型」。所有窗口 UTF-8 无损的文本按有界分块完整读取后进入 Monaco 编辑；只有任一窗口含非法 UTF-8 时才丢弃完整正文，改按固定 256 KiB 块只读显示替换字符，其它合法块仍可编辑，保存时服务逐字节保留未触碰的坏字节。读取决策、块边界、补丁与冲突细则见 `workspace-large-text-files.md`。
 - **图片 / PDF / Office / 媒体**：同一条标签条里的只读预览，复用现有 Preview 能力，不塞进 Monaco。
 - 未命名标签没有磁盘路径，保存成功后身份变成该路径的文件标签。
 - **编辑器右键菜单必须跟随应用语言**。Monaco 的 ESM 产物不内置语言包，菜单文案默认硬编码英文；文件工作台在编辑器就绪后按当前语言改写 Monaco 右键菜单（含「转到定义 / 转到引用 / 转到符号 / 预览 / 重命名符号 / 格式化文档 / 剪切复制粘贴 / 命令面板」及 Peek 等子菜单），切换语言时同步刷新。未登记文案的菜单项保留英文，不做兜底翻译。
@@ -173,6 +173,38 @@ VS Code 编辑器组里 **unpinned = 预览**：斜体标题；一组最多一�
 3. 恢复旧会话中的干净图片文本标签时无需预读文件即修正为只读标签；未知二进制在激活读取后修正。两者保留身份、顺序、焦点、分屏视图与预览状态。
 4. 已有脏草稿（包括旧版本图片误开后产生的草稿）仍按草稿恢复，不被类型修正或异步读取覆盖；读取期间的改名 / 删除不得让旧结果重新建立旧路径标签。
 5. 两个本地 / 远程工作区具有同名同路径资源时，文件服务仍按 `workspaceIdentity?.trim() || workspacePath` 和 `workspaceRemoteSessionId` 隔离；首次进入文件视图前不新增读盘。
+
+### Side Pane 文本预览（2026-11-13）
+
+- Side Pane 的普通文本预览与文件工作台共用 `readFilesTextForOpen`（`files-workbench/filesEditorTextReader.ts`）及其 typed 窗口读取，不再直接调用 `readTextFile` 的 256 KiB 截断读取。合法 UTF-8 文本无论文件大小都逐窗读到 EOF、按 `nextOffset` 连续拼接后渲染完整正文；不以 `truncated` 清空正文，也不把合法文本误报为「文件过大」。
+- 读取沿用共享实现中的版本与完整性保护：每个后续窗口都钉住首窗 `version`，窗口版本、总大小或偏移不连续时整次读取作废，不展示混合版本正文。`PreviewPane` effect 仍以换源 / 卸载标记丢弃迟到结果，工作区身份与远程 `remoteSessionId` 继续由 `useWorkspaceServices` 隔离。
+- 二进制结果继续显示既有二进制提示；Markdown、SVG、diff、图片 / 音视频 / PDF / PPTX / Office 的分流与渲染不变。
+- 含非法 UTF-8 的文件由共享读取器判定为只读大文本：预览只展示已读取前缀（替换字符按共享解码结果），并提示编码不可无损解码；预览始终只读，不回写文件，也不把部分正文当成完整文件。
+- 合法 UTF-8 但超过渲染进程单字符串硬上限（共享读取器返回 `too-large`）时，只展示首窗前缀并提示超过硬上限，不伪造完整正文，也不回退到旧读取。
+- 旧 Host 若没有 `readTextFileWindow`（`Method not found`），保留既有 `readTextFile` 兼容读取；超限时展示已读取前缀和「仅显示开头部分」提示，不再清空正文。其它读取错误仍走既有失败提示，不降级到本机文件服务。
+- 渲染成本：普通文本预览（非 code-review）中超过 1 MiB 或行数超过 20,000 的非 Markdown / 非 SVG 文本使用预览专用虚拟行视图，只挂载可视行，避免把几十万行一次性塞进 DOM；全文仍保留在内存并可连续滚动查看，不截断内容。普通大小文本继续使用现有 `CodeViewer`，不改共享组件。code-review 仍走既有 `CodeContent` 以保留行内评论与定位，不切换到无评论的虚拟视图。
+- 不新增文件服务、协议、持久化或第二套读取 / 版本判定；`readTextFile` 仍保留给旧 Host 兼容和仓库内其它既有调用方。
+
+```text
+Side Pane 文件路径 + 工作区身份 → PreviewPane 文本读取 effect（唯一渲染状态所有者）
+  → readFilesTextForOpen(readTextFileWindow)
+       ├─ binary → 既有二进制提示
+       ├─ editable（合法 UTF-8，任意大小）→ 完整正文
+       ├─ large-text（非法 UTF-8）→ 已读前缀 + 编码提示（只读）
+       └─ too-large（合法 UTF-8 但超单字符串硬上限）→ 首窗前缀 + 过大提示（只读）
+  → 普通文本（非 code-review / Markdown / SVG）且 > 1 MiB 或 > 20,000 行 → 虚拟行视图（只挂载可视行）
+  → 换源 / 卸载 → effect 标记失效，迟到结果不提交
+旧 Host：Method not found → readTextFile(256 KiB) → 已读前缀 + 截断提示
+```
+
+验收场景（自动化回归；真实应用交互 E2E 需获准后执行）：
+
+1. 9.7 MiB 合法 UTF-8 多行 JSON 在 Side Pane 打开：逐窗读取到 EOF，展示完整首尾内容，不出现「文件过大」，不因 256 KiB 边界丢弃已读正文。
+2. Markdown、SVG、diff、二进制、图片 / 音视频 / PDF / PPTX / Office 仍走原有分流；合法文本的预览内容与磁盘逐字符一致。
+3. 含非法 UTF-8 的文件：显示替换字符与编码提示，预览只读；同一路径在文件工作台保存后不会由预览写回。
+4. 读取中切换文件或关闭预览：迟到结果不覆盖新源；读取期间版本变化时整次读取失败，不展示混合版本正文。
+5. 旧 Host 无窗口读取能力：仍能显示 `readTextFile` 返回的前缀并提示截断，不空白、不误报为合法完整文件。
+6. 普通文本超过 1 MiB 或 20,000 行时只渲染可视行；滚到底部仍可看到完整结尾，滚动与选择不消失。code-review 仍保留既有评论与定位渲染。
 
 ### Markdown 源码 / 预览（2026-10-30）
 
@@ -350,7 +382,7 @@ FilesEditorGroupPane（活动 view + buffer）
 
 文件服务提供目录、文本 / 媒体读取、文件名搜索、带版本文本提交，以及 `.zcodeignore` 读写；文件监听沿用既有 watcher。
 
-文件工作台的文本读取统一使用 `IFileService.readTextFileWindow`：`offset` / `length` 可选，`length` 默认且最多 256 KiB、最小 4 字节；带版本、UTF-8 边界安全，读前与读后（含路径 stat）校验版本，并可用 `expectedVersion` 拒绝混合版本。合法码点内部按既有规则回退到码点起始；前置序列非法时保留请求 offset，固定块按该非法字节边界精确读取。可选 `hasDecodingErrors` 用字节级 `isUtf8` 标记本窗非法 UTF-8；合法编码的 U+FFFD 不算错误。`> 8 MiB` 用固定 256 KiB 块按需编辑，非法 UTF-8 只把本块标为只读，其它块仍可编辑。该方法同时服务本地、Desktop 与远程工作区；Desktop 的 MessagePort 与 Web / 手机远控的 WebSocket / WebRTC 走同一套 typed RPC，不新增通道或 Host。既有 `readTextFile` 保留给 Side Pane 预览等旧调用方。完整契约见 `workspace-large-text-files.md`。
+文件工作台的文本读取统一使用 `IFileService.readTextFileWindow`：`offset` / `length` 可选，`length` 默认且最多 256 KiB、最小 4 字节；带版本、UTF-8 边界安全，读前与读后（含路径 stat）校验版本，并可用 `expectedVersion` 拒绝混合版本。合法码点内部按既有规则回退到码点起始；前置序列非法时保留请求 offset，固定块按该非法字节边界精确读取。可选 `hasDecodingErrors` 用字节级 `isUtf8` 标记本窗非法 UTF-8；合法编码的 U+FFFD 不算错误。读取决策不再按 8 MiB 分界：合法 UTF-8 文本一律从首窗读到 EOF；仅非法 UTF-8 使用固定 256 KiB 块按需编辑并只把坏块标为只读，其它块仍可编辑。该方法同时服务文件工作台、Side Pane 文本预览、本地、Desktop 与远程工作区；Desktop 的 MessagePort 与 Web / 手机远控的 WebSocket / WebRTC 走同一套 typed RPC，不新增通道或 Host。既有 `readTextFile` 只保留给旧 Host 兼容与仓库内其它既有调用方，不再是 Side Pane 文本预览的默认路径。完整契约见 `workspace-large-text-files.md`。
 
 文本写入统一使用 `IFileService.commitTextFile`：普通文本 `full`，大文件 `patches`；`expectedVersion: null` 必须不存在且只允许 `full`，另存为同时保护源与目标版本。Host 对 canonical 路径使用现有共享文件锁，按源 / 目标排序加锁，在有界临时文件 + fsync 后复核版本并原子 rename；`null` 新建使用 `link`，不支持时直接失败，不降级。外部程序不参与合作锁，最终检查到 rename 的窄竞态不得宣称为绝对 CAS。UI 不再使用旧 `writeTextFile`；旧接口仍保留给非 UI 调用方并共用同一路径锁。
 
@@ -369,8 +401,8 @@ FilesEditorGroupPane（活动 view + buffer）
 - CLI/runtime 工具写文件的通道不变；UI 保存只通过 `IFileService.commitTextFile` 这一条写盘路径。
 - 第一版不提供关闭预览标签模式的设置，不做多组编辑器各自一张预览。
 - 不把 Monaco 接成项目 LSP：不解析工作区依赖、不跟 tsconfig references。
-- 不把 `> 8 MiB` 文本整份读入可编辑缓冲、草稿 localStorage 或全文件缓存；大文件按固定块编辑，非法 UTF-8 块只读，未触碰字节由提交服务原样保留。见 `workspace-large-text-files.md`。
-- 不把超过 8 MiB 的文件静默截断成完整可编辑文本；不在大文件冲突里把补丁强套到新版本；不在已保存文件路径消失时自动重建；远程断开时重试同一工作区通道，不回退到本机文件服务。
+- 不按文件大小把合法 UTF-8 文本拆成固定块模型，也不把它静默截断成不完整正文；含非法 UTF-8 的文件按固定块只读，未触碰字节由提交服务原样保留。见 `workspace-large-text-files.md`。
+- Side Pane 文本预览不把合法 UTF-8 文件误报为「文件过大」，也不因读取到窗口边界就丢弃已读正文；不把非法编码或旧 Host 截断内容写回文件。不在大文件冲突里把补丁强套到新版本；不在已保存文件路径消失时自动重建；远程断开时重试同一工作区通道，不回退到本机文件服务。
 
 ### 连接中断与恢复（2026-10-30）
 
@@ -439,7 +471,7 @@ FilesEditorGroupPane（活动 view + buffer）
 20. 未命名标签按 ⌘S 转入另存为对话框；应用菜单里的「保存 / 另存为」不置灰。
 21. 冲突处理里选择覆盖后写盘仍失败：提示失败，标签保持未保存态，关标签的待续接流程与「全部保存」一并停止。
 22. Web 320px / 430px / 1280px：文件工作台只有一条 48px 顶带，文件 / 编辑菜单与全局按钮同排且不重叠；不再出现独立 36px 菜单行或纯空占位；下一行直接是可操作的文件 Tab；下拉不溢出视口。Desktop 仍无页内菜单，Tab 顶边与避让行为不变。
-23. `≤ 8 MiB` 且 UTF-8 无损的文本可完整编辑；`> 8 MiB` 进入固定 256 KiB 块按需编辑，只加载当前块，始 / 前 / 后 / 尾 / 百分比或字节定位、刷新可用，搜索只覆盖当前块。任一非法 UTF-8 块只读并显示替换字符，其它块仍可编辑；保存补丁不覆盖坏字节。编辑期间外部改盘只提示，干净普通文本可安全自动重载，删除不自动重建。详见 `workspace-large-text-files.md`。
+23. UTF-8 无损的文本不因文件变大（含超过 8 MiB）切换为固定块模型，仍可完整编辑；任一窗口含非法 UTF-8 时按固定 256 KiB 块只读显示替换字符，其它块仍可编辑；保存补丁不覆盖坏字节。编辑期间外部改盘只提示，干净普通文本可安全自动重载，删除不自动重建。详见 `workspace-large-text-files.md`。
 24. 普通文本另存为时源或目标版本变化：失败并保持草稿，不把旧正文复制到新路径；`expectedVersion: null` 只在目标不存在时以整份正文创建。
 25. 大文件有块修改时保存 / 全部保存 / 关闭脏标签 / 重启恢复：修改通过 `commitTextFile` 补丁提交；同基准版本的 IndexedDB 草稿恢复为脏态，版本不同则保留并提示不可套用；localStorage 不出现全文或块正文。
 26. 任务会话阅读面右滑仍打开侧栏；文件编辑面在 Monaco 最左侧、滚动条或文本选择上右滑都不打开侧栏，编辑器自身手势不受影响。

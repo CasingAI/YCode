@@ -21,7 +21,7 @@ import {
 } from "@/files-workbench/filesEditorCloseAfterSave.js";
 import { isFilesTextReadMissingError } from "@/files-workbench/filesEditorTextReader.js";
 import { reloadFilesBufferFromDisk } from "@/files-workbench/filesEditorDiskReload.js";
-import { writeFilesEditorSession } from "@/files-workbench/filesEditorPersistence.js";
+import { useFilesEditorSessionPersistence } from "@/files-workbench/useFilesEditorSessionPersistence.js";
 import { disposeFilesMonacoModel } from "@/files-workbench/filesMonacoModels.js";
 import { findFilesEditorView } from "@/files-workbench/filesEditorLayout.js";
 import { useFilesEditorCloseActions } from "@/files-workbench/useFilesEditorCloseActions.js";
@@ -49,7 +49,6 @@ export type SaveBufferOptions = FilesSaveBufferRequestOptions;
 
 export function useFilesWorkbenchController(hasEnteredFiles: boolean, isActiveView: boolean) {
   // 持久化 owner 在首次进入文件工作台后持续运行；watch 只随可见状态启停。
-  const restoreEnabled = hasEnteredFiles;
   const store = useFilesEditorStoreApi();
   const baseServices = useBaseWorkspaceServices();
   const { intl } = useZCodeIntl();
@@ -77,19 +76,17 @@ export function useFilesWorkbenchController(hasEnteredFiles: boolean, isActiveVi
     [baseServices, sessionsById, workspaceTabs],
   );
 
-  const persist = useCallback(() => {
-    writeFilesEditorSession(store.getState().snapshotSession());
-  }, [store]);
+  const { persist, load: loadSession } = useFilesEditorSessionPersistence(store);
 
   /**
    * 大文件块补丁草稿的持久化 owner 接线。
    *
-   * enabled 只跟随 restoreEnabled，不跟文件界面可见性：界面切走时仍要继续记录草稿。
+   * enabled 只跟随 hasEnteredFiles，不跟文件界面可见性：界面切走时仍要继续记录草稿。
    * probe 用当前磁盘版本 / 总字节做恢复拦截，版本不一致只 blocked，不改编辑基准。
    */
   const largeTextDrafts = useFilesLargeTextDraftPersistence({
     store,
-    enabled: restoreEnabled,
+    enabled: hasEnteredFiles,
     probeFile: async (buffer) => {
       try {
         const window = await resolveServices(buffer.workspace).fileService.readTextFileWindow({
@@ -116,14 +113,17 @@ export function useFilesWorkbenchController(hasEnteredFiles: boolean, isActiveVi
 
   const { loadRestoredTextFile, isRestoreLoadTracked } = useFilesEditorRestore({
     store,
-    restoreEnabled,
+    restoreEnabled: hasEnteredFiles,
     persist,
+    loadSession,
+    loadRetainedLargeTextDraft: (buffer) => largeTextDrafts.loadRetainedDraft(buffer),
     resolveServices,
   });
 
   const reopenLargeTextFile = useFilesLargeTextReopen({
     store,
     persist,
+    loadRetainedLargeTextDraft: (buffer) => largeTextDrafts.loadRetainedDraft(buffer),
     resolveServices,
   });
 
@@ -347,7 +347,7 @@ export function useFilesWorkbenchController(hasEnteredFiles: boolean, isActiveVi
 
   useFilesEditorDiskSync({
     store,
-    enabled: restoreEnabled && (isActiveView ?? true),
+    enabled: hasEnteredFiles && (isActiveView ?? true),
     isSavingBuffer: isBufferSaving,
     resolveServices,
     onAutoReload: reloadBufferFromDisk,

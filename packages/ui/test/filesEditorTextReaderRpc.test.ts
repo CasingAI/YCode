@@ -8,7 +8,7 @@ import type { IFileService } from "@zcode/services";
 import { createFileService } from "@zcode/services/node";
 import { FILE_TEXT_WINDOW_MAX_BYTES, ServiceChannels } from "@zcode/shared";
 import {
-  FILES_EDITABLE_TEXT_MAX_BYTES,
+  FILES_FULL_TEXT_MAX_BYTES,
   readFilesTextForOpen,
 } from "../src/files-workbench/filesEditorTextReader.js";
 
@@ -81,7 +81,7 @@ async function writeSparseFile(path: string, totalBytes: number, header: Buffer)
 }
 
 test(
-  "经 RPC 调用 readFilesTextForOpen 完整读取 >256KiB 且 <=8MiB 文本，无尾损",
+  "经 RPC 调用 readFilesTextForOpen 完整读取 >256KiB 文本，无尾损",
   { timeout: 60_000 },
   async () => {
     await withTempDir(async (directory) => {
@@ -92,7 +92,7 @@ test(
       const text = head + body + tail;
       const totalBytes = Buffer.byteLength(text);
       assert.ok(totalBytes > FILE_TEXT_WINDOW_MAX_BYTES);
-      assert.ok(totalBytes <= FILES_EDITABLE_TEXT_MAX_BYTES);
+      assert.ok(totalBytes <= FILES_FULL_TEXT_MAX_BYTES);
       await writeFile(path, text, "utf8");
 
       const rpc = connectFileService();
@@ -114,12 +114,45 @@ test(
 );
 
 test(
-  "经 RPC 调用 readFilesTextForOpen 对 >1GiB 文本进入只读模式且只读首窗一次",
+  "经 RPC 调用 readFilesTextForOpen 对 9.7 MiB 合法 UTF-8 文本返回一份完整正文",
+  { timeout: 60_000 },
+  async () => {
+    await withTempDir(async (directory) => {
+      const path = join(directory, "allpatch.json");
+      // 直接覆盖用户报告的 10174816 字节级合法 JSON：不应再切到 262140 字节固定块。
+      const rows = Array.from({ length: 399_194 }, (_, index) => `{"id":${index},"value":"patch"}`);
+      const text = rows.join("\n");
+      const totalBytes = Buffer.byteLength(text);
+      assert.ok(text.length > 9 * 1024 * 1024);
+      assert.ok(totalBytes > 8 * 1024 * 1024);
+      assert.ok(totalBytes <= FILES_FULL_TEXT_MAX_BYTES);
+      await writeFile(path, text, "utf8");
+
+      const rpc = connectFileService();
+      try {
+        const result = await readFilesTextForOpen(rpc.fileService, path);
+        if (result.mode !== "editable") {
+          assert.fail(`预期 editable，实际 ${result.mode}`);
+        }
+        assert.equal(result.totalBytes, totalBytes);
+        assert.equal(result.text, text);
+        assert.equal(result.text.split("\n").length, 399_194);
+        assert.ok(rpc.windowReads() > 30);
+      } finally {
+        rpc.dispose();
+      }
+    });
+  },
+);
+
+test(
+  "经 RPC 调用 readFilesTextForOpen 对超过单字符串硬上限的文本返回 too-large 且只读首窗一次",
   { timeout: 60_000 },
   async () => {
     await withTempDir(async (directory) => {
       const path = join(directory, "sparse-1g.txt");
       const totalBytes = 1024 * 1024 * 1024 + 4096;
+      assert.ok(totalBytes > FILES_FULL_TEXT_MAX_BYTES);
       const header = Buffer.alloc(64 * 1024, 0x20);
       Buffer.from("LARGE HEADER TEXT\n".repeat(512), "utf8").copy(header);
       await writeSparseFile(path, totalBytes, header);
@@ -127,8 +160,8 @@ test(
       const rpc = connectFileService();
       try {
         const result = await readFilesTextForOpen(rpc.fileService, path);
-        if (result.mode !== "large-text") {
-          assert.fail(`预期 large-text，实际 ${result.mode}`);
+        if (result.mode !== "too-large") {
+          assert.fail(`预期 too-large，实际 ${result.mode}`);
         }
         assert.equal(result.totalBytes, totalBytes);
         assert.equal(result.version, result.firstWindow.version);
@@ -138,7 +171,7 @@ test(
         assert.equal(result.firstWindow.eof, false);
         assert.equal(result.firstWindow.isBinary, false);
         assert.ok(result.firstWindow.content.startsWith("LARGE HEADER TEXT\n"));
-        // 只读大文件不得扫描全文：决策阶段只发起一次首窗读取。
+        // 超过硬上限不得扫描全文，也不得退化成固定块。
         assert.equal(rpc.windowReads(), 1);
       } finally {
         rpc.dispose();
