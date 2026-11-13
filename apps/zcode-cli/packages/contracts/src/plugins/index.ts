@@ -18,6 +18,15 @@ export const ZCODE_PLUGIN_HOST_COMMAND = "__zcode-plugin-host";
  * 由 bootstrap 在 SEA 判定后把它作为 argsPrefix 递给 harness。
  */
 export const ZCODE_DWF_CHILD_COMMAND = "__zcode-dwf-child";
+/**
+ * 隐藏子命令：Linux CLI 受管 headless Chromium 的 idle 启动宿主入口。
+ *
+ * 与 {@link ZCODE_PLUGIN_HOST_COMMAND}、{@link ZCODE_DWF_CHILD_COMMAND} 同族、同机制：
+ * 自 re-exec 本 CLI，并在加载 Playwright / 创建 Chromium 线程之前同步自降为 idle。
+ * Linux 的 nice 是线程级属性，只有先让宿主主线程为 idle，zygote/launcher 和 renderer
+ * 才能继承 nice 19；launch 返回后再按根 PID 设置无法覆盖已存在的线程。
+ */
+export const ZCODE_BROWSER_HOST_COMMAND = "__zcode-browser-host";
 
 export function isOfficialMarketplaceId(id: string): boolean {
   return id === ZCODE_OFFICIAL_PLUGIN_MARKETPLACE;

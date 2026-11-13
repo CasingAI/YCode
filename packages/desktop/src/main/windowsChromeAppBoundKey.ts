@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import { lstat, readFile, realpath, stat } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { ZCODE_COMMIT, ZCODE_VERSION } from "@zcode/shared";
+import { lowerProcessPriority } from "@zcode/shared/process-priority";
 import {
   createEncodedPowerShellArgs,
   createWindowsPowerShellSecurityArgs,
@@ -176,6 +177,9 @@ function runHelperProcess(
       stdio: ["pipe", "pipe", "ignore"],
       windowsHide: true,
     });
+    // 浏览器数据导入 helper 只做一次性解密：spawn 返回后立即降为 idle（尽最大努力，
+    // 失败由超时/清理路径兜底）。见 docs/specs/process-priority.md。
+    if (child.pid) lowerProcessPriority(child.pid, "idle");
     const stdoutChunks: Buffer[] = [];
     let stdoutBytes = 0;
     let settled = false;

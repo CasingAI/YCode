@@ -6,6 +6,7 @@ import { dirname, isAbsolute, join, relative, sep as pathSeparator } from "node:
 import { BrowserWindow } from "electron";
 import type { Session, WebContents } from "electron";
 import type { ChromeBrowserDataImportError } from "@zcode/shared";
+import { lowerProcessPriority } from "@zcode/shared/process-priority";
 import { WebSocket, type RawData } from "ws";
 import { resolveChromeExecutablePath } from "./chromeProfileDiscovery.js";
 import type { LinuxChromePasswordStore } from "./chromeInstallationCandidates.js";
@@ -416,6 +417,9 @@ async function runChromeHelper<T>(options: {
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
   });
+  // 一次性 Chrome helper 只服务浏览器数据导入：spawn 返回后立即降为 idle，避免抢占前台 CPU。
+  // 这是尽力策略，失败不影响后续 CDP 读取与清理（见 docs/specs/process-priority.md）。
+  if (child.pid) lowerProcessPriority(child.pid, "idle");
   let transport: WebSocketCdpTransport | null = null;
   try {
     const debuggerUrl = await waitForChromeDebuggerUrl(child);

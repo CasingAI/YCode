@@ -8,7 +8,12 @@ import type {
   BrowserControlPort,
   BrowserErrorCode,
 } from "@zcode/contracts";
-import type { Browser } from "playwright-core";
+import {
+  lowerProcessPriority,
+  type ProcessPriority,
+  type ProcessPriorityResult,
+} from "@zcode/shared/node";
+import type { Browser, BrowserServer } from "playwright-core";
 import { createManagedCdpDescriptor } from "./descriptor.js";
 import {
   loadPlaywrightChromium,
@@ -17,6 +22,12 @@ import {
   type BrowserExecutableResolutionOptions,
   type PlaywrightChromiumModule,
 } from "./executable.js";
+import {
+  MANAGED_BROWSER_LAUNCH_ARGS,
+  spawnBrowserLaunchHost,
+  type BrowserLaunchHost,
+  type BrowserLaunchHostFactory,
+} from "./launch-host.js";
 import { executeManagedPageCommand } from "./page-command.js";
 import { abortError, classifyError, hasSideEffects, raceWithAbort } from "./request.js";
 import { ManagedCdpSession } from "./session.js";
@@ -24,6 +35,15 @@ import { ManagedCdpSession } from "./session.js";
 export interface ManagedCdpBrowserRuntimeOptions extends BrowserExecutableResolutionOptions {
   closeTimeoutMs?: number;
   loadPlaywright?: () => Promise<PlaywrightChromiumModule>;
+  /**
+   * Linux 专用 idle 启动宿主工厂。测试可注入 fake host；缺省使用自 re-exec 的真实宿主。
+   * 非 Linux 平台不会调用。
+   */
+  launchHost?: BrowserLaunchHostFactory;
+  lowerPriority?: (
+    pid: number | null | undefined,
+    priority: ProcessPriority,
+  ) => ProcessPriorityResult;
 }
 
 export interface ManagedCdpBrowserRuntime {
@@ -37,6 +57,15 @@ interface PendingRequest {
   turnId?: string;
 }
 
+interface LaunchedBrowser {
+  browser: Browser;
+  /**
+   * BrowserServer 的统一关闭句柄：Linux 指向 idle 宿主进程，非 Linux 直接包装 BrowserServer。
+   * runtime 只通过它回收启动资源，不关心底层是进程还是同进程 server。
+   */
+  launchHost: BrowserLaunchHost;
+}
+
 const DEFAULT_BROWSER_CLOSE_TIMEOUT_MS = 1_500;
 
 class ManagedCdpBrowserControlPort implements BrowserControlPort {
@@ -48,18 +77,28 @@ class ManagedCdpBrowserControlPort implements BrowserControlPort {
   readonly #pending = new Map<string, PendingRequest>();
   readonly #sessionPromises = new Map<string, Promise<ManagedCdpSession>>();
   readonly #sessions = new Map<string, ManagedCdpSession>();
-  #browser: Browser | undefined;
+  readonly #lowerPriority: NonNullable<ManagedCdpBrowserRuntimeOptions["lowerPriority"]>;
+  readonly #launchHost: BrowserLaunchHostFactory;
+  readonly #platform: NodeJS.Platform | string;
+  readonly #browserCleanups = new Map<LaunchedBrowser, Promise<void>>();
+  #launched: LaunchedBrowser | undefined;
   #disposed = false;
   #generation = 1;
-  #launchPromise: Promise<Browser> | undefined;
+  #launchPromise: Promise<LaunchedBrowser> | undefined;
 
   constructor(options: ManagedCdpBrowserRuntimeOptions) {
     this.#options = options;
     this.#loadPlaywright = options.loadPlaywright ?? loadPlaywrightChromium;
+    this.#lowerPriority = options.lowerPriority ?? lowerProcessPriority;
     this.#closeTimeoutMs = Math.max(
       1,
       Math.trunc(options.closeTimeoutMs ?? DEFAULT_BROWSER_CLOSE_TIMEOUT_MS),
     );
+    this.#launchHost =
+      options.launchHost ??
+      ((context) =>
+        spawnBrowserLaunchHost(context, { closeTimeoutMs: this.#closeTimeoutMs }));
+    this.#platform = options.platform ?? process.platform;
   }
 
   async list(input: BrowserControlListInput): Promise<BrowserBackendDescriptor[]> {
@@ -169,13 +208,19 @@ class ManagedCdpBrowserControlPort implements BrowserControlPort {
     );
     this.#sessions.clear();
     await this.closeBrowser();
-    // Playwright launch 可能仍在异步创建子进程；只关闭当前 #browser 会漏掉迟到进程。
+    // Playwright launch 可能仍在异步创建子进程；只关闭当前实例会漏掉迟到进程。
     if (launchPromise) {
       await waitForPromise(
-        launchPromise.then(async (browser) => this.closeBrowserInstance(browser)),
+        launchPromise.then(async (launched) => this.closeBrowserInstance(launched)),
         this.#closeTimeoutMs,
       );
     }
+    // 意外断连可能已先启动 server 清理；close() 也要有界等待它，避免提前返回。
+    await Promise.all(
+      [...this.#browserCleanups.values()].map(async (closing) => {
+        await waitForPromise(closing, this.#closeTimeoutMs);
+      }),
+    );
   }
 
   private descriptor(): BrowserBackendDescriptor {
@@ -185,8 +230,8 @@ class ManagedCdpBrowserControlPort implements BrowserControlPort {
   private async ensureBrowser(signal?: AbortSignal): Promise<Browser> {
     if (this.#disposed) throw new Error("Managed CDP browser runtime is closed");
     if (signal?.aborted) throw abortError();
-    if (this.#browser?.isConnected()) return this.#browser;
-    this.#launchPromise ??= (async () => {
+    if (this.#launched?.browser.isConnected()) return this.#launched.browser;
+    this.#launchPromise ??= (async (): Promise<LaunchedBrowser> => {
       let playwright: PlaywrightChromiumModule;
       try {
         playwright = await this.#loadPlaywright();
@@ -196,45 +241,111 @@ class ManagedCdpBrowserControlPort implements BrowserControlPort {
           { cause: error },
         );
       }
-      const executablePath = resolveInstalledBrowserExecutable(playwright, this.#options);
-      let browser: Browser;
-      try {
-        browser = await playwright.chromium.launch({
-          executablePath,
-          headless: true,
-          args: ["--no-first-run", "--no-default-browser-check"],
-        });
-      } catch (error) {
-        // 底层 Playwright 错误可能包含临时 profile/CDP endpoint；对外只保留可操作分类，cause 供调试。
-        throw new Error(
-          "Managed headless Chromium is unavailable: launch failed. " +
-            "Verify the browser executable and OS sandbox/runtime dependencies.",
-          { cause: error },
-        );
-      }
+
+      const launched =
+        this.#platform === "linux"
+          ? await this.launchWithIdleHost(playwright)
+          : await this.launchInProcess(playwright);
+
       if (this.#disposed) {
-        await this.closeBrowserInstance(browser);
+        await this.closeBrowserInstance(launched);
         throw new Error("Managed CDP browser runtime is closed");
       }
+      const { browser } = launched;
       browser.on("disconnected", () => {
-        if (this.#browser !== browser) return;
-        this.#browser = undefined;
+        if (this.#launched?.browser !== browser) return;
+        const disconnected = this.#launched;
+        this.#launched = undefined;
         this.#sessions.clear();
         this.#generation += 1;
+        // 连接意外断开时浏览器进程可能仍存活，仍需关闭宿主/server。
+        void this.closeBrowserInstance(disconnected);
       });
-      this.#browser = browser;
-      return browser;
+      this.#launched = launched;
+      return launched;
     })().finally(() => {
       this.#launchPromise = undefined;
     });
-    const browser = signal
+    const launched = signal
       ? await raceWithAbort(this.#launchPromise, signal)
       : await this.#launchPromise;
     if (signal?.aborted) {
-      await this.closeBrowserInstance(browser);
+      await this.closeBrowserInstance(launched);
       throw abortError();
     }
-    return browser;
+    return launched.browser;
+  }
+
+  /**
+   * Linux：浏览器由专用 idle 宿主创建。宿主在加载 Playwright 前已自降，Chromium 的
+   * zygote/launcher 和 renderer 从 idle 主线程继承 nice 19；父进程只 connect。
+   */
+  private async launchWithIdleHost(
+    playwright: PlaywrightChromiumModule,
+  ): Promise<LaunchedBrowser> {
+    let host: BrowserLaunchHost;
+    try {
+      host = await this.#launchHost({
+        executablePath: this.#options.executablePath,
+        args: [...MANAGED_BROWSER_LAUNCH_ARGS],
+      });
+    } catch (error) {
+      throw launchFailedError(error);
+    }
+
+    let browser: Browser;
+    try {
+      browser = await playwright.chromium.connect(host.wsEndpoint);
+    } catch (error) {
+      // 宿主独占 BrowserServer；连接失败时由宿主关闭 server 并退出。
+      await waitForPromise(host.close(), this.#closeTimeoutMs);
+      throw launchFailedError(error);
+    }
+    return { browser, launchHost: host };
+  }
+
+  /**
+   * Windows/macOS：进程内 launch。Windows 的 Idle 优先级类和 macOS 的进程级 nice
+   * 会覆盖根进程及后代，因此在 connect 之前按公开的 BrowserServer.process() 设置根 PID。
+   */
+  private async launchInProcess(playwright: PlaywrightChromiumModule): Promise<LaunchedBrowser> {
+    const executablePath = resolveInstalledBrowserExecutable(playwright, this.#options);
+    let server: BrowserServer;
+    try {
+      server = await playwright.chromium.launchServer({
+        executablePath,
+        headless: true,
+        // Playwright 缺省 host 时 Node 会绑定 ::/0.0.0.0；控制端口只允许回环。
+        host: "127.0.0.1",
+        args: [...MANAGED_BROWSER_LAUNCH_ARGS],
+      });
+    } catch (error) {
+      // 底层 Playwright 错误可能包含临时 profile/CDP endpoint；对外只保留可操作分类，cause 供调试。
+      throw launchFailedError(error);
+    }
+
+    // 在 connect 和任何 context/page/导航创建之前降低浏览器根进程；
+    // 之后由该根进程派生的 renderer/utility 通常继承 idle。
+    // lowerProcessPriority 自身不抛出；这里再兜底，避免优先级问题阻断浏览器启动。
+    try {
+      this.#lowerPriority(server.process().pid, "idle");
+    } catch {
+      // 优先级只是尽力而为，浏览器仍可继续连接；清理仍由 server/browser 负责。
+    }
+
+    const wsEndpoint = server.wsEndpoint();
+    let browser: Browser;
+    try {
+      browser = await playwright.chromium.connect(wsEndpoint);
+    } catch (error) {
+      // connected Browser.close() 不会终止 launchServer 启动的进程，必须显式关闭 server。
+      await waitForPromise(server.close(), this.#closeTimeoutMs);
+      throw launchFailedError(error);
+    }
+    return {
+      browser,
+      launchHost: createServerLaunchHost(server, wsEndpoint, this.#closeTimeoutMs),
+    };
   }
 
   private async ensureSession(sessionId: string): Promise<ManagedCdpSession> {
@@ -256,7 +367,7 @@ class ManagedCdpBrowserControlPort implements BrowserControlPort {
       if (
         this.#disposed ||
         this.#closingSessionIds.has(sessionId) ||
-        this.#browser !== browser ||
+        this.#launched?.browser !== browser ||
         this.#generation !== generation ||
         !browser.isConnected()
       ) {
@@ -391,16 +502,43 @@ class ManagedCdpBrowserControlPort implements BrowserControlPort {
   }
 
   private async closeBrowser(): Promise<void> {
-    const browser = this.#browser;
-    this.#browser = undefined;
-    if (browser) await this.closeBrowserInstance(browser);
+    const launched = this.#launched;
+    this.#launched = undefined;
+    if (launched) await this.closeBrowserInstance(launched);
   }
 
-  private async closeBrowserInstance(browser: Browser): Promise<void> {
-    if (!browser.isConnected()) return;
-    // WebSocket/SSE 页面可能让 Playwright 的 context/browser close 永不 settle。
-    // adapter 只能有限等待；外层 session cleanup 和 CLI watchdog 会继续回收其它资源。
-    await waitForPromise(browser.close(), this.#closeTimeoutMs);
+  private closeBrowserInstance(launched: LaunchedBrowser): Promise<void> {
+    const existing = this.#browserCleanups.get(launched);
+    if (existing) return existing;
+    // 意外断连和主动 close 可能同时触发；同一个浏览器实例只允许一条清理路径。
+    // 先登记再执行，避免清理过程中同步触发的第二次调用绕过去重。
+    const closing = Promise.resolve()
+      .then(async () => this.closeBrowserResources(launched))
+      .finally(() => {
+        this.#browserCleanups.delete(launched);
+      });
+    this.#browserCleanups.set(launched, closing);
+    return closing;
+  }
+
+  private async closeBrowserResources(launched: LaunchedBrowser): Promise<void> {
+    const { browser, launchHost } = launched;
+    // connected Browser.close() 只断开连接，不会终止 launchServer 启动的浏览器；
+    // 必须再关闭 BrowserServer/宿主，否则浏览器进程会在连接关闭后残留。
+    try {
+      if (browser.isConnected()) {
+        // WebSocket/SSE 页面可能让 Playwright 的 context/browser close 永不 settle。
+        // adapter 只能有限等待；外层 session cleanup 和 CLI watchdog 会继续回收其它资源。
+        await waitForPromise(browser.close(), this.#closeTimeoutMs);
+      }
+    } catch {
+      // close 的同步异常也不能阻止 server 回收。
+    }
+    try {
+      await waitForPromise(launchHost.close(), this.#closeTimeoutMs);
+    } catch {
+      // 清理是尽力而为；不改变调用方的取消/退出结果。
+    }
   }
 }
 
@@ -424,6 +562,34 @@ export {
 } from "./executable.js";
 export type { BrowserExecutableResolutionOptions, PlaywrightChromiumModule } from "./executable.js";
 export { isAllowedManagedBrowserUrl } from "./page-command.js";
+export { MANAGED_BROWSER_LAUNCH_ARGS } from "./launch-host.js";
+
+function launchFailedError(cause: unknown): Error {
+  return new Error(
+    "Managed headless Chromium is unavailable: launch failed. " +
+      "Verify the browser executable and OS sandbox/runtime dependencies.",
+    { cause },
+  );
+}
+
+/**
+ * 非 Linux 的进程内路径：把公开的 BrowserServer 句柄包装成与宿主相同的关闭接口。
+ * close 只执行一次；并发/重复调用复用同一个 promise。
+ */
+function createServerLaunchHost(
+  server: BrowserServer,
+  wsEndpoint: string,
+  closeTimeoutMs: number,
+): BrowserLaunchHost {
+  let closing: Promise<void> | undefined;
+  return {
+    wsEndpoint,
+    close() {
+      closing ??= waitForPromise(server.close(), closeTimeoutMs).then(() => undefined);
+      return closing;
+    },
+  };
+}
 
 function waitForPromise(promise: Promise<unknown>, timeoutMs: number): Promise<boolean> {
   return new Promise<boolean>((resolve) => {

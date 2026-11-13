@@ -154,3 +154,16 @@ export const nativeImage = {
 export const webContents = {
   getAllWebContents: () => windows.map((win) => win.webContents),
 };
+
+/** 测试可注册 fake guest（`<webview>` WebContents），供 BrowserGuestManager.attachGuest 解析。 */
+let registeredWebContents = new Map();
+
+export function __setWebContents(entries) {
+  registeredWebContents = new Map(entries.map((entry) => [entry.id, entry]));
+}
+
+export function __clearWebContents() {
+  registeredWebContents = new Map();
+}
+
+webContents.fromId = (id) => registeredWebContents.get(id) ?? null;

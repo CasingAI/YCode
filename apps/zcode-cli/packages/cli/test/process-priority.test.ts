@@ -12,10 +12,11 @@ test("普通 Agent、TUI 和协议服务使用 Below Normal", () => {
   }
 });
 
-test("内部搜索、插件宿主和工作流子进程使用 Idle", () => {
+test("内部搜索、插件宿主、工作流子进程和浏览器宿主使用 Idle", () => {
   assert.equal(resolveCliProcessPriority(["__internal-search", "grep", "foo"]), "idle");
   assert.equal(resolveCliProcessPriority(["__zcode-plugin-host", "server.js"]), "idle");
   assert.equal(resolveCliProcessPriority(["__zcode-dwf-child", "entry.mjs"]), "idle");
+  assert.equal(resolveCliProcessPriority(["__zcode-browser-host", "{}"]), "idle");
 });
 
 test("--prepare-storage 无条件跳过", () => {

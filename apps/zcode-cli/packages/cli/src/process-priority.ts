@@ -5,6 +5,7 @@ import {
 } from "@zcode/shared/process-priority";
 import { extractDisallowedToolsArgs, parseGlobalArgs } from "./arguments.js";
 import { isDwfChildInvocation } from "./dwf-child-command.js";
+import { isBrowserHostInvocation } from "./internal-commands.js";
 import { isPluginHostInvocation } from "./plugin-host-command.js";
 
 // run.ts 也按同一字面量在 parseArgs 之前分派 internal-search。
@@ -19,9 +20,9 @@ export interface CliProcessPriorityDependencies {
 /**
  * 解析当前 CLI 调用角色对应的进程优先级。
  *
- * 内部搜索、插件宿主和工作流子进程使用 Idle；普通 Agent、TUI 和协议服务使用
- * Below Normal。`--prepare-storage` 可能运行在 Host Worker 中，返回 undefined 表示
- * 完全跳过，避免连带降低整个 Host。
+ * 内部搜索、插件宿主、工作流子进程和 Linux 浏览器宿主使用 Idle；普通 Agent、TUI 和
+ * 协议服务使用 Below Normal。`--prepare-storage` 可能运行在 Host Worker 中，返回
+ * undefined 表示完全跳过，避免连带降低整个 Host。
  */
 export function resolveCliProcessPriority(
   argv: readonly string[],
@@ -29,7 +30,8 @@ export function resolveCliProcessPriority(
   if (
     argv[0] === INTERNAL_SEARCH_COMMAND ||
     isPluginHostInvocation(argv) ||
-    isDwfChildInvocation(argv)
+    isDwfChildInvocation(argv) ||
+    isBrowserHostInvocation(argv)
   ) {
     return "idle";
   }

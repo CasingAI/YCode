@@ -456,6 +456,15 @@ const browserGuestManager = new BrowserGuestManager(
   },
   // 隐藏窗口截图的透明 presentation：capture 期间 showInactive + opacity 0 主动要帧。
   (windowId) => BrowserWindow.fromId(windowId),
+  undefined,
+  {
+    // guest renderer 与 Main 或任一主窗口 renderer 共享 PID 时跳过降级。
+    isProtectedPid: (pid) =>
+      pid === process.pid ||
+      BrowserWindow.getAllWindows().some(
+        (win) => !win.isDestroyed() && win.webContents.getOSProcessId() === pid,
+      ),
+  },
 );
 setBrowserUseGuestWebContentsIdsProvider(() => browserGuestManager.listGuestWebContentsIds());
 

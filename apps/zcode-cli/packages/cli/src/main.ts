@@ -10,6 +10,7 @@ import { installCliProcessErrorBoundary } from "./process-errors.js";
 import { installProtocolStderrBoundary } from "./protocol-stderr.js";
 import { createProtocolProcessLifecycle } from "./protocol-lifecycle.js";
 import { isProtocolServerInvocation } from "./arguments.js";
+import { isBrowserHostInvocation } from "./internal-commands.js";
 import { applyCliProcessPriority } from "./process-priority.js";
 
 void main();
@@ -20,6 +21,22 @@ async function main(): Promise<void> {
   applyCliProcessPriority(argv);
   // 存储模式也可运行在 Host Worker 中，不能修改整个 Host 的进程名称。
   if (!argv.includes("--prepare-storage")) setCliProcessTitle();
+  // Linux 浏览器宿主必须在加载 run/bootstrap 和 Playwright 之前分派；它按 stdin 存活，
+  // 不能走一次性 CLI exit watchdog。宿主继承父 CLI 已清洗过的环境。
+  if (isBrowserHostInvocation(argv)) {
+    try {
+      const { runBrowserHostCommand } = await import("./browser-host-command.js");
+      process.exitCode = await runBrowserHostCommand(
+        { argv, stdin: process.stdin, stdout: process.stdout, stderr: process.stderr },
+        argv.slice(1),
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      process.stderr.write(`${message}\n`);
+      process.exitCode = 1;
+    }
+    return;
+  }
   // 真实 zcode CLI 进程里仍可能有少量路径直接读取 process.env。
   // 入口先清洗用户 shell 注入的 NODE_ENV、代理和证书变量；网络变量只封存给后续 Bash/tool 子进程恢复。
   applyCliRuntimeEnvSanitization(process.env);

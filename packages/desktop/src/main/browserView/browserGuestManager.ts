@@ -24,6 +24,11 @@ import {
   type BrowserViewRestoredTabShell,
   type BrowserViewportSize,
 } from "@zcode/shared";
+import {
+  installGuestRendererPriority,
+  type GuestRendererPriorityHandle,
+  type GuestRendererPriorityLower,
+} from "./browserGuestRendererPriority.js";
 import { executeBrowserCommandOnView, type ControlledView } from "./browserCommandExecutor.js";
 import { executeIabPlaywrightLocator } from "./browserPlaywrightLocatorExecutor.js";
 import { recordBrowserVideo, type BrowserWebmRecorderFactory } from "./browserVideoRecorder.js";
@@ -53,6 +58,8 @@ interface GuestWebContents {
   readonly hostWebContents?: { getZoomFactor(): number } | null;
   readonly mainFrame: WebFrameMain;
   getType(): string;
+  /** renderer 的 OS PID；跨源导航会换进程，读取时机由 guest 优先级 helper 掌握。 */
+  getOSProcessId?(): number;
   getZoomFactor(): number;
   setZoomFactor(factor: number): void;
   isDestroyed(): boolean;
@@ -188,6 +195,8 @@ interface ManagedTab {
    * 窗口里主动断开 CDP —— 这是唯一能避免 api::Debugger 走隐式析构的时机。
    */
   crashGuardCleanup?: () => void;
+  /** guest renderer 优先级绑定；随 guest 换代重建，detach 时注销事件监听。 */
+  guestPriority?: GuestRendererPriorityHandle;
   loading: boolean;
   mediaActive: boolean;
   cachedUrl: string;
@@ -511,6 +520,12 @@ export class BrowserGuestManager {
     // Chromium 杀且 render-process-gone 未送达 main 时，destroyed 直达 + CDP attached 即
     // 主进程 UAF；turn 内命令间隙（0.4~9s）是实测崩溃窗口，命令级 idle 释放将其收窄。
     private readonly cdpIdleReleaseMs: number = DEFAULT_GUEST_CDP_IDLE_RELEASE_MS,
+    // guest renderer 优先级的保护 PID 判定与降级实现。可见 IAB guest 同样降为 idle，没有可见性
+    // 例外；但 guest PID 若与 Main/主 UI renderer 相同必须跳过，避免连带降低主界面。
+    private readonly guestRendererPriority: {
+      isProtectedPid?: (pid: number) => boolean;
+      lower?: GuestRendererPriorityLower;
+    } = {},
   ) {
     this.residencyCoordinator = new BrowserTabResidencyCoordinator({
       tabLimit: residencyOptions.tabLimit,
@@ -730,6 +745,7 @@ export class BrowserGuestManager {
     this.log?.(
       `[browser-use] attachGuest tabId=${tabId} windowId=${tab.owner.windowId} cdp=${cdpAttached}`,
     );
+    this.bindGuestRendererPriority(tab, guest);
 
     guest.once("destroyed", () => {
       const current = this.tabs.get(tabId);
@@ -3106,6 +3122,27 @@ export class BrowserGuestManager {
   }
 
   /**
+   * guest renderer 优先级绑定（docs/specs/process-priority.md）。
+   *
+   * 只在已登记且绑定成功的 guest 上应用 `idle`；可见/前台 IAB guest 同样降级，没有可见性例外。
+   * 保护判定由注入的 isProtectedPid 负责：与 Main 或主 UI renderer 共享 PID 时跳过，
+   * 否则会连带降低主界面。跨源导航会换 renderer 进程，helper 在主 frame 导航提交、dom-ready
+   * 和加载完成后重新读取 PID 并重应用；OOPIF 子 frame 不在覆盖范围。
+   */
+  private bindGuestRendererPriority(tab: ManagedTab, guest: GuestWebContents): void {
+    tab.guestPriority?.dispose();
+    tab.guestPriority = undefined;
+    if (tab.lifecycle === "closed") return;
+    const handle = installGuestRendererPriority({
+      guest,
+      isProtectedPid: this.guestRendererPriority.isProtectedPid,
+      lower: this.guestRendererPriority.lower,
+    });
+    tab.guestPriority = handle;
+    handle.sync();
+  }
+
+  /**
    * guest renderer 崩溃/被杀时立即断开 CDP。
    *
    * 崩溃链条（主进程 UAF，minidump 落在 DevToolsSession::DispatchProtocolNotification，
@@ -4269,6 +4306,14 @@ export class BrowserGuestManager {
       // guest 已销毁时 removeListener 可能抛 "Object has been destroyed"，不影响收口。
     } finally {
       tab.crashGuardCleanup = undefined;
+    }
+    // 优先级绑定只注销事件监听；PID 归属仍由 guest 的既有生命周期决定。
+    try {
+      tab.guestPriority?.dispose();
+    } catch {
+      // guest 已销毁时 removeListener 可能抛错，不影响收口。
+    } finally {
+      tab.guestPriority = undefined;
     }
     // JS 层监听清理：guest 换代/销毁后旧 "message" 监听不该继续挂着。这一步与 native 侧的
     // CDP 断开无关（DevToolsSession 派发不查 JS 监听），纯粹是防止监听随 guest 代际累积。
