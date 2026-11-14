@@ -17,6 +17,7 @@ import {
   filesBufferTabTitle,
   isFilesBufferDirty,
 } from "@/files-workbench/filesEditorModel.js";
+import { snapshotFilesTextBuffer } from "@/files-workbench/filesTextDocumentModel.js";
 import type {
   FilesBuffer,
   FilesEditorState,
@@ -233,7 +234,8 @@ function Workbench({ scenario }: { scenario: Scenario }) {
             kind: buffer.kind,
             path: buffer.path,
             title: filesBufferTabTitle(buffer),
-            text: "text" in buffer ? buffer.text : undefined,
+            // 源码编辑器绑定模型后 buffer.text 是上次快照；探针读取显式快照。
+            text: "text" in buffer ? snapshotFilesTextBuffer(buffer) : undefined,
             savedText: "savedText" in buffer ? buffer.savedText : undefined,
             dirty: isFilesBufferDirty(buffer),
           })),
@@ -270,10 +272,12 @@ function Workbench({ scenario }: { scenario: Scenario }) {
       const state = api.getState();
       const buffer = state.buffers.find((candidate) => candidate.id === bufferId);
       if (!buffer || buffer.kind !== "text" || !buffer.path) return;
-      saveCalls.push({ bufferId, text: buffer.text, savedText: buffer.savedText });
+      // 保存边界取正文快照；逐键输入的 Store text 可能落后于绑定模型。
+      const text = snapshotFilesTextBuffer(buffer);
+      saveCalls.push({ bufferId, text, savedText: buffer.savedText });
       state.markSaved(bufferId, {
         path: buffer.path,
-        text: buffer.text,
+        text,
         workspace: buffer.workspace,
       });
     },
@@ -316,7 +320,9 @@ function Workbench({ scenario }: { scenario: Scenario }) {
               onSplit={(viewId, targetGroupId, edge, mode) =>
                 api.getState().splitViewToEdge(viewId, targetGroupId, edge, mode)
               }
-              onChange={(bufferId, text) => api.getState().updateText(bufferId, text)}
+              onAttachTextDocument={api.getState().attachTextDocument}
+              onDetachTextDocument={api.getState().detachTextDocument}
+              onTextDocumentChange={api.getState().noteTextDocumentChange}
               onOpenPath={() => false}
               onRevealPositionApplied={() => {}}
               focusRequest={undefined}

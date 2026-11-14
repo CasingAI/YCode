@@ -11,6 +11,7 @@ import {
   findFilesBuffer,
   isFilesBufferDirty,
 } from "@/files-workbench/filesEditorModel.js";
+import { captureFilesCloseSnapshot } from "@/files-workbench/filesEditorCloseAfterSave.js";
 import {
   saveFilesTextBuffer,
   type FilesSaveBufferRequestOptions,
@@ -245,19 +246,8 @@ export function useFilesWorkbenchController(hasEnteredFiles: boolean, isActiveVi
       if (savingIdsRef.current.has(id) || (buffer.kind === "large-text" && buffer.saveToken)) {
         return;
       }
-      const closeSnapshot = {
-        bufferRef: buffer,
-        id: buffer.id,
-        path: buffer.path,
-        kind: buffer.kind,
-        text: buffer.kind === "text" ? buffer.text : undefined,
-        savedText: buffer.kind === "text" ? buffer.savedText : undefined,
-        diskVersion: buffer.kind === "text" ? buffer.diskVersion : undefined,
-        revision: buffer.kind === "large-text" ? buffer.edit?.revision : undefined,
-        baseVersion: buffer.kind === "large-text" ? buffer.edit?.baseVersion : undefined,
-        baseTotalBytes: buffer.kind === "large-text" ? buffer.edit?.baseTotalBytes : undefined,
-        workspaceKey: filesWorkspaceKey(buffer.workspace),
-      };
+      // 关闭等待前取原子快照：绑定模型的正文以文档版本号为权威，缓冲 text 可能是旧快照。
+      const closeSnapshot = captureFilesCloseSnapshot(buffer);
       if (isFilesBufferDirty(buffer) && decision !== "discard" && decision !== "save") {
         setDirtyCloseBufferId(id);
         return;

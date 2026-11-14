@@ -1,6 +1,10 @@
 /** 夹具与浏览器共用的路径 / 目标文件常量。 */
 
 export const E2E_PATH = "/workspace/e2e/e2e-large.json";
+/** 50 MiB 多行文件：验证大批量键盘输入的逐键路径与保存快照。 */
+export const E2E_LARGE_PATH = "/workspace/e2e/e2e-large-50mib.json";
+/** 10 MiB 单行文件：验证有界首行读取与超长单行输入路径。 */
+export const E2E_SINGLE_LINE_PATH = "/workspace/e2e/e2e-single-line.json";
 
 /**
  * 用户报告的真实文件大小 10174816 字节（约 9.7 MiB）。
@@ -11,6 +15,11 @@ export const E2E_PATH = "/workspace/e2e/e2e-large.json";
  */
 export const TARGET_BYTES = 10_174_816;
 export const TARGET_LINES = 395_602;
+
+/** 50 MiB 多行目标体积（二进制 MiB，与磁盘字节一致）。 */
+export const LARGE_TARGET_BYTES = 50 * 1024 * 1024;
+/** 10 MiB 单行目标体积。 */
+export const SINGLE_LINE_TARGET_BYTES = 10 * 1024 * 1024;
 
 /** 旧实现的固定块步长与旧的「大文件」阈值；只用于说明夹具跨过这两条边界。 */
 export const LEGACY_BLOCK_STEP = 262_140;
@@ -32,4 +41,22 @@ export const TOKENS = {
   boundaryEdit: '{"id":999998,"value":"EDITED_ACROSS_262140_BOUNDARY"}',
   /** 未保存草稿写入的尾部行。 */
   draftTail: '{"id":399191,"value":"ZCODE_DRAFT_TAIL_TOKEN_RESTORED"}',
+  /** 50 MiB 文件的尾部 marker。 */
+  largeTail: "ZCODE_LARGE_50MIB_TAIL_TOKEN",
+  /** 50 MiB 文件在 8 MiB 之后的唯一 token。 */
+  largePastEightMiB: "ZCODE_LARGE_50MIB_PAST_EIGHT_MIB",
+  /** 10 MiB 单行文件开头的 marker。 */
+  singleLineHead: "ZCODE_SINGLE_LINE_HEAD_10MIB",
+  /** 10 MiB 单行文件末尾的 marker。 */
+  singleLineTail: "ZCODE_SINGLE_LINE_TAIL_10MIB",
+  /** 逐键性能场景输入的一批字符（不含引号 / 括号，避免自动闭合干扰计数）。 */
+  perfTyped: "ZCODE_PERF_TYPED_ABCDEFGH",
+  /** 保存 await 期间继续输入的第二批字符。 */
+  saveDuringTyping: "ZCODE_DURING_SAVE_IJKL",
+  /** 分屏 B 视图输入：两个 view 共享同一 model，监听应去重。 */
+  splitSharedTyped: "ZCODE_SPLIT_B_ABCDEFGH",
+  /** 关闭 B 后，存活 A 视图继续输入。 */
+  splitSurvivorTyped: "ZCODE_SPLIT_C_IJKL",
+  /** 同一 model 重建后的未保存输入，用于撤销回保存点。 */
+  splitRebuildTyped: "ZCODE_REBUILD_MNOPQR",
 };

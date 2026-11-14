@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 
 import {
+  LARGE_TARGET_BYTES,
   LEGACY_BLOCK_STEP,
   LEGACY_LARGE_FILE_BYTES,
+  SINGLE_LINE_TARGET_BYTES,
   TARGET_BYTES,
   TARGET_LINES,
   TOKENS,
@@ -147,5 +149,111 @@ export function buildLargeJsonFixture() {
       lineNumber: DATA_ROWS + 1,
     },
     dataRows: DATA_ROWS,
+  };
+}
+
+const LARGE_DATA_ROWS = 400_000;
+
+function renderLargeLines(values) {
+  const lines = ["["];
+  for (let index = 0; index < values.length; index += 1) {
+    lines.push(
+      `{"id":${index},"value":"${values[index]}"}${index < values.length - 1 ? "," : ""}`,
+    );
+  }
+  lines.push("]");
+  return lines.join("\n");
+}
+
+/**
+ * 50 MiB 多行合法 JSON。
+ *
+ * 行数控制到约 40 万，避免为凑体积把行数推到数百万；每行通过 value 填充达到
+ * 目标字节数。8 MiB 之后放唯一 token，最后一行数据行放尾部 marker，用于在
+ * 不复制整份正文的前提下验证尾部与搜索仍然正确。
+ */
+export function buildLargeMultiLineFixture() {
+  const values = Array.from({ length: LARGE_DATA_ROWS }, () => "");
+  let text = renderLargeLines(values);
+  let starts = lineStarts(text);
+  const eightMiBIndex = dataIndexAtOffsetLarge(starts, LEGACY_LARGE_FILE_BYTES);
+  const pastEightMiBIndex = Math.min(eightMiBIndex + 1, LARGE_DATA_ROWS - 1);
+  values[pastEightMiBIndex] = TOKENS.largePastEightMiB;
+  values[LARGE_DATA_ROWS - 1] = TOKENS.largeTail;
+
+  text = renderLargeLines(values);
+  const beforePadding = Buffer.byteLength(text, "utf8");
+  const delta = LARGE_TARGET_BYTES - beforePadding;
+  assert.ok(delta > 0, `50 MiB 填充前已超过目标大小：${beforePadding}`);
+  const paddingRows = LARGE_DATA_ROWS - (pastEightMiBIndex + 1);
+  assert.ok(paddingRows > 0, "50 MiB 文件 8 MiB 之后需要有可填充行");
+  const perRow = Math.floor(delta / paddingRows);
+  const remainder = delta % paddingRows;
+  for (let row = pastEightMiBIndex + 1; row < LARGE_DATA_ROWS; row += 1) {
+    const extra = perRow + (row - (pastEightMiBIndex + 1) < remainder ? 1 : 0);
+    if (extra > 0) values[row] += "x".repeat(extra);
+  }
+
+  text = renderLargeLines(values);
+  starts = lineStarts(text);
+  const totalBytes = Buffer.byteLength(text, "utf8");
+  assert.equal(totalBytes, LARGE_TARGET_BYTES, "生成文件必须精确命中 50 MiB");
+  assert.equal(starts.length, LARGE_DATA_ROWS + 2, "50 MiB 文件行数应等于数据行 + 2");
+  assert.doesNotThrow(() => JSON.parse(text), "50 MiB 内容必须是合法 JSON");
+
+  return {
+    text,
+    totalBytes,
+    lineCount: starts.length,
+    dataRows: LARGE_DATA_ROWS,
+    pastEightMiB: {
+      offset: text.indexOf(TOKENS.largePastEightMiB),
+      lineNumber: pastEightMiBIndex + 2,
+    },
+    tail: {
+      offset: text.indexOf(TOKENS.largeTail),
+      lineNumber: LARGE_DATA_ROWS + 1,
+    },
+  };
+}
+
+function dataIndexAtOffsetLarge(starts, offset) {
+  for (let index = 0; index < LARGE_DATA_ROWS; index += 1) {
+    const start = starts[index + 1];
+    const next = starts[index + 2];
+    if (start <= offset && offset < next) return index;
+  }
+  throw new Error(`fixture offset ${offset} 不在任何数据行内`);
+}
+
+/**
+ * 10 MiB 单行合法 JSON。
+ *
+ * 只有一个物理行，开头与结尾各放一个唯一 marker。Monaco 对超长行的分词会按
+ * 自己的行长度上限自然降级；本夹具只验证首行读取有界、正文完整可输入。
+ */
+export function buildSingleLineFixture() {
+  const prefix = `{"head":"${TOKENS.singleLineHead}","value":"`;
+  const suffix = `","tail":"${TOKENS.singleLineTail}"}`;
+  const fillBytes = SINGLE_LINE_TARGET_BYTES - Buffer.byteLength(prefix + suffix, "utf8");
+  assert.ok(fillBytes > 0, "单行文件填充长度必须为正");
+  const text = `${prefix}${"x".repeat(fillBytes)}${suffix}`;
+  const totalBytes = Buffer.byteLength(text, "utf8");
+  assert.equal(totalBytes, SINGLE_LINE_TARGET_BYTES, "生成文件必须精确命中 10 MiB");
+  assert.equal(text.includes("\n"), false, "单行文件不能包含换行");
+  assert.doesNotThrow(() => JSON.parse(text), "单行内容必须是合法 JSON");
+
+  return {
+    text,
+    totalBytes,
+    lineCount: 1,
+    head: {
+      offset: text.indexOf(TOKENS.singleLineHead),
+      lineNumber: 1,
+    },
+    tail: {
+      offset: text.indexOf(TOKENS.singleLineTail),
+      lineNumber: 1,
+    },
   };
 }

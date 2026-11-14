@@ -10,6 +10,7 @@ import {
   isFilesTextBuffer,
 } from "@/files-workbench/filesEditorModel.js";
 import { seedFilesLargeTextWindowFromBuffer } from "@/files-workbench/filesLargeTextWindowSeed.js";
+import { isFilesTextReadAbortedError } from "@/files-workbench/filesEditorTextReader.js";
 import type { FilesTextReadResult } from "@/files-workbench/filesEditorTextReader.js";
 import { useWorkspaceFileActionStore } from "@/store/workspaceFileActionStore.js";
 import { getWorkspaceFileActionKey } from "@/workspace-file-tree/fileActionRules.js";
@@ -26,7 +27,11 @@ export async function readCurrentFilesEditorPath<T>(options: {
   workspace: FilesWorkspaceRef;
   path: string;
   request?: FilesPendingOpen;
-  read: () => Promise<T>;
+  /**
+   * 长读取入口可把 `isCancelled` 交给窗口流水线：失效后不再调度新窗口，
+   * 而不是等整份正文读完再丢弃结果。
+   */
+  read: (context: { isCancelled: () => boolean }) => Promise<T>;
   accept?: (result: T) => unknown;
   reject?: (error: unknown) => void;
 }): Promise<T | null> {
@@ -49,12 +54,14 @@ export async function readCurrentFilesEditorPath<T>(options: {
     }
   });
   try {
-    const result = await options.read();
+    const result = await options.read({ isCancelled: () => !isCurrent() });
     // 改名会替换并重新准入打开请求；旧读取不得用旧 path 创建缓冲，也不能清掉新请求。
     if (!isCurrent()) return null;
     await options.accept?.(result);
     return result;
   } catch (error) {
+    // 主动取消只表示本次结果过期，不是文件变化或读取失败，不能进入 reject 提示。
+    if (isFilesTextReadAbortedError(error)) return null;
     // 同一文件改名后再改回可复用旧 ID；旧失败也不能把新读取的 loading 状态改成 error。
     if (!isCurrent()) return null;
     if (!options.reject) throw error;
@@ -69,7 +76,7 @@ export async function readCurrentFilesEditorPath<T>(options: {
  * 提交一次统一读取决策结果；打开与恢复共用同一个提交口。
  *
  * `targetId` 仅接受仍为 loading、同一工作区身份且未被编辑的文本缓冲。
- * 磁盘已超硬上限时在原 ID 内留下显式 `too-large` 错误态，不把任何正文写进缓冲。
+ * 磁盘已超受控字节上限时在原 ID 内留下显式 `too-large` 错误态，不把任何正文写进缓冲。
  */
 export function commitFilesEditorTextReadResult(options: {
   store: FilesEditorStore;
@@ -134,7 +141,7 @@ export function commitFilesEditorTextReadResult(options: {
     return "binary";
   }
   if (options.result.mode === "too-large") {
-    // 合法文本超过单字符串硬上限：不构造正文、不回退固定块，只留明确错误态。
+    // 合法文本超过受控字节上限：不构造正文、不回退固定块，只留明确错误态。
     const opened = createTextFileBuffer({
       workspace: options.workspace,
       path: options.path,

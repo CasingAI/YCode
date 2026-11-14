@@ -81,7 +81,11 @@ export function useFilesLargeTextReopen(options: FilesLargeTextReopenOptions) {
         workspace,
         path,
         request,
-        read: () => readFilesTextForOpen(resolveServices(workspace).fileService, path),
+        // 新一次显式重开会推进 seq：旧读取立即停止调度后续窗口，只做结果丢弃不够。
+        read: ({ isCancelled }) =>
+          readFilesTextForOpen(resolveServices(workspace).fileService, path, {
+            isCancelled: () => isCancelled() || seqRef.current.get(target.id) !== seq,
+          }),
         accept: async (result) => {
           if (seqRef.current.get(target.id) !== seq) return;
           const latest = findFilesBuffer(store.getState(), target.id);

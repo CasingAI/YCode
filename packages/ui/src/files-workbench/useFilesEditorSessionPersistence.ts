@@ -34,6 +34,15 @@ export function useFilesEditorSessionPersistence(store: FilesEditorStore): {
   }, [persistence, store]);
 
   useEffect(() => {
+    // 逐键只订阅正文代次；owner 去抖后才 snapshot，不把 getValue 放回输入路径。
+    return store.subscribe((state, previous) => {
+      if (state.textChangeEpoch !== previous.textChangeEpoch) {
+        persistence.noteTextChange();
+      }
+    });
+  }, [persistence, store]);
+
+  useEffect(() => {
     if (typeof window === "undefined") return;
     // 浏览器不保证异步 IndexedDB 在卸载前完成：persist 只保证同步写 localStorage，
     // flush 只是提前启动的 best-effort，不添加超时掩盖竞态，也不承诺异步落盘成功。

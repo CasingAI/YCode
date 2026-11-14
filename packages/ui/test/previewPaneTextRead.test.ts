@@ -10,6 +10,7 @@ import {
   resolvePreviewPaneTextReadState,
   shouldUseVirtualizedPreviewText,
 } from "../src/previewPaneTextRead.js";
+import { isFilesTextReadAbortedError } from "../src/files-workbench/filesEditorTextReader.js";
 
 const PATH = "/workspace/data.json";
 
@@ -235,6 +236,45 @@ test("读取期间版本变化整次失败，不拼接混合版本正文", async
   await assert.rejects(
     () => readPreviewPaneText(reader, PATH),
     /File changed while reading complete text/,
+  );
+});
+
+test("换源取消后停止调度并抛出可忽略的 aborted 错误", async () => {
+  const text = "w".repeat(8 * FILE_TEXT_WINDOW_MAX_BYTES);
+  const reader = createReader(text);
+  const controller = new AbortController();
+  let cancelled = true;
+
+  await assert.rejects(
+    () =>
+      readPreviewPaneText(reader, PATH, {
+        signal: controller.signal,
+        isCancelled: () => cancelled,
+      }),
+    (error) => isFilesTextReadAbortedError(error),
+  );
+  // 已取消时连首窗都不发。
+  assert.equal(reader.windowReads(), 0);
+
+  // 读取中途取消：只允许已在途的窗口落地，不再按窗口数铺满。
+  const second = new AbortController();
+  let calls = 0;
+  const slowReader = {
+    windowReads: () => calls,
+    async readTextFileWindow(params: { path: string; offset?: number; length?: number }) {
+      calls += 1;
+      await new Promise((resolve) => setImmediate(resolve));
+      return createWindow(text, params.offset ?? 0, params.length ?? FILE_TEXT_WINDOW_MAX_BYTES);
+    },
+    readTextFile: reader.readTextFile,
+  };
+  const pending = readPreviewPaneText(slowReader, PATH, { signal: second.signal });
+  const callsAtCancel = slowReader.windowReads();
+  second.abort();
+  await assert.rejects(pending, (error) => isFilesTextReadAbortedError(error));
+  assert.ok(
+    slowReader.windowReads() - callsAtCancel <= 4,
+    `取消后不应继续调度: ${callsAtCancel} -> ${slowReader.windowReads()}`,
   );
 });
 

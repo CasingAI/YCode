@@ -30,10 +30,17 @@ import type {
  */
 
 const DRAFT_IDB_DEBOUNCE_MS = 300;
+/**
+ * 局部输入后的持久化去抖。运行中每键只递增 textChangeEpoch，不读正文；
+ * 计时器只在输入停顿后触发一次 snapshot，关闭 / 隐藏仍显式 persist。
+ */
+const DRAFT_TEXT_PERSIST_DEBOUNCE_MS = 300;
 
 export interface FilesEditorSessionPersistence {
   /** 立即写 localStorage，并把超预算草稿异步排队到 IndexedDB。 */
   persist: () => void;
+  /** 局部正文输入：只记录代次并去抖，不读取正文、不写存储。 */
+  noteTextChange: () => void;
   /** 读取 localStorage 会话，再按 epoch 合并打开标签对应的 IndexedDB 大草稿。 */
   load: () => Promise<FilesPersistedSession | undefined>;
   /** 等待所有 IndexedDB 写入 / 删除完成。 */
@@ -45,8 +52,10 @@ export interface FilesEditorSessionPersistenceOptions {
   storage?: FilesEditorSessionStorage;
   draftStorage?: FilesTextDraftStorage;
   now?: () => number;
-  /** 0 表示不延迟（测试用）。 */
+  /** IndexedDB 写入去抖；0 表示不延迟（测试用）。 */
   debounceMs?: number;
+  /** 局部正文输入后的持久化去抖；0 表示立即 persist（测试用）。 */
+  textPersistDebounceMs?: number;
   log?: Pick<typeof logger, "warn">;
 }
 
@@ -65,18 +74,36 @@ export function createFilesEditorSessionPersistence(
   const draftStorage = options.draftStorage ?? createIndexedDbFilesTextDraftStorage();
   const now = options.now ?? Date.now;
   const debounceMs = options.debounceMs ?? DRAFT_IDB_DEBOUNCE_MS;
+  const textPersistDebounceMs = options.textPersistDebounceMs ?? DRAFT_TEXT_PERSIST_DEBOUNCE_MS;
   const log = options.log ?? logger;
 
   /** 当前期望留在 IndexedDB 的记录，按 storageKey 索引。 */
   const desired = new Map<string, DesiredDraft>();
   /** 已确认存在于 IndexedDB 的 storageKey（load 命中或 save 成功）。 */
   const persistedKeys = new Set<string>();
+  /**
+   * load 命中的记录只能证明“整条可读”，不能证明已按 v3 拆分。
+   * v2 整条记录 normalize 后正文/revision 与新快照完全一致，若直接当作已落盘
+   * 会跳过 save，导致 metadata 被更新、bodies/baselines 永远不写。首次 persist
+   * 必须 save 一次，让存储层按真实 store 内容拆分或补写缺失 part。
+   */
+  const unverifiedParts = new Set<string>();
+  /** 已落盘记录快照；用于比较 revision，未变化的正文/基线不重复写。 */
+  const persistedRecords = new Map<string, FilesTextDraftRecord>();
   /** 仍需要 reconcile 的 storageKey；drain 每次只处理一个并重新核对 desired。 */
   const pendingKeys = new Set<string>();
   let revision = 0;
+  let localRevision = 0;
   let lastStamp = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let textTimer: ReturnType<typeof setTimeout> | undefined;
   let draining: Promise<void> | undefined;
+
+  /** 进程内单调 revision；只用于比较同一 storageKey 的正文/基线是否变化。 */
+  const nextLocalRevision = (): number => {
+    localRevision += 1;
+    return localRevision;
+  };
 
   // 同一 persist 的 localStorage 草稿与 IndexedDB 溢出记录使用同一个 epoch；
   // 进程内至少单调递增，避免系统时间回拨让旧记录看起来更新。
@@ -100,6 +127,9 @@ export function createFilesEditorSessionPersistence(
           try {
             await draftStorage.save(entry.record);
             persistedKeys.add(storageKey);
+            persistedRecords.set(storageKey, entry.record);
+            // save 已按真实 store 内容完成拆分 / 补写，后续同内容 persist 可跳过。
+            unverifiedParts.delete(storageKey);
             // save 成功后二次核对：期间已 clean / 关闭则不能把记录留在 IndexedDB。
             if (desired.get(storageKey)?.revision === targetRevision) {
               pendingKeys.delete(storageKey);
@@ -124,6 +154,8 @@ export function createFilesEditorSessionPersistence(
           if (persistedKeys.has(storageKey)) {
             await draftStorage.delete(storageKey);
             persistedKeys.delete(storageKey);
+            persistedRecords.delete(storageKey);
+            unverifiedParts.delete(storageKey);
           }
           // delete 成功后二次核对：期间重新变脏则保留 pending 继续写最新正文。
           if (!desired.has(storageKey)) pendingKeys.delete(storageKey);
@@ -155,9 +187,67 @@ export function createFilesEditorSessionPersistence(
     }, debounceMs);
   };
 
+  interface RuntimeDraftRevisions {
+    documentRevision?: number;
+    savedDocumentVersionId?: number | null;
+  }
+
+  const runtimeRevisions = (state: FilesEditorState): Map<string, RuntimeDraftRevisions> => {
+    const revisions = new Map<string, RuntimeDraftRevisions>();
+    for (const buffer of state.buffers) {
+      if (buffer.kind !== "text") continue;
+      revisions.set(buffer.id, {
+        documentRevision: buffer.documentRevision,
+        savedDocumentVersionId: buffer.savedDocumentVersionId,
+      });
+    }
+    return revisions;
+  };
+
+  const sameDraftContent = (left: FilesTextDraftRecord, right: FilesTextDraftRecord): boolean =>
+    left.bufferId === right.bufferId &&
+    left.path === right.path &&
+    left.title === right.title &&
+    left.storageKey === right.storageKey &&
+    left.workspaceKey === right.workspaceKey &&
+    left.remoteSessionId === right.remoteSessionId &&
+    left.untitled === right.untitled &&
+    left.truncated === right.truncated &&
+    left.bodyRevision === right.bodyRevision &&
+    left.savedRevision === right.savedRevision &&
+    left.text === right.text &&
+    left.savedText === right.savedText;
+
+  /**
+   * 为正文 / 基线分配单调 revision。
+   *
+   * 内容未变时复用匹配记录的 revision；内容变化时必须严格大于旧记录，
+   * 即使运行时版本号（Monaco versionId）与本地 revision 恰好撞号也不能跳过写入。
+   */
+  const resolveDraftRevision = (
+    records: FilesTextDraftRecord[],
+    content: string,
+    revisionField: "bodyRevision" | "savedRevision",
+    contentField: "text" | "savedText",
+    sourceRevision: number | undefined,
+  ): number => {
+    const matched = records
+      .filter((record) => record[contentField] === content)
+      .map((record) => record[revisionField]);
+    if (matched.length > 0) return Math.max(...matched);
+    const previousMax = records.reduce((max, record) => Math.max(max, record[revisionField]), 0);
+    return Math.max(nextLocalRevision(), previousMax + 1, sourceRevision ?? 0);
+  };
+
   const persist = (): void => {
+    // 显式 persist（保存 / 关闭 / 隐藏）优先：取消尚未触发的输入去抖。
+    if (textTimer !== undefined) {
+      clearTimeout(textTimer);
+      textTimer = undefined;
+    }
+    const state = store.getState();
     const stamp = nextStamp();
-    const session = snapshotFilesEditorSession(store.getState());
+    const session = snapshotFilesEditorSession(state);
     // 每个草稿都记录合并 epoch；溢出记录沿用同一 epoch，冷启动才能证明哪一份更新。
     const stampedSession: FilesPersistedSession = {
       ...session,
@@ -171,11 +261,65 @@ export function createFilesEditorSessionPersistence(
       });
     }
 
+    const revisionsById = runtimeRevisions(state);
     const nextDesired = new Map<string, DesiredDraft>();
     const nextRevision = ++revision;
     for (const draft of result.overflowDrafts) {
-      const record = createFilesTextDraftRecord(draft, draft.updatedAt ?? stamp);
-      nextDesired.set(record.storageKey, { record, revision: nextRevision });
+      const runtime = revisionsById.get(draft.id);
+      // 运行时 documentRevision 与无文档时的本地 revision 不是同一命名空间；
+      // 直接比较可能撞号，导致正文已变但 IDB 认为 revision 未变而跳过写入。
+      // 因此内容变化时统一取 max(来源 revision, 旧记录 revision + 1, 本地单调值)，
+      // 内容未变时复用匹配记录的 revision，避免无意义重写。
+      // 只复用同一 owner 的旧记录；bufferId 不足以证明身份一致。
+      const draftWorkspaceKey = filesWorkspaceKey(draft.workspace);
+      const draftRemoteSessionId = filesTextDraftRemoteSessionId(draft.workspace);
+      const previousRecords = [
+        desired.values().find((entry) => entry.record.bufferId === draft.id)?.record,
+        persistedRecords.values().find((record) => record.bufferId === draft.id),
+      ].filter(
+        (record): record is FilesTextDraftRecord =>
+          record !== undefined &&
+          record.path === draft.path &&
+          record.workspaceKey === draftWorkspaceKey &&
+          record.remoteSessionId === draftRemoteSessionId,
+      );
+      const bodyRevision = resolveDraftRevision(
+        previousRecords,
+        draft.text,
+        "bodyRevision",
+        "text",
+        runtime?.documentRevision,
+      );
+      const savedRevision = resolveDraftRevision(
+        previousRecords,
+        draft.savedText,
+        "savedRevision",
+        "savedText",
+        typeof runtime?.savedDocumentVersionId === "number"
+          ? runtime.savedDocumentVersionId
+          : undefined,
+      );
+      const record = createFilesTextDraftRecord(draft, draft.updatedAt ?? stamp, {
+        bodyRevision,
+        savedRevision,
+      });
+      const previousEntry = desired.get(record.storageKey);
+      const previous = previousEntry?.record;
+      const persisted = persistedRecords.get(record.storageKey);
+      // 内容未变时保留已落盘 epoch，避免仅因一次 persist 把旧记录伪装成更新版本。
+      const unchanged =
+        persisted && sameDraftContent(persisted, record)
+          ? persisted
+          : previous && sameDraftContent(previous, record)
+            ? previous
+            : undefined;
+      // 内容没变时沿用旧 desired revision，避免在途 save 完成后又触发一次相同写入。
+      const contentUnchanged =
+        previousEntry !== undefined && sameDraftContent(previousEntry.record, unchanged ?? record);
+      nextDesired.set(record.storageKey, {
+        record: unchanged ?? record,
+        revision: contentUnchanged && previousEntry ? previousEntry.revision : nextRevision,
+      });
     }
 
     // 不再 desired 的 key（clean / 关闭 / 回到本地预算）必须进入删除集合。
@@ -189,9 +333,33 @@ export function createFilesEditorSessionPersistence(
     desired.clear();
     for (const [storageKey, entry] of nextDesired) {
       desired.set(storageKey, entry);
-      pendingKeys.add(storageKey);
+      const persisted = persistedRecords.get(storageKey);
+      // load 命中的记录也必须在首次 persist 时 save 一次：整条可读不等于三 store
+      // 已拆分，v2 记录的内容/revision 可能与新快照完全相同，只看内容会永久跳过拆分。
+      if (
+        unverifiedParts.has(storageKey) ||
+        !persisted ||
+        !sameDraftContent(persisted, entry.record)
+      ) {
+        pendingKeys.add(storageKey);
+      }
     }
     if (pendingKeys.size > 0) schedule();
+  };
+
+  const noteTextChange = (): void => {
+    if (textPersistDebounceMs <= 0) {
+      persist();
+      return;
+    }
+    // 逐键路径只重置计时器：不读正文、不 snapshot、不 JSON.stringify、不写存储。
+    // 保存 await 期间若继续输入，这里的去抖 persist 是独立备份边界：
+    // commit snapshot 早于新输入，不能复用；停掉它会在长保存 / 崩溃时丢草稿。
+    if (textTimer !== undefined) clearTimeout(textTimer);
+    textTimer = setTimeout(() => {
+      textTimer = undefined;
+      persist();
+    }, textPersistDebounceMs);
   };
 
   const load = async (): Promise<FilesPersistedSession | undefined> => {
@@ -234,12 +402,15 @@ export function createFilesEditorSessionPersistence(
       ) {
         continue;
       }
+      // 这次 load 只证明整条记录可读，尚未证明 v3 三 store 已拆分 / part 存在。
+      unverifiedParts.add(storageKey);
       if (
         localDraft &&
         (localDraft.updatedAt === undefined || localDraft.updatedAt >= record.updatedAt)
       ) {
         // localStorage 是同步基线：本地缺 epoch 或 epoch 不早于 IndexedDB 时本地胜出。
         persistedKeys.add(storageKey);
+        persistedRecords.set(storageKey, record);
         if (!desired.has(storageKey)) {
           pendingKeys.add(storageKey);
           schedule();
@@ -248,6 +419,7 @@ export function createFilesEditorSessionPersistence(
       }
       // IndexedDB 是更新版本（如 localStorage 写失败保留旧会话），或本地只有标签元数据。
       persistedKeys.add(storageKey);
+      persistedRecords.set(storageKey, record);
       const draft = { ...filesTextDraftRecordToPersistedDraft(record), id };
       if (localIndex === undefined) {
         indexById.set(id, drafts.length);
@@ -260,6 +432,12 @@ export function createFilesEditorSessionPersistence(
   };
 
   const flush = async (): Promise<void> => {
+    // 关闭 / 隐藏前的 flush 必须把尚未触发的输入去抖立即落成快照。
+    if (textTimer !== undefined) {
+      clearTimeout(textTimer);
+      textTimer = undefined;
+      persist();
+    }
     if (timer !== undefined) {
       clearTimeout(timer);
       timer = undefined;
@@ -267,7 +445,7 @@ export function createFilesEditorSessionPersistence(
     await drain();
   };
 
-  return { persist, load, flush };
+  return { persist, noteTextChange, load, flush };
 }
 
 interface FilesEditorSessionPersistableStore {

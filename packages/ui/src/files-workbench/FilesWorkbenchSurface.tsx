@@ -7,6 +7,10 @@ import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useTabStore, useTabStoreApi } from "@/store/TabStoreProvider.js";
 import { isWorkspaceTab } from "@/store/tabStore.js";
 import { filesBufferTabTitle, findFilesBuffer } from "@/files-workbench/filesEditorModel.js";
+import {
+  buildFilesWorkbenchTypescriptEntries,
+  filesWorkbenchTypescriptEntryKey,
+} from "@/files-workbench/filesWorkbenchTypescriptEntries.js";
 import type {
   FilesEditorLayoutNode,
   FilesEditorSplitEdge,
@@ -59,6 +63,8 @@ export function FilesWorkbenchSurface({
   const surfaceRef = useRef<HTMLElement | null>(null);
   useFilesWorkbenchTabChrome({ surfaceRef, layoutRoot: layout.root, isDesktop, isActiveView });
   const pendingSaveDirectory = useFilesEditorStore((state) => state.pendingSaveDirectory);
+  // 正文代次只用于重置 TS 同步去抖；entries 不随逐键输入重建。
+  const textChangeEpoch = useFilesEditorStore((state) => state.textChangeEpoch ?? 0);
   const explorerWorkspaceKey = useFilesEditorStore((state) => state.explorerWorkspaceKey);
   const editorFocusRequest = useFilesEditorStore((state) => state.editorFocusRequest);
   const workspaceTabs = useTabStore(useShallow((state) => state.tabs.filter(isWorkspaceTab)));
@@ -82,27 +88,19 @@ export function FilesWorkbenchSurface({
       }),
     [buffers, openIds],
   );
+  // 只依赖标签身份，不依赖正文：局部输入不重建 entries。
+  const typescriptEntryKey = filesWorkbenchTypescriptEntryKey(openBuffers);
   const typescriptEntries = useMemo(
-    () =>
-      openBuffers.flatMap((buffer) =>
-        buffer.kind === "text" && buffer.path && !buffer.untitled && buffer.loadState === undefined
-          ? [
-              {
-                bufferId: buffer.id,
-                path: buffer.path,
-                text: buffer.text,
-                workspace: buffer.workspace,
-              },
-            ]
-          : [],
-      ),
-    [openBuffers],
+    () => buildFilesWorkbenchTypescriptEntries(openBuffers, store),
+    // key 覆盖 id / path / workspace / loadState；正文由 readText 延迟读取。
+    [typescriptEntryKey, store],
   );
   const activeWorkspace = buffers.find((buffer) => buffer.id === activeId)?.workspace;
   const { resolveServices, persist, closeView, closeOtherViews } = controller;
   useFilesMonacoTypescriptWorkspaceSync({
     enabled: isActiveView && hasEnteredFiles,
     entries: typescriptEntries,
+    revision: textChangeEpoch,
     activeWorkspace,
     activeBufferId: activeId,
     resolveServices,
@@ -178,15 +176,11 @@ export function FilesWorkbenchSurface({
       store.getState().splitViewToEdge(viewId, groupId, edge, mode),
     [store],
   );
-  const onChange = useCallback(
-    (id: string, text: string) => {
-      const current = findFilesBuffer(store.getState(), id);
-      if (!current || current.kind !== "text" || current.text === text) return;
-      store.getState().updateText(id, text);
-      persist();
-    },
-    [persist, store],
-  );
+  // 局部输入只推进 Store 的 revision / textChangeEpoch；持久化 owner 去抖，
+  // 保存 / 关闭 / 隐藏等边界仍显式 persist。
+  const onAttachTextDocument = store.getState().attachTextDocument;
+  const onDetachTextDocument = store.getState().detachTextDocument;
+  const onNoteTextDocumentChange = store.getState().noteTextDocumentChange;
   // Markdown 源码 / 预览只改运行时 layout，不持久化，也不触发读写；store action 引用稳定。
   const onSetMarkdownViewMode = store.getState().setViewMarkdownViewMode;
 
@@ -292,7 +286,9 @@ export function FilesWorkbenchSurface({
           canRevealInFileTree={canRevealInFileTree}
           onMoveView={onMoveView}
           onSplit={onSplit}
-          onChange={onChange}
+          onAttachTextDocument={onAttachTextDocument}
+          onDetachTextDocument={onDetachTextDocument}
+          onTextDocumentChange={onNoteTextDocumentChange}
           onOpenPath={onOpenMonacoPath}
           revealPosition={revealPosition}
           onRevealPositionApplied={onRevealPositionApplied}

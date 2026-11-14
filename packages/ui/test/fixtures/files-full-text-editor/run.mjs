@@ -5,13 +5,18 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  E2E_LARGE_PATH,
   E2E_PATH,
+  E2E_SINGLE_LINE_PATH,
+  LARGE_TARGET_BYTES,
   LEGACY_BLOCK_STEP,
   LEGACY_LARGE_FILE_BYTES,
+  SINGLE_LINE_TARGET_BYTES,
   TARGET_BYTES,
   TARGET_LINES,
   TOKENS,
 } from "./constants.mjs";
+import { buildLargeMultiLineFixture, buildSingleLineFixture } from "./generate.mjs";
 import {
   createFixtureFile,
   findChromium,
@@ -19,7 +24,10 @@ import {
   startFixtureServer,
 } from "./harness.mjs";
 import { runEditorScenarios } from "./scenario-editor.mjs";
+import { runPerformanceScenarios } from "./scenario-performance.mjs";
 import { runPersistenceScenarios } from "./scenario-persistence.mjs";
+import { runSplitScenarios } from "./scenario-split.mjs";
+import { runFilesTextDraftV2MigrationScenario } from "../../helpers/filesTextDraftV2MigrationScenario.mjs";
 
 /**
  * 完整正文编辑器的隔离浏览器验证入口。
@@ -86,6 +94,20 @@ async function main() {
   const { text: _generatedText, ...generatedMeta } = fixtureFile.generated;
   const meta = { path: E2E_PATH, ...generatedMeta };
 
+  // 50 MiB 多行与 10 MiB 单行各用独立夹具文件，服务端按路径隔离版本与提交。
+  const largeFixtureFile = createFixtureFile(buildLargeMultiLineFixture());
+  const { text: _largeGeneratedText, ...largeGeneratedMeta } = largeFixtureFile.generated;
+  const largeMeta = { path: E2E_LARGE_PATH, ...largeGeneratedMeta };
+  const singleLineFixtureFile = createFixtureFile(buildSingleLineFixture());
+  const { text: _singleGeneratedText, ...singleGeneratedMeta } =
+    singleLineFixtureFile.generated;
+  const singleLineMeta = { path: E2E_SINGLE_LINE_PATH, ...singleGeneratedMeta };
+  const resources = {
+    base: { fixture: fixtureFile, meta },
+    large: { fixture: largeFixtureFile, meta: largeMeta },
+    singleLine: { fixture: singleLineFixtureFile, meta: singleLineMeta },
+  };
+
   // Node 侧先确认夹具本身：合法、精确大小、跨过旧块与旧 8 MiB 边界。
   confirm("fixture: 精确 10174816 字节（约 9.7 MiB）", fixtureFile.bytes.length === TARGET_BYTES, {
     totalBytes: fixtureFile.bytes.length,
@@ -123,6 +145,53 @@ async function main() {
     meta.tail,
   );
 
+  // 50 MiB 多行夹具：精确体积、行数、合法 JSON、8 MiB 之后与尾部 marker。
+  confirm(
+    "fixture-50mib: 精确 52428800 字节",
+    largeFixtureFile.bytes.length === LARGE_TARGET_BYTES,
+    { totalBytes: largeFixtureFile.bytes.length },
+  );
+  confirm(
+    "fixture-50mib: 行数为数据行 + 2",
+    largeMeta.lineCount === largeMeta.dataRows + 2,
+    { lineCount: largeMeta.lineCount, dataRows: largeMeta.dataRows },
+  );
+  confirm(
+    "fixture-50mib: 唯一 token 在旧 8 MiB 之后",
+    largeMeta.pastEightMiB.offset > LEGACY_LARGE_FILE_BYTES,
+    largeMeta.pastEightMiB,
+  );
+  confirm(
+    "fixture-50mib: 尾部 marker 位于最后一行数据行",
+    largeMeta.tail.lineNumber === largeMeta.lineCount - 1,
+    largeMeta.tail,
+  );
+  let largeJsonValid = true;
+  try {
+    JSON.parse(largeFixtureFile.text);
+  } catch (error) {
+    largeJsonValid = false;
+    result.largeJsonError = String(error);
+  }
+  confirm("fixture-50mib: 内容是合法 JSON", largeJsonValid);
+
+  // 10 MiB 单行夹具：精确体积、唯一物理行、首尾 marker、合法 JSON。
+  confirm(
+    "fixture-single-line: 精确 10485760 字节",
+    singleLineFixtureFile.bytes.length === SINGLE_LINE_TARGET_BYTES,
+    { totalBytes: singleLineFixtureFile.bytes.length },
+  );
+  const newlineCount = singleLineFixtureFile.text.split("\n").length - 1;
+  confirm("fixture-single-line: 只有一行，没有换行符", newlineCount === 0, { newlineCount });
+  let singleJsonValid = true;
+  try {
+    JSON.parse(singleLineFixtureFile.text);
+  } catch (error) {
+    singleJsonValid = false;
+    result.singleLineJsonError = String(error);
+  }
+  confirm("fixture-single-line: 内容是合法 JSON", singleJsonValid);
+
   let browser;
   let server;
   let buildDir;
@@ -151,7 +220,15 @@ async function main() {
       build: { outDir: buildDir, emptyOutDir: true },
     });
 
-    server = await startFixtureServer({ root: buildDir, fixture: fixtureFile, meta });
+    server = await startFixtureServer({
+      root: buildDir,
+      files: new Map([
+        [E2E_PATH, { fixture: fixtureFile, meta }],
+        [E2E_LARGE_PATH, { fixture: largeFixtureFile, meta: largeMeta }],
+        [E2E_SINGLE_LINE_PATH, { fixture: singleLineFixtureFile, meta: singleLineMeta }],
+      ]),
+      defaultPath: E2E_PATH,
+    });
     const address = server.address();
     const origin = `http://127.0.0.1:${address.port}/`;
     result.origin = origin;
@@ -204,18 +281,49 @@ async function main() {
       await page.evaluate((value) => window.__fullTextE2E.mount({ mode: value }), mode);
       await page.waitForSelector('[data-files-e2e-ready="true"]', { timeout: 20_000 });
     };
-    const openPath = async () => {
-      await page.evaluate((path) => window.__fullTextE2E.openPath(path), E2E_PATH);
+    const openPath = async (path = E2E_PATH) => {
+      await page.evaluate((target) => window.__fullTextE2E.openPath(target), path);
     };
     const monacoInfo = (tokens, lines = []) =>
       page.evaluate(
         ([tokenList, lineList]) => window.__fullTextE2E.monacoInfo(tokenList, lineList),
         [tokens, lines],
       );
+    const modelSummary = () => page.evaluate(() => window.__fullTextE2E.modelSummary());
     const bufferTokens = (tokens) =>
       page.evaluate((tokenList) => window.__fullTextE2E.bufferTokens(tokenList), tokens);
     const editorSnapshot = () => page.evaluate(() => window.__fullTextE2E.editorSnapshot());
     const focusEditor = () => page.evaluate(() => window.__fullTextE2E.focusEditor());
+    const goToLine = (line, column = 1) =>
+      page.evaluate(
+        ([targetLine, targetColumn]) =>
+          window.__fullTextE2E.goToLine(targetLine, targetColumn),
+        [line, column],
+      );
+    const quickState = () => page.evaluate(() => window.__fullTextE2E.quickState());
+    const installModelCounters = () =>
+      page.evaluate(() => window.__fullTextE2E.installModelCounters());
+    const beginMeasure = () => page.evaluate(() => window.__fullTextE2E.beginMeasure());
+    const endMeasure = () => page.evaluate(() => window.__fullTextE2E.endMeasure());
+    const beginKeypressMetrics = () =>
+      page.evaluate(() => window.__fullTextE2E.beginKeypressMetrics());
+    const endKeypressMetrics = () =>
+      page.evaluate(() => window.__fullTextE2E.endKeypressMetrics());
+    const timeSnapshot = () => page.evaluate(() => window.__fullTextE2E.timeSnapshot());
+    const firstLineProbe = () => page.evaluate(() => window.__fullTextE2E.firstLineProbe());
+    const memoryProbe = () => page.evaluate(() => window.__fullTextE2E.memoryProbe());
+    const draftParts = () => page.evaluate(() => window.__fullTextE2E.draftParts());
+    const resetModels = () => page.evaluate(() => window.__fullTextE2E.resetModels());
+    const layoutInfo = () => page.evaluate(() => window.__fullTextE2E.layoutInfo());
+    const splitActiveView = (edge, mode) =>
+      page.evaluate(
+        ([targetEdge, targetMode]) =>
+          window.__fullTextE2E.splitActiveView(targetEdge, targetMode),
+        [edge, mode],
+      );
+    const closeGroup = (groupId) =>
+      page.evaluate((target) => window.__fullTextE2E.closeGroup(target), groupId);
+    const remountEditors = () => page.evaluate(() => window.__fullTextE2E.remountEditors());
 
     await page.goto(origin, { waitUntil: "networkidle" });
     await page.waitForFunction(() => Boolean(window.__fullTextE2E?.mount), undefined, {
@@ -231,15 +339,44 @@ async function main() {
       openPath,
       activeTextBuffer,
       monacoInfo,
+      modelSummary,
       bufferTokens,
       editorSnapshot,
       focusEditor,
+      goToLine,
+      quickState,
+      installModelCounters,
+      beginMeasure,
+      endMeasure,
+      beginKeypressMetrics,
+      endKeypressMetrics,
+      timeSnapshot,
+      firstLineProbe,
+      memoryProbe,
+      draftParts,
+      resetModels,
+      layoutInfo,
+      splitActiveView,
+      closeGroup,
+      remountEditors,
+      resources,
       fixtureFile,
       meta,
       result,
     };
+    // v2 -> v3 迁移必须在基础场景挂载 Workbench 之前执行：它会清库、种入真实
+    // v2 IndexedDB，再由生产恢复 / persist / 冷启动链路升级并验证三 store。
+    await runFilesTextDraftV2MigrationScenario(scenarioContext, { path: E2E_PATH });
+    // 迁移场景最终停在脏的恢复会话；先卸载并等旧去抖落盘，再清库，避免它
+    // 在基础场景 clearStorage 之后写回旧正文。
+    await mount("fresh");
+    await page.waitForTimeout(800);
+    await page.evaluate(() => window.__fullTextE2E.clearStorage());
+
     const { expectedEditedLength } = await runEditorScenarios(scenarioContext);
     await runPersistenceScenarios(scenarioContext, { expectedEditedLength });
+    scenarioContext.result.split = await runSplitScenarios(scenarioContext);
+    await runPerformanceScenarios(scenarioContext);
 
     // ------------------------------------------------------ 运行时错误汇总
     const ignoredConsoleErrors = result.consoleErrors.filter(

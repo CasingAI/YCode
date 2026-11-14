@@ -83,7 +83,7 @@ export async function hydrateFilesEditorSession(options: {
  * 隐藏的文件工作台只恢复可见标签，且串行加载（避免一次恢复几百个文件把主线程打满）。
  * 大文本标签只恢复元数据；首次激活时用同一读取决策按需读盘：
  * 磁盘已恢复为合法 UTF-8 则转为完整可编辑文本，非法 UTF-8 保持固定块，
- * 二进制转为预览，超过单字符串硬上限则显示明确错误。
+ * 二进制转为预览，超过受控字节上限则显示明确错误。
  */
 
 export function useFilesEditorRestore(options: {
@@ -168,7 +168,9 @@ export function useFilesEditorRestore(options: {
           store,
           workspace,
           path,
-          read: () => readFilesTextForOpen(resolveServices(workspace).fileService, path),
+          // 恢复读取在改名 / 删除 / 请求失效后停止调度新窗口，避免不可见的旧标签继续读盘。
+          read: ({ isCancelled }) =>
+            readFilesTextForOpen(resolveServices(workspace).fileService, path, { isCancelled }),
           accept: async (result) => {
             const latest = findFilesBuffer(store.getState(), id);
             if (!latest) {
@@ -207,7 +209,7 @@ export function useFilesEditorRestore(options: {
                   return;
                 }
                 if (result.mode === "too-large") {
-                  // 合法文本超过单字符串硬上限：不再有可用的块模型，显示明确错误。
+                  // 合法文本超过受控字节上限：不再有可用的块模型，显示明确错误。
                   store.getState().completeLargeTextAsText(id, { text: "" });
                   store.getState().setTextLoadState(id, "error", "too-large");
                   return;

@@ -3,12 +3,10 @@ import { createUuid } from "@zcode/shared";
 import {
   createEmptyFilesEditorLayout,
   findFilesEditorGroupForView,
-  findFilesEditorGroupsForBuffer,
   findFilesEditorView,
   focusFilesEditorGroup,
   focusFilesEditorView,
   setFilesEditorBranchRatio,
-  replaceFilesEditorViewBuffer,
   setFilesEditorViewMarkdownViewMode,
 } from "@/files-workbench/filesEditorLayout.js";
 import type {
@@ -34,16 +32,26 @@ import {
   closeBufferInState,
   completeLargeTextBufferAsTextInState,
   createUntitledTextBuffer,
-  filesWorkspaceKey,
+  findFilesBuffer,
   loadTextBufferInState,
   openBufferInState,
   resolveExplorerWorkspaceKey,
   setLargeTextTotalBytesInState,
   setTextBufferLoadStateInState,
-  updateTextBuffer,
 } from "@/files-workbench/filesEditorModel.js";
+import {
+  activeFilesTextDocument,
+  attachTextDocumentInState,
+  detachTextDocumentInState,
+  noteTextDocumentChangeInState,
+  updateTextInState,
+} from "@/files-workbench/filesTextDocumentModel.js";
 import { snapshotFilesEditorSession } from "@/files-workbench/filesEditorPersistence.js";
 import { applyFilesEditorClosePlan } from "@/files-workbench/filesEditorCloseOperations.js";
+import {
+  applyFilesBufferSaved,
+  resolveFilesBufferSaved,
+} from "@/files-workbench/filesEditorStoreSaved.js";
 import {
   convertTextBufferToLargeTextInState,
   convertTextBufferToPreviewInState,
@@ -65,6 +73,7 @@ import type {
   FilesEditorState,
   FilesOpenMode,
   FilesPersistedSession,
+  FilesTextDocumentBinding,
   FilesTextLoadStateSetter,
   FilesWorkspaceRef,
 } from "@/files-workbench/filesEditorTypes.js";
@@ -73,6 +82,7 @@ const EMPTY_STATE: FilesEditorState = {
   buffers: [],
   openIds: [],
   untitledSerial: 1,
+  textChangeEpoch: 0,
 };
 
 export interface FilesEditorStoreState extends FilesEditorState, FilesLargeTextEditActions {
@@ -101,6 +111,12 @@ export interface FilesEditorStoreState extends FilesEditorState, FilesLargeTextE
   removeView: (viewId: string) => void;
   closeGroup: (groupId: string) => void;
   updateText: (id: string, text: string) => void;
+  /** 编辑器挂载后绑定运行时正文文档；正文的唯一增量副本在模型里。 */
+  attachTextDocument: (id: string, document: FilesTextDocumentBinding) => void;
+  /** 局部输入：只推进 revision / textChangeEpoch，不读取全文。 */
+  noteTextDocumentChange: (id: string) => void;
+  /** 编辑器卸载前固化正文快照并解除绑定。 */
+  detachTextDocument: (id: string, document: FilesTextDocumentBinding) => void;
   setTextLoadState: FilesTextLoadStateSetter;
   /**
    * 读取结果证明该路径是二进制时，在原 ID 内转为预览缓冲。
@@ -136,6 +152,8 @@ export interface FilesEditorStoreState extends FilesEditorState, FilesLargeTextE
       preserveCurrentText?: boolean;
       /** 本次保存得到的磁盘版本；写入普通文本运行时 diskVersion。 */
       version?: string;
+      /** 提交时捕获的文档版本号；保存 await 期间的输入据此继续判脏。 */
+      documentVersionId?: number;
     },
   ) => void;
   createUntitled: (workspace: FilesWorkspaceRef) => string;
@@ -317,7 +335,22 @@ export function createFilesEditorStore() {
     },
 
     updateText: (id, text) => {
-      set((state) => updateTextBuffer(state, id, { text }));
+      const buffer = findFilesBuffer(get(), id);
+      // 先同步替换模型正文，再写 Store 元数据；避免编辑器下一帧用旧正文覆盖。
+      if (buffer?.kind === "text") activeFilesTextDocument(buffer)?.replaceText(text);
+      set((state) => updateTextInState(state, id, text));
+    },
+
+    attachTextDocument: (id, document) => {
+      set((state) => attachTextDocumentInState(state, id, document));
+    },
+
+    noteTextDocumentChange: (id) => {
+      set((state) => noteTextDocumentChangeInState(state, id));
+    },
+
+    detachTextDocument: (id, document) => {
+      set((state) => detachTextDocumentInState(state, id, document));
     },
 
     setTextLoadState: (id, loadState, loadError) =>
@@ -340,57 +373,19 @@ export function createFilesEditorStore() {
     },
 
     restoreTextContent: (id, params) => {
+      const buffer = findFilesBuffer(get(), id);
+      // 加载完成是权威替换：同步写入模型，避免后续 effect 再按旧缓冲正文回灌。
+      if (buffer?.kind === "text") activeFilesTextDocument(buffer)?.replaceText(params.text);
       set((state) => loadTextBufferInState(state, id, params));
     },
 
     markSaved: (id, params) => {
-      const nextId = `file:${filesWorkspaceKey(params.workspace)}:${params.path}`;
-      const title = params.path.split(/[\\/]/).filter(Boolean).at(-1) ?? params.path;
-      set((state) => {
-        const source = state.buffers.find((buffer) => buffer.id === id);
-        // 路径变更或关闭已使旧保存目标失效；不能让异步保存的完成通知重建旧缓冲。
-        if (!source || source.kind !== "text") return state;
-        const text = params.preserveCurrentText ? source.text : params.text;
-        if (id === nextId) {
-          return updateTextBuffer(state, id, {
-            text,
-            savedText: params.text,
-            path: params.path,
-            untitled: false,
-            title,
-            externalChange: undefined,
-            ...(params.version === undefined ? undefined : { diskVersion: params.version }),
-          });
-        }
-        const closed = closeBufferInState(state, id);
-        const savedBuffer: FilesBuffer = {
-          id: nextId,
-          kind: "text",
-          untitled: false,
-          path: params.path,
-          title,
-          text,
-          savedText: params.text,
-          workspace: params.workspace,
-          diskVersion: params.version,
-        };
-        const next = openBufferInState(closed, savedBuffer);
-        const targetAlreadyVisible =
-          findFilesEditorGroupsForBuffer(state.layout, nextId).length > 0;
-        let layout = targetAlreadyVisible
-          ? removeFilesEditorViewsForBuffer(state.layout, id)
-          : state.layout;
-        if (!targetAlreadyVisible) {
-          const oldViews = Object.values(layout.groups).flatMap((group) =>
-            group.views.filter((view) => view.bufferId === id).map((view) => view.id),
-          );
-          for (const viewId of oldViews) {
-            layout = replaceFilesEditorViewBuffer(layout, viewId, nextId);
-          }
-        }
-        layout = addBufferToFocusedGroup(layout, nextId);
-        return { ...next, layout, activeId: nextId };
-      });
+      const saved = resolveFilesBufferSaved(get(), id, params);
+      // 路径变更或关闭已使旧保存目标失效；不能让异步保存的完成通知重建旧缓冲。
+      if (!saved) return;
+      set((state) =>
+        applyFilesBufferSaved(state, id, params, saved.currentText, saved.savedDocumentVersionId),
+      );
     },
 
     createUntitled: (workspace) => {

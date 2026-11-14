@@ -13,6 +13,7 @@ import {
   readCurrentFilesEditorPath,
   runFilesEditorFileOperation,
 } from "../src/files-workbench/filesEditorFileIO.js";
+import { FilesTextReadAbortedError } from "../src/files-workbench/filesEditorTextReader.js";
 import { getWorkspaceFileActionKey } from "../src/workspace-file-tree/fileActionRules.js";
 import { useWorkspaceFileActionStore } from "../src/store/workspaceFileActionStore.js";
 import { createElement } from "react";
@@ -414,6 +415,35 @@ test("直接打开的在途读取在删除后失效，其它工作区变更不�
   store.getState().applyFileMutation({ workspace, kind: "delete", path: "/work/a.ts" });
   resolveDeleted("stale");
   assert.equal(await deletedRead, null);
+});
+
+test("在途读取收到取消谓词后停止调度，取消不当作读取失败", async () => {
+  const store = createFilesEditorStore();
+  let cancelCheck: (() => boolean) | undefined;
+  const reported: unknown[] = [];
+  const read = readCurrentFilesEditorPath({
+    store,
+    workspace,
+    path: "/work/a.ts",
+    // 模拟窗口流水线：每轮调度前检查取消，取消后以 aborted 结束，不再发新请求。
+    read: ({ isCancelled }) =>
+      new Promise<string>((resolve, reject) => {
+        cancelCheck = isCancelled;
+        setTimeout(() => {
+          if (isCancelled()) {
+            reject(new FilesTextReadAbortedError("Text read aborted: /work/a.ts"));
+            return;
+          }
+          resolve("done");
+        }, 0);
+      }),
+    reject: (error) => reported.push(error),
+  });
+  assert.equal(cancelCheck?.(), false);
+  store.getState().applyFileMutation({ workspace, kind: "delete", path: "/work/a.ts" });
+  assert.equal(cancelCheck?.(), true);
+  assert.equal(await read, null);
+  assert.deepEqual(reported, []);
 });
 
 test("保存与文件变更共用单一工作区准入，完成及抛错都会释放", async () => {

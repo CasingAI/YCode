@@ -184,7 +184,9 @@ export async function runEditorScenarios(ctx) {
   ]);
   await page.keyboard.press("Home");
   await page.keyboard.press("Shift+End");
-  await page.keyboard.type(TOKENS.boundaryEdit);
+  // 40 万行模型的渲染/分词跟不上零间隔合成按键；用接近真实输入的间隔，
+  // 避免 Playwright 瞬间灌入导致中间字符丢失（生产路径不依赖按键速率）。
+  await page.keyboard.type(TOKENS.boundaryEdit, { delay: 25 });
   const edited = await waitFor(
     async () => {
       const probes = await bufferTokens([

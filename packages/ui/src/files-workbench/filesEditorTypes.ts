@@ -2,7 +2,7 @@ export type FilesBufferKind = "text" | "preview" | "large-text";
 
 export type FilesTextBufferLoadState = "unloaded" | "loading" | "error";
 
-/** 加载失败的明确原因；`too-large` 表示合法文本超过单字符串硬上限。 */
+/** 加载失败的明确原因；`too-large` 表示合法文本超过受控字节上限。 */
 export type FilesTextBufferLoadError = "too-large";
 
 /** 文本缓冲加载状态写入；错误原因只与 `error` 态一起保留。 */
@@ -66,6 +66,28 @@ export interface FilesExternalChange {
   observedVersion?: string | null;
 }
 
+/**
+ * 完整文本缓冲绑定的运行时正文文档。
+ *
+ * 正文的唯一运行时副本在 Monaco 模型里；Store 只保存元数据、脏态基线与快照。
+ * 局部输入只推进模型版本号，不读全文；保存 / 持久化 / 冲突判定等显式边界
+ * 才通过 `getText` 取一致快照。
+ */
+export interface FilesTextDocumentBinding {
+  /** 读取当前全文。只允许在显式快照点调用，不能进入逐键路径。 */
+  getText(): string;
+  /** Monaco 公开的替代版本号；撤销回到保存点会回到同一个值。 */
+  getVersionId(): number;
+  /** 同步替换整份正文；用于外部重载、草稿恢复与权威覆盖。 */
+  replaceText(text: string): void;
+  /** 读取有界首行，供语言 / Markdown 模式判断；不得扫描整份超长单行。 */
+  getFirstLine(maxLength?: number): string | undefined;
+  /** 正文长度；用于空正文判断，不复制正文。 */
+  getLength(): number;
+  /** 模型销毁后不能再作为正文来源，调用方回退到缓冲快照。 */
+  isDisposed(): boolean;
+}
+
 export interface FilesTextBuffer {
   id: string;
   kind: "text";
@@ -89,6 +111,22 @@ export interface FilesTextBuffer {
   diskVersion?: string;
   /** 外部修改 / 删除提示；脏草稿只提示，不自动覆盖。 */
   externalChange?: FilesExternalChange;
+  /** 绑定的运行时正文文档；未挂载编辑器或已销毁时不存在。 */
+  document?: FilesTextDocumentBinding;
+  /**
+   * 当前 model 上仍挂载的编辑器视图数。分屏共享同一 model 时只有最后一个
+   * 视图卸载才能固化正文并解绑；否则仍存活视图的输入会失去权威副本。
+   */
+  documentAttachments?: number;
+  /**
+   * 已保存点对应的文档版本号。
+   * `null` 表示绑定时草稿已经脏（没有干净基线）；`undefined` 表示未绑定。
+   */
+  savedDocumentVersionId?: number | null;
+  /** 最近一次已计入 revision 的文档版本号，用于合并同一 model 的重复监听回调。 */
+  notedDocumentVersionId?: number;
+  /** 每次局部输入递增，供标签脏标记与派生投影重渲染。 */
+  documentRevision?: number;
 }
 
 export interface FilesPreviewBuffer {
@@ -208,6 +246,12 @@ export interface FilesEditorState {
   pendingOpen?: FilesPendingOpen;
   pendingOpenQueue?: FilesPendingOpen[];
   untitledSerial: number;
+  /**
+   * 局部正文输入代次。每次已绑定文档发生内容变化时递增；
+   * 持久化 owner 订阅该值做去抖，不读正文。保存 / 关闭等边界仍显式 flush。
+   * 只读投影构造的状态对象可以省略（按 0 处理）。
+   */
+  textChangeEpoch?: number;
 }
 
 export type FilesSaveConflictDecision = "overwrite" | "reload";

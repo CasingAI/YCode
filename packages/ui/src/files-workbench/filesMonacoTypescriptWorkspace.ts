@@ -38,8 +38,36 @@ const MAX_WORKSPACE_SYNC_DURATION_MS = 12_000;
 export interface FilesMonacoTypescriptWorkspaceEntry {
   bufferId: string;
   path: string;
+  /** 上次快照；提供 `readText` 时以它为准。 */
   text: string;
+  /** 延迟读取当前正文；同步 / 分析真正需要时才从 Store 绑定文档取快照。 */
+  readText?: () => string;
   workspace: FilesWorkspaceRef;
+}
+
+/** TS 工作区 entry 的权威正文：优先延迟读取，避免逐键复制。 */
+export function filesMonacoTypescriptEntryText(entry: FilesMonacoTypescriptWorkspaceEntry): string {
+  return entry.readText ? entry.readText() : entry.text;
+}
+
+/** 一次同步内每个入口只取一次快照，模块解析 / key / 缓存 seed 共用。 */
+type FilesMonacoEntryTexts = ReadonlyMap<FilesMonacoTypescriptWorkspaceEntry, string>;
+
+function entryText(
+  entry: FilesMonacoTypescriptWorkspaceEntry,
+  texts: FilesMonacoEntryTexts,
+): string {
+  return texts.get(entry) ?? filesMonacoTypescriptEntryText(entry);
+}
+
+function captureEntryTexts(
+  entries: readonly FilesMonacoTypescriptWorkspaceEntry[],
+): FilesMonacoEntryTexts {
+  const texts = new Map<FilesMonacoTypescriptWorkspaceEntry, string>();
+  for (const entry of entries) {
+    if (!texts.has(entry)) texts.set(entry, filesMonacoTypescriptEntryText(entry));
+  }
+  return texts;
 }
 
 interface WorkspaceBucket {
@@ -188,7 +216,8 @@ async function resolveLocalModules(
   entries: readonly FilesMonacoTypescriptWorkspaceEntry[],
   cache: FilesResolutionCache,
   signal: AbortSignal,
-  activeBufferId?: string,
+  activeBufferId: string | undefined,
+  texts: FilesMonacoEntryTexts,
 ): Promise<{ files: Map<string, string>; unresolved: boolean }> {
   const sources = entries
     .filter((entry) => isTypescriptOrJavascriptPath(entry.path))
@@ -199,7 +228,7 @@ async function resolveLocalModules(
     .slice(0, MAX_LOCAL_MODULE_FILES);
   const queue = sources.map((entry) => ({
     path: normalizeFilesMonacoPath(entry.path),
-    text: entry.text,
+    text: entryText(entry, texts),
     depth: 0,
   }));
   const visited = new Set(queue.map((entry) => entry.path));
@@ -262,12 +291,15 @@ function hashKey(value: string): string {
   return (hash >>> 0).toString(16);
 }
 
-function makeBareImportKey(entries: readonly FilesMonacoTypescriptWorkspaceEntry[]): string {
+function makeBareImportKey(
+  entries: readonly FilesMonacoTypescriptWorkspaceEntry[],
+  texts: FilesMonacoEntryTexts,
+): string {
   return hashKey(
     entries
       .filter((entry) => isTypescriptOrJavascriptPath(entry.path))
       .map((entry) => {
-        const { bare } = extractImportSpecs(entry.text);
+        const { bare } = extractImportSpecs(entryText(entry, texts));
         return `${entry.path}\0${bare.sort().join("\0")}`;
       })
       .sort()
@@ -295,7 +327,8 @@ async function syncWorkspaceBucket(
   bucket: WorkspaceBucket,
   resolveServices: ResolveServices,
   signal: AbortSignal,
-  activeBufferId?: string,
+  activeBufferId: string | undefined,
+  texts: FilesMonacoEntryTexts,
 ): Promise<WorkspaceSyncResult | undefined> {
   knownScopes.add(bucket.scope);
   const workspaceFolder = normalizeFilesMonacoPath(bucket.workspace.workspacePath);
@@ -307,7 +340,7 @@ async function syncWorkspaceBucket(
     throw new Error("typescript-resolver-workspace-unavailable");
   }
   const cache = getFilesResolutionCache(workspaceFolder, bucket.scope, io);
-  for (const entry of bucket.entries) cache.seedFile(entry.path, entry.text);
+  for (const entry of bucket.entries) cache.seedFile(entry.path, entryText(entry, texts));
 
   const entriesForResolution = bucket.entries
     .filter((entry) => isTypescriptOrJavascriptPath(entry.path))
@@ -316,7 +349,7 @@ async function syncWorkspaceBucket(
         Number(right.bufferId === activeBufferId) - Number(left.bufferId === activeBufferId),
     )
     .slice(0, MAX_LOCAL_MODULE_FILES)
-    .map((entry) => ({ path: entry.path, text: entry.text }));
+    .map((entry) => ({ path: entry.path, text: entryText(entry, texts) }));
   const bareKey = makeBareImportKey(
     bucket.entries
       .filter((entry) => isTypescriptOrJavascriptPath(entry.path))
@@ -325,6 +358,7 @@ async function syncWorkspaceBucket(
           Number(right.bufferId === activeBufferId) - Number(left.bufferId === activeBufferId),
       )
       .slice(0, MAX_LOCAL_MODULE_FILES),
+    texts,
   );
   const clearMissing = bareImportKeysByScope.get(bucket.scope) !== bareKey;
   bareImportKeysByScope.set(bucket.scope, bareKey);
@@ -341,7 +375,13 @@ async function syncWorkspaceBucket(
   });
   if (signal.aborted) return undefined;
 
-  const localResult = await resolveLocalModules(bucket.entries, cache, signal, activeBufferId);
+  const localResult = await resolveLocalModules(
+    bucket.entries,
+    cache,
+    signal,
+    activeBufferId,
+    texts,
+  );
   if (signal.aborted) return undefined;
 
   const currentPackageFiles = new Map(packageResult.files.map((file) => [file.path, file.content]));
@@ -436,6 +476,9 @@ export async function syncFilesMonacoTypescriptWorkspace(options: {
     if (previous) await previous.catch(() => undefined);
     if (controller.signal.aborted || generation !== syncGeneration) return;
 
+    // 同步入口只读一次每个 entry 的权威正文；后续解析、key 与 seed 全部复用，
+    // 避免一次同步对同一 9.7 MiB 文档调用多次 readText。
+    const entryTexts = captureEntryTexts(options.entries);
     const buckets = groupWorkspaceEntries(options.entries);
     const activeScope = options.activeWorkspace
       ? filesMonacoTypescriptWorkspaceScope(options.activeWorkspace)
@@ -454,6 +497,7 @@ export async function syncFilesMonacoTypescriptWorkspace(options: {
           options.resolveServices,
           controller.signal,
           options.activeBufferId,
+          entryTexts,
         );
         if (result) results.push(result);
       } catch {

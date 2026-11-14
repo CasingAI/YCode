@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type * as Monaco from "monaco-editor";
 import {
+  createFilesMonacoTextDocument,
   disposeFilesMonacoModel,
   getOrCreateFilesMonacoModel,
   isWritingFilesMonacoModel,
@@ -117,4 +118,29 @@ test("same canonical URI is reused across legacy buffer IDs instead of throwing"
     disposeFilesMonacoModel(firstId);
     disposeFilesMonacoModel(secondId);
   }
+});
+
+test("同一个 Monaco model 只暴露一个运行时文档绑定", () => {
+  let text = "hello";
+  let version = 1;
+  const model = {
+    isDisposed: () => false,
+    getValue: () => text,
+    setValue: (value: string) => {
+      text = value;
+      version += 1;
+    },
+    getValueLength: () => text.length,
+    getAlternativeVersionId: () => version,
+    getLineMaxColumn: () => text.length + 1,
+    getValueInRange: () => text,
+  } as unknown as Monaco.editor.ITextModel;
+
+  const first = createFilesMonacoTextDocument(model);
+  const second = createFilesMonacoTextDocument(model);
+  assert.equal(first, second, "同一 model 的分屏视图必须共享绑定与版本域");
+
+  first.replaceText("hello world");
+  assert.equal(second.getText(), "hello world");
+  assert.equal(second.getVersionId(), 2);
 });

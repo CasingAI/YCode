@@ -7,10 +7,16 @@ import {
   isFilesTextBuffer,
 } from "@/files-workbench/filesEditorModel.js";
 import {
+  isFilesTextReadAbortedError,
   isFilesTextReadMissingError,
   readFilesTextForOpen,
 } from "@/files-workbench/filesEditorTextReader.js";
 import { disposeFilesMonacoModel } from "@/files-workbench/filesMonacoModels.js";
+import {
+  activeFilesTextDocument,
+  captureFilesTextSnapshot,
+  snapshotFilesTextBuffer,
+} from "@/files-workbench/filesTextDocumentModel.js";
 import {
   filesLargeTextWindowOwner,
   seedFilesLargeTextWindowFromBuffer,
@@ -50,15 +56,29 @@ export async function reloadFilesBufferFromDisk(options: {
   // 读取 await 期间可能产生新输入：记录读取开始时的身份与草稿快照，
   // 只有快照完全未变才允许用磁盘内容替换，避免静默丢掉新草稿。
   const startKind = buffer.kind;
-  const startText = isFilesTextBuffer(buffer) ? buffer.text : undefined;
+  // 显式快照同时记录正文与文档版本号；绑定模型时版本号能发现缓冲正文没跟上的输入。
+  const startTextSnapshot = isFilesTextBuffer(buffer)
+    ? captureFilesTextSnapshot(buffer)
+    : undefined;
+  const startDocument = isFilesTextBuffer(buffer) ? activeFilesTextDocument(buffer) : undefined;
+  const startText = startTextSnapshot?.text;
+  const startDocumentVersionId = startTextSnapshot?.documentVersionId;
   const startSavedText = isFilesTextBuffer(buffer) ? buffer.savedText : undefined;
   const startDiskVersion = isFilesTextBuffer(buffer) ? buffer.diskVersion : undefined;
   const startEdit = isFilesLargeTextBuffer(buffer) ? buffer.edit : undefined;
   const snapshotUnchanged = (candidate: FilesBuffer): boolean => {
     if (candidate.kind !== startKind) return false;
     if (isFilesTextBuffer(candidate)) {
+      const candidateDocument = activeFilesTextDocument(candidate);
+      // 只有绑定对象（= Monaco model 版本域）相同才能比较替代版本号；
+      // 不同 model 的版本号可能数值相同但含义不同。任一侧没有绑定时
+      // 回退到正文快照比较，宁可多读一次也不能吞掉真实输入。
+      const textUnchanged =
+        startDocument !== undefined && candidateDocument === startDocument
+          ? candidateDocument.getVersionId() === startDocumentVersionId
+          : snapshotFilesTextBuffer(candidate) === startText;
       return (
-        candidate.text === startText &&
+        textUnchanged &&
         candidate.savedText === startSavedText &&
         candidate.diskVersion === startDiskVersion
       );
@@ -75,9 +95,13 @@ export async function reloadFilesBufferFromDisk(options: {
 
   let result;
   try {
-    result = await readFilesTextForOpen(options.fileService, path);
+    // 请求失效（缓冲替换 / 改名 / 关闭）后停止调度后续窗口，不让整份正文继续占带宽。
+    result = await readFilesTextForOpen(options.fileService, path, {
+      isCancelled: () => !options.isCurrentRequest(),
+    });
   } catch (error) {
-    if (!options.isCurrentRequest()) return false;
+    // 主动取消只表示请求过期，不能按编码 / 变盘 / 缺失处理，也不打失败日志。
+    if (isFilesTextReadAbortedError(error) || !options.isCurrentRequest()) return false;
     // 只有明确 ENOENT 才提示删除；离线 / 权限失败不能把文件当成已删除。
     if (isFilesTextReadMissingError(error)) {
       const current = findFilesBuffer(store.getState(), bufferId);
@@ -123,7 +147,7 @@ export async function reloadFilesBufferFromDisk(options: {
   }
 
   if (result.mode === "too-large") {
-    // 合法文本超过单字符串硬上限：不保留半份正文，也不回退固定块。
+    // 合法文本超过受控字节上限：不保留半份正文，也不回退固定块。
     // 能给到这里说明缓冲干净或调用方已允许丢弃草稿。
     if (isFilesLargeTextBuffer(current)) {
       store.getState().completeLargeTextAsText(bufferId, { text: "" });

@@ -26,6 +26,7 @@ import type {
   FilesEditorFocusRequest,
   FilesMonacoOpenPath,
   FilesMonacoRevealPosition,
+  FilesTextDocumentBinding,
 } from "@/files-workbench/filesEditorTypes.js";
 import {
   filesEditorDropEdgeAtEvent,
@@ -63,7 +64,9 @@ export function FilesEditorGroupPane({
   canRevealInFileTree,
   onMoveView,
   onSplit,
-  onChange,
+  onAttachTextDocument,
+  onDetachTextDocument,
+  onTextDocumentChange,
   onOpenPath,
   revealPosition,
   onRevealPositionApplied,
@@ -101,7 +104,9 @@ export function FilesEditorGroupPane({
     edge: FilesEditorSplitEdge,
     mode?: "move" | "copy",
   ) => void;
-  onChange: (bufferId: string, text: string) => void;
+  onAttachTextDocument: (bufferId: string, document: FilesTextDocumentBinding) => void;
+  onDetachTextDocument: (bufferId: string, document: FilesTextDocumentBinding) => void;
+  onTextDocumentChange: (bufferId: string) => void;
   onOpenPath: FilesMonacoOpenPath;
   revealPosition?: FilesMonacoRevealPosition;
   onRevealPositionApplied: (path: string) => void;
@@ -355,7 +360,9 @@ export function FilesEditorGroupPane({
         isActiveView={isActiveView}
         markdownPreviewActive={markdownPreviewActive}
         loadRestoredTextFile={loadRestoredTextFile}
-        onChange={onChange}
+        onAttachTextDocument={onAttachTextDocument}
+        onDetachTextDocument={onDetachTextDocument}
+        onTextDocumentChange={onTextDocumentChange}
         onOpenPath={onOpenPath}
         revealPosition={revealPosition}
         onRevealPositionApplied={onRevealPositionApplied}

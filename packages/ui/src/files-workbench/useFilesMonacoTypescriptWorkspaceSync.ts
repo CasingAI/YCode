@@ -22,11 +22,16 @@ function isTypescriptRelevantFileChange(path?: string): boolean {
 export function useFilesMonacoTypescriptWorkspaceSync(options: {
   enabled: boolean;
   entries: readonly FilesMonacoTypescriptWorkspaceEntry[];
+  /**
+   * 正文代次：局部输入只推进该值来重置去抖计时，entries 保持稳定；
+   * 同步边界再通过 entry.readText 读取权威正文。
+   */
+  revision?: number;
   activeWorkspace?: FilesWorkspaceRef;
   activeBufferId?: string;
   resolveServices: ResolveServices;
 }): void {
-  const { enabled, entries, activeWorkspace, activeBufferId, resolveServices } = options;
+  const { enabled, entries, revision, activeWorkspace, activeBufferId, resolveServices } = options;
   const watcherWorkspaces = useMemo(() => {
     const byScope = new Map<string, FilesWorkspaceRef>();
     if (activeWorkspace) {
@@ -74,7 +79,7 @@ export function useFilesMonacoTypescriptWorkspaceSync(options: {
       window.clearTimeout(timer);
       cancelFilesMonacoTypescriptSync();
     };
-  }, [enabled, entries, activeWorkspace, activeBufferId, resolveServices]);
+  }, [enabled, entries, revision, activeWorkspace, activeBufferId, resolveServices]);
 
   useEffect(() => {
     if (!enabled) return;

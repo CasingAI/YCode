@@ -15,12 +15,14 @@ import {
   isFilesPreviewTab,
   needsFilesWorkspaceDisambiguation,
   openBufferInState,
-  persistableDrafts,
-  persistableOpenTabs,
   resolveExplorerWorkspaceKey,
   resolveFilesWorkspaceDisambiguatedIds,
   updateTextBuffer,
 } from "../src/files-workbench/filesEditorModel.js";
+import {
+  persistableDrafts,
+  persistableOpenTabs,
+} from "../src/files-workbench/filesEditorPersistableModel.js";
 import type {
   FilesEditorState,
   FilesWorkspaceRef,

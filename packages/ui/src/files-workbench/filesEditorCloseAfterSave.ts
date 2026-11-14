@@ -1,4 +1,8 @@
 import { filesWorkspaceKey, isFilesBufferDirty } from "@/files-workbench/filesEditorModel.js";
+import {
+  captureFilesTextSnapshot,
+  filesTextBufferDocumentVersionId,
+} from "@/files-workbench/filesTextDocumentModel.js";
 import type { FilesBuffer } from "@/files-workbench/filesEditorTypes.js";
 
 export type FilesCloseAfterSaveDecision = "close" | "prompt" | "gone";
@@ -12,9 +16,33 @@ export interface FilesCloseSnapshot {
   text?: string;
   savedText?: string;
   diskVersion?: string;
+  /** 绑定模型的替代版本号；文本缓冲用它发现缓冲 text 未跟上的新输入。 */
+  documentVersionId?: number;
   revision?: number;
   baseVersion?: string;
   baseTotalBytes?: number;
+}
+
+/**
+ * 在关闭等待开始前取原子快照。文本缓冲必须同时记录正文和文档版本号：
+ * 输入期间 buffer.text 可能落后于 Monaco 模型，只有版本号能发现新输入。
+ */
+export function captureFilesCloseSnapshot(buffer: FilesBuffer): FilesCloseSnapshot {
+  const textSnapshot = buffer.kind === "text" ? captureFilesTextSnapshot(buffer) : undefined;
+  return {
+    bufferRef: buffer,
+    id: buffer.id,
+    path: buffer.path,
+    kind: buffer.kind,
+    text: textSnapshot?.text,
+    savedText: buffer.kind === "text" ? buffer.savedText : undefined,
+    diskVersion: buffer.kind === "text" ? buffer.diskVersion : undefined,
+    documentVersionId: textSnapshot?.documentVersionId,
+    revision: buffer.kind === "large-text" ? buffer.edit?.revision : undefined,
+    baseVersion: buffer.kind === "large-text" ? buffer.edit?.baseVersion : undefined,
+    baseTotalBytes: buffer.kind === "large-text" ? buffer.edit?.baseTotalBytes : undefined,
+    workspaceKey: filesWorkspaceKey(buffer.workspace),
+  };
 }
 
 export type FilesCloseAfterDiscardDecision = "close" | "prompt" | "gone";
@@ -53,7 +81,9 @@ export function resolveFilesCloseAfterDiscard(
         buffer.edit?.baseVersion !== snapshot.baseVersion ||
         buffer.edit?.baseTotalBytes !== snapshot.baseTotalBytes)) ||
     (buffer.kind === "text" &&
-      (buffer.text !== snapshot.text ||
+      ((snapshot.documentVersionId === undefined
+        ? buffer.text !== snapshot.text
+        : filesTextBufferDocumentVersionId(buffer) !== snapshot.documentVersionId) ||
         buffer.savedText !== snapshot.savedText ||
         buffer.diskVersion !== snapshot.diskVersion))
   ) {

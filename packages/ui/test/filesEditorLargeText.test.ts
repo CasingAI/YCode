@@ -89,11 +89,15 @@ function createWindowReader(
         request.length ?? FILE_TEXT_WINDOW_MAX_BYTES,
         FILE_TEXT_WINDOW_MAX_BYTES,
       );
-      const end = Math.min(start + length, maxReadable);
+      // 声明总大小大于实际内容时（稀疏 / 超大文件），按窗口长度补空格模拟服务
+      // 返回的真实字节；否则窗口会退化成 nextOffset === offset 的不一致结果。
+      const end = Math.min(start + length, totalBytes);
       const isBinary = options?.isBinary === true;
+      const available = bytes.subarray(start, Math.min(end, bytes.length)).toString("utf8");
+      const padding = Math.max(0, end - Math.max(start, Math.min(end, bytes.length)));
       return {
         path: request.path,
-        content: isBinary ? "" : bytes.subarray(start, end).toString("utf8"),
+        content: isBinary ? "" : available + " ".repeat(padding),
         offset: start,
         bytesRead: end - start,
         nextOffset: end,
@@ -181,18 +185,25 @@ function sessionWithLargeTab(id: string, path: string): FilesPersistedSession {
   };
 }
 
-test("读取决策：合法 UTF-8 一律完整正文，只有非法字节或硬上限才降级", () => {
+test("读取决策：合法 UTF-8 一律完整正文，只有非法字节或超过字节上限才降级", () => {
   assert.equal(resolveFilesTextReadMode({ isBinary: false, totalBytes: 10 }), "editable");
   assert.equal(
     resolveFilesTextReadMode({ isBinary: false, totalBytes: 10 * 1024 * 1024 }),
     "editable",
   );
+  // 单一保守字节上限（248 MiB）：同时低于 V8 单字符串与 Monaco heap 操作上限。
   assert.equal(
-    resolveFilesTextReadMode({ isBinary: false, totalBytes: FILES_FULL_TEXT_MAX_BYTES }),
+    resolveFilesTextReadMode({
+      isBinary: false,
+      totalBytes: FILES_FULL_TEXT_MAX_BYTES,
+    }),
     "editable",
   );
   assert.equal(
-    resolveFilesTextReadMode({ isBinary: false, totalBytes: FILES_FULL_TEXT_MAX_BYTES + 1 }),
+    resolveFilesTextReadMode({
+      isBinary: false,
+      totalBytes: FILES_FULL_TEXT_MAX_BYTES + 1,
+    }),
     "too-large",
   );
   assert.equal(

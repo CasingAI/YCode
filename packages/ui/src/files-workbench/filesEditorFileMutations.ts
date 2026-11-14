@@ -8,6 +8,7 @@ import {
   isFilesLargeTextBuffer,
 } from "@/files-workbench/filesEditorModel.js";
 import { normalizeFilesMonacoPath } from "@/files-workbench/filesMonacoTypescriptPath.js";
+import { detachFilesTextBufferDocument } from "@/files-workbench/filesTextDocumentModel.js";
 import type { FilesEditorLayoutState } from "@/files-workbench/filesEditorLayout.js";
 import type {
   FilesBuffer,
@@ -75,8 +76,9 @@ export function applyFilesEditorFileMutation(
 
   const preserveDraft = (buffer: FilesTextBuffer) => {
     const id = `untitled:${createUuid()}`;
+    // 新 id 会创建新 model：先把当前正文固化成快照并解除旧运行时文档绑定。
     const draft: FilesTextBuffer = {
-      ...buffer,
+      ...detachFilesTextBufferDocument(buffer),
       id,
       path: undefined,
       title: `Untitled-${untitledSerial++}`,
@@ -126,7 +128,7 @@ export function applyFilesEditorFileMutation(
     }
     nextIdById.set(buffer.id, id);
     nextBufferById.set(buffer.id, {
-      ...buffer,
+      ...(buffer.kind === "text" ? detachFilesTextBufferDocument(buffer) : buffer),
       id,
       path,
       title: getPathLeaf(path),

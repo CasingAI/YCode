@@ -8,12 +8,15 @@ import {
   isFilesTextBuffer,
 } from "@/files-workbench/filesEditorBufferModel.js";
 import { hasFilesLargeTextEditChanges } from "@/files-workbench/filesLargeTextDraftModel.js";
+import {
+  activeFilesTextDocument,
+  filesTextBufferDocumentIsDirty,
+  rememberFilesTextDocumentSavedVersion,
+} from "@/files-workbench/filesTextDocumentModel.js";
 import type {
   FilesBuffer,
   FilesEditorState,
   FilesOpenMode,
-  FilesPersistedDraft,
-  FilesPersistedOpenTab,
   FilesTextBuffer,
   FilesTextBufferLoadError,
   FilesTextBufferLoadState,
@@ -23,6 +26,7 @@ import type {
 export * from "@/files-workbench/filesEditorBufferModel.js";
 export * from "@/files-workbench/filesLargeTextDraftModel.js";
 export * from "@/files-workbench/filesLargeTextDraftExternal.js";
+export * from "@/files-workbench/filesTextDocumentModel.js";
 
 function withOpenMode(buffer: FilesBuffer, mode: FilesOpenMode): FilesBuffer {
   if (mode === "preview") {
@@ -55,6 +59,10 @@ export function isFilesBufferDirty(buffer: FilesBuffer): boolean {
   }
   if (!isFilesTextBuffer(buffer)) {
     return false;
+  }
+  // 绑定 Monaco 模型后脏态只看替代版本号；局部输入不复制、不比较全文。
+  if (activeFilesTextDocument(buffer)) {
+    return filesTextBufferDocumentIsDirty(buffer);
   }
   if (buffer.untitled && buffer.text === "" && buffer.savedText === "") {
     return false;
@@ -276,6 +284,9 @@ export function updateTextBuffer(
       | "loadError"
       | "diskVersion"
       | "externalChange"
+      | "document"
+      | "savedDocumentVersionId"
+      | "documentRevision"
     >
   >,
 ): FilesEditorState {
@@ -300,6 +311,9 @@ export function updateTextBuffer(
       next.diskVersion === buffer.diskVersion &&
       next.externalChange?.kind === buffer.externalChange?.kind &&
       next.externalChange?.observedVersion === buffer.externalChange?.observedVersion &&
+      next.document === buffer.document &&
+      next.savedDocumentVersionId === buffer.savedDocumentVersionId &&
+      next.documentRevision === buffer.documentRevision &&
       next.preview === buffer.preview
     ) {
       return buffer;
@@ -321,10 +335,17 @@ export function loadTextBufferInState(
       return buffer;
     }
     changed = true;
+    const document = activeFilesTextDocument(buffer);
+    const savedDocumentVersionId = document?.getVersionId();
+    if (document && savedDocumentVersionId !== undefined) {
+      rememberFilesTextDocumentSavedVersion(document, savedDocumentVersionId);
+    }
     return {
       ...buffer,
       text: params.text,
       savedText: params.text,
+      // 调用方已同步把绑定文档替换为磁盘正文；加载完成即干净基线。
+      ...(savedDocumentVersionId === undefined ? undefined : { savedDocumentVersionId }),
       truncated: params.truncated,
       loadState: undefined,
       diskVersion: params.version ?? buffer.diskVersion,
@@ -408,51 +429,4 @@ export function setTextBufferLoadStateInState(
     return { ...buffer, loadState, loadError: nextLoadError };
   });
   return changed ? { ...state, buffers } : state;
-}
-
-export function persistableDrafts(state: FilesEditorState): FilesPersistedDraft[] {
-  const seen = new Set<string>();
-  return state.buffers.flatMap((buffer) => {
-    if (!isFilesTextBuffer(buffer) || !isFilesBufferDirty(buffer) || seen.has(buffer.id)) {
-      return [];
-    }
-    seen.add(buffer.id);
-    return [
-      {
-        id: buffer.id,
-        path: buffer.path,
-        title: buffer.title,
-        text: buffer.text,
-        savedText: buffer.savedText,
-        workspace: buffer.workspace,
-        untitled: buffer.untitled,
-        truncated: buffer.truncated === true ? true : undefined,
-      },
-    ];
-  });
-}
-
-export function persistableOpenTabs(state: FilesEditorState): FilesPersistedOpenTab[] {
-  const seen = new Set<string>();
-  return state.openIds.flatMap((id) => {
-    if (seen.has(id)) return [];
-    seen.add(id);
-    const buffer = findFilesBuffer(state, id);
-    if (!buffer) {
-      return [];
-    }
-    if (isFilesTextBuffer(buffer) && buffer.untitled && !isFilesBufferDirty(buffer)) {
-      return [];
-    }
-    return [
-      {
-        id: buffer.id,
-        kind: buffer.kind,
-        path: buffer.path,
-        workspace: buffer.workspace,
-        untitled: isFilesTextBuffer(buffer) ? buffer.untitled : undefined,
-        preview: buffer.preview === true ? true : undefined,
-      },
-    ];
-  });
 }

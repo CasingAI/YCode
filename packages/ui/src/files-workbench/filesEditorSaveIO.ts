@@ -14,6 +14,7 @@ import {
   isFilesTextBuffer,
 } from "@/files-workbench/filesEditorModel.js";
 import { filesMonacoPathsEqual } from "@/files-workbench/filesMonacoTypescriptPath.js";
+import { captureFilesTextSnapshot } from "@/files-workbench/filesTextDocumentModel.js";
 import {
   isFilesTextReadMissingError,
   readFilesTextForOpen,
@@ -182,7 +183,7 @@ async function saveTextBufferToDisk(
   const identity = workspaceIdentityKey(current.workspace);
   const samePath = sourcePath !== undefined && filesMonacoPathsEqual(sourcePath, path);
   const isSaveAsTarget = sourcePath === undefined || !samePath;
-  // 所有探测 await 结束后都要求运行时基准未变，避免用旧 diskVersion 提交新状态。
+  // 全部探测 await 结束后都要求运行时基准未变，避免用旧 diskVersion 提交新状态。
   const baselineDiskVersion = current.diskVersion;
 
   let expectedTargetVersion: string | null | undefined;
@@ -236,10 +237,11 @@ async function saveTextBufferToDisk(
   } else {
     // 旧版草稿没有运行时 diskVersion：先完整读盘验证其 savedText 基线。
     // 用户确认时若读盘失败 / 版本未知，显式重新提示，不得退化为按读到的最新版本覆盖。
+    // 只在 legacy 分支取一次快照；常规保存不为此多读一遍 9.7 MiB 正文。
     const baseline = await resolveLegacyBaseline({
       fileService,
       path: sourcePath,
-      currentText: current.text,
+      currentText: captureFilesTextSnapshot(current).text,
       savedText: current.savedText,
     });
     if (baseline.status === "failed") {
@@ -272,11 +274,14 @@ async function saveTextBufferToDisk(
   if (!sameSavableBuffer(latest, current, identity) || !isFilesTextBuffer(latest)) return false;
   if (latest.diskVersion !== baselineDiskVersion) return false;
 
+  // 提交时刻再取一次原子快照：探测 await 期间的新输入要被保存，
+  // 保存完成后只把这一版设为干净基线。
+  const commitSnapshot = captureFilesTextSnapshot(latest);
   const params: CommitTextFileParams = {
     path,
     expectedVersion,
     ...(sourcePath === undefined || samePath ? undefined : { sourcePath, expectedTargetVersion }),
-    write: { kind: "full", text: latest.text },
+    write: { kind: "full", text: commitSnapshot.text },
   };
 
   let result: CommitTextFileResult;
@@ -308,7 +313,10 @@ async function saveTextBufferToDisk(
   if (saved.diskVersion !== baselineDiskVersion) return false;
   options.store.getState().markSaved(current.id, {
     path,
-    text: latest.text,
+    text: commitSnapshot.text,
+    ...(commitSnapshot.documentVersionId === undefined
+      ? undefined
+      : { documentVersionId: commitSnapshot.documentVersionId }),
     workspace: current.workspace,
     preserveCurrentText: true,
     version: result.version,

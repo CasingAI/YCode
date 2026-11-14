@@ -90,14 +90,19 @@ export async function findChromium(bundledPath) {
   return undefined;
 }
 
-/** 进程内唯一的「磁盘文件」：初始 9.7 MiB JSON，commit 后替换并提升版本。 */
-export function createFixtureFile() {
-  const generated = buildLargeJsonFixture();
+/**
+ * 进程内的「磁盘文件」：初始内容来自指定生成器，commit 后替换并提升版本。
+ *
+ * 同一份实现服务 9.7 MiB / 50 MiB / 10 MiB 单行三个场景；每个路径一个实例，
+ * 版本、提交历史和窗口读取计数互不影响。
+ */
+export function createFixtureFile(generated = buildLargeJsonFixture()) {
   const state = {
     bytes: Buffer.from(generated.text, "utf8"),
     version: "v1",
     commits: [],
     windowReads: [],
+    commitDelayMs: 0,
   };
   return {
     generated,
@@ -116,11 +121,19 @@ export function createFixtureFile() {
     get text() {
       return state.bytes.toString("utf8");
     },
+    get commitDelayMs() {
+      return state.commitDelayMs;
+    },
+    /** 保存性能场景用它拉长 commit 往返，从而在 await 期间继续输入。 */
+    setCommitDelay(ms) {
+      state.commitDelayMs = Math.max(0, Math.trunc(ms));
+    },
     reset() {
       state.bytes = Buffer.from(generated.text, "utf8");
       state.version = "v1";
       state.commits.length = 0;
       state.windowReads.length = 0;
+      state.commitDelayMs = 0;
     },
     commit(params) {
       const write = params?.write;
@@ -214,18 +227,39 @@ function sendJson(response, status, value) {
   response.end(JSON.stringify(value));
 }
 
-export function startFixtureServer({ root, fixture, meta }) {
+/**
+ * 静态服务 + 多文件窗口 / 提交端点。
+ *
+ * `files` 是路径到 `{ fixture, meta }` 的映射；`defaultPath` 只用于没有显式
+ * path 的探针请求。每个路径的文件状态完全独立。
+ */
+export function startFixtureServer({ root, files, defaultPath }) {
+  const resolveFile = (pathValue) => {
+    const path = pathValue ?? defaultPath;
+    const entry = files.get(path);
+    if (!entry) {
+      throw Object.assign(new Error(`unknown fixture path: ${path}`), { code: "ENOENT" });
+    }
+    return { path, entry };
+  };
+
   const server = createServer(async (request, response) => {
     try {
       const url = new URL(request.url ?? "/", "http://127.0.0.1");
       if (url.pathname === "/__fixture/meta") {
-        sendJson(response, 200, meta);
+        try {
+          const { entry } = resolveFile(url.searchParams.get("path") ?? undefined);
+          sendJson(response, 200, entry.meta);
+        } catch (error) {
+          sendJson(response, 404, { code: error.code, message: error.message });
+        }
         return;
       }
       if (url.pathname === "/__fixture/window") {
         try {
-          const window = fixture.readWindow({
-            path: url.searchParams.get("path") ?? meta.path,
+          const { path, entry } = resolveFile(url.searchParams.get("path") ?? undefined);
+          const window = entry.fixture.readWindow({
+            path,
             offset: Number(url.searchParams.get("offset") ?? 0),
             length: Number(url.searchParams.get("length") ?? FILE_TEXT_WINDOW_MAX_BYTES),
             expectedVersion: url.searchParams.get("expectedVersion") ?? undefined,
@@ -239,7 +273,13 @@ export function startFixtureServer({ root, fixture, meta }) {
       if (url.pathname === "/__fixture/commit" && request.method === "POST") {
         try {
           const params = await readJsonBody(request);
-          sendJson(response, 200, fixture.commit(params));
+          const { entry } = resolveFile(params?.path);
+          if (entry.fixture.commitDelayMs > 0) {
+            await new Promise((resolveDelay) =>
+              setTimeout(resolveDelay, entry.fixture.commitDelayMs),
+            );
+          }
+          sendJson(response, 200, entry.fixture.commit(params));
         } catch (error) {
           sendJson(response, 409, { code: error.code, message: error.message });
         }

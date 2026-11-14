@@ -80,6 +80,7 @@ import {
   readPptxPreviewData,
 } from "@/lib/pptxPreviewData.js";
 import { isMissingFileError } from "@/lib/fileReadError.js";
+import { isFilesTextReadAbortedError } from "@/files-workbench/filesEditorTextReader.js";
 import {
   readPreviewPaneText,
   resolvePreviewPaneTextNoticeIds,
@@ -899,8 +900,13 @@ export function PreviewPane({
 
     // 预览复用文件工作台的 typed 窗口读取：合法 UTF-8 逐窗读到 EOF 后连续拼接，
     // 不再用单次 256 KiB 的 truncated 结果清空正文、按大小误报「文件过大」。
-    // 版本 / 偏移 / 总大小由共享读取器校验；这里只负责在换源或卸载后丢弃迟到结果。
-    void readPreviewPaneText(fileService, fileSource.path)
+    // 版本 / 偏移 / 总大小由共享读取器校验；换源或卸载时通过 AbortController
+    // 停止本端调度（最多保留 4 个在途请求），迟到结果不再提交。
+    const readAbort = new AbortController();
+    void readPreviewPaneText(fileService, fileSource.path, {
+      signal: readAbort.signal,
+      isCancelled: () => disposed,
+    })
       .then((read) => {
         if (disposed) {
           return;
@@ -913,7 +919,8 @@ export function PreviewPane({
         );
       })
       .catch((readError: unknown) => {
-        if (disposed) {
+        // 换源 / 卸载导致的主动取消不是失败，不写日志也不展示错误。
+        if (disposed || isFilesTextReadAbortedError(readError)) {
           return;
         }
 
@@ -934,6 +941,8 @@ export function PreviewPane({
 
     return () => {
       disposed = true;
+      // 停止本端后续窗口调度；已发出的请求会自然完成并被丢弃，不跨 RPC 取消。
+      readAbort.abort();
     };
   }, [fileService, fileSource, intl]);
 

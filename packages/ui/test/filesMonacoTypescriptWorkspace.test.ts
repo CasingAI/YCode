@@ -267,3 +267,37 @@ test("a stalled remote file service cannot block subsequent TypeScript syncs", a
   });
   assert.ok(String(state.tsOptions.moduleResolution), "next sync must make forward progress");
 });
+
+test("一次工作区同步只读取每个入口正文一次", async () => {
+  const workspace: FilesWorkspaceRef = {
+    workspacePath: "/read-once",
+    workspaceIdentity: "read-once-workspace",
+  };
+  const rootText = 'import { dep } from "./dep";\nexport const value = dep;';
+  const services = createFakeServices({
+    "/read-once/src/main.ts": rootText,
+    "/read-once/src/dep.ts": "export const dep = 1;",
+  });
+  let reads = 0;
+  const entry: FilesMonacoTypescriptWorkspaceEntry = {
+    workspace,
+    bufferId: "read-once-main",
+    path: "/read-once/src/main.ts",
+    text: "stale snapshot",
+    readText: () => {
+      reads += 1;
+      return rootText;
+    },
+  };
+  const { monaco } = createFakeMonaco();
+
+  await syncFilesMonacoTypescriptWorkspace({
+    monaco,
+    entries: [entry],
+    activeWorkspace: workspace,
+    resolveServices: () => services.services,
+  });
+
+  // 模块解析、bare import key、缓存 seed 与本地模块队列共用同一份入口快照。
+  assert.equal(reads, 1);
+});

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, type Ref, type UIEventHandler } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn } from "@/components/lib/utils.js";
+import { buildPreviewTextLineIndex } from "@/previewPaneVirtualTextLineIndex.js";
 
 /**
  * 大文本只读预览：全文仍保留在内存中，但只把可视行挂进 DOM。
@@ -8,6 +9,9 @@ import { cn } from "@/components/lib/utils.js";
  * Side Pane 的普通 `CodeViewer` 会为每行生成节点；9.7 MiB 的多行 JSON 会产生
  * 几十万行 DOM，打开即卡顿。这里只负责展示已读取的完整正文，不做编辑、高亮
  * 或第二套读取；滚动容器仍是 `PreviewPane` 用于保存 / 恢复位置的那一个。
+ *
+ * 行内容按可视行从正文 `slice` 取出：每次 render 不重建行字符串数组，也不
+ * 复制全文。索引只在 `code` 变化时重建一次。
  */
 export function PreviewPaneVirtualTextContent({
   code,
@@ -27,11 +31,11 @@ export function PreviewPaneVirtualTextContent({
   scrollContainerRef?: Ref<HTMLDivElement>;
 }) {
   const internalRef = useRef<HTMLDivElement | null>(null);
-  const lines = useMemo(() => code.split("\n"), [code]);
+  const lines = useMemo(() => buildPreviewTextLineIndex(code), [code]);
   const lineHeightPx = Math.max(12, Math.round(fontSizePx * 1.5));
-  const gutterWidth = useMemo(() => String(lines.length).length, [lines.length]);
+  const gutterWidth = useMemo(() => String(lines.lineCount).length, [lines.lineCount]);
   const virtualizer = useVirtualizer({
-    count: lines.length,
+    count: lines.lineCount,
     getScrollElement: () => internalRef.current,
     estimateSize: () => lineHeightPx,
     overscan: 20,
@@ -102,7 +106,7 @@ export function PreviewPaneVirtualTextContent({
               </span>
             ) : null}
             <span className={wrapLongLines ? "min-w-0 break-words" : undefined}>
-              {lines[item.index] ?? ""}
+              {lines.lineAt(item.index)}
             </span>
           </div>
         ))}

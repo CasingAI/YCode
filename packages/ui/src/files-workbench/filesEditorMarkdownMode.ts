@@ -3,10 +3,8 @@ import type {
   FilesEditorView,
 } from "@/files-workbench/filesEditorLayout.js";
 import { isFilesTextBuffer } from "@/files-workbench/filesEditorBufferModel.js";
-import {
-  filesEditorFirstLine,
-  resolveFilesEditorLanguage,
-} from "@/files-workbench/filesEditorLanguage.js";
+import { resolveFilesEditorLanguage } from "@/files-workbench/filesEditorLanguage.js";
+import { filesTextBufferFirstLine } from "@/files-workbench/filesTextDocumentModel.js";
 import type { FilesBuffer, FilesTextBuffer } from "@/files-workbench/filesEditorTypes.js";
 
 /**
@@ -28,7 +26,7 @@ export function isFilesEditorMarkdownPreviewAvailable(
   return (
     resolveFilesEditorLanguage({
       path: buffer.path,
-      firstLine: filesEditorFirstLine(buffer.text),
+      firstLine: filesTextBufferFirstLine(buffer),
       associations,
     }).languageId === "markdown"
   );

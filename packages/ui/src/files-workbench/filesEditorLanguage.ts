@@ -41,8 +41,14 @@ export function resolveFilesEditorLanguage(
 }
 
 /** 取文件首行；空内容返回 undefined，避免把空串当成首行参与匹配。 */
-export function filesEditorFirstLine(text: string | undefined): string | undefined {
+export function filesEditorFirstLine(
+  text: string | undefined,
+  maxLength = 2048,
+): string | undefined {
   if (!text) return undefined;
-  const line = text.split("\n", 1)[0]?.replace(/\r$/, "");
+  // 只截取有界前缀：9.7/50 MiB 超长单行不应为了 shebang 判断扫描整份正文。
+  const bounded = text.length > maxLength ? text.slice(0, maxLength) : text;
+  const newline = bounded.search(/[\r\n]/);
+  const line = (newline < 0 ? bounded : bounded.slice(0, newline)).replace(/\r$/, "");
   return line && line.length > 0 ? line : undefined;
 }

@@ -1,6 +1,7 @@
 import type { FileTextSlice } from "@zcode/shared";
 import {
   readFilesTextForOpen,
+  type FilesTextReadCancelCheck,
   type FilesTextReadResult,
   type FilesTextWindowReader,
 } from "@/files-workbench/filesEditorTextReader.js";
@@ -30,7 +31,7 @@ export interface PreviewPaneTextReadState {
   truncated: boolean;
   /** 原始字节含非法 UTF-8；只读预览，禁止写回。 */
   encodingInvalid: boolean;
-  /** 合法 UTF-8 但超过渲染进程单字符串硬上限，只能展示首窗前缀。 */
+  /** 合法 UTF-8 但超过受控字节上限，只能展示首窗前缀。 */
   tooLarge: boolean;
 }
 
@@ -52,11 +53,12 @@ export function isPreviewTextWindowUnavailableError(error: unknown): boolean {
 export async function readPreviewPaneText(
   reader: PreviewPaneTextReader,
   path: string,
+  options?: { signal?: AbortSignal; isCancelled?: FilesTextReadCancelCheck },
 ): Promise<PreviewPaneTextRead> {
   try {
     return {
       kind: "window",
-      result: await readFilesTextForOpen(reader, path),
+      result: await readFilesTextForOpen(reader, path, options),
     };
   } catch (error) {
     if (!isPreviewTextWindowUnavailableError(error)) {
@@ -142,7 +144,7 @@ export function resolvePreviewPaneTextReadState(
   }
 
   if (result.mode === "too-large") {
-    // 合法 UTF-8 但超过单字符串硬上限：只展示首窗前缀，不伪造完整正文。
+    // 合法 UTF-8 但超过受控字节上限：只展示首窗前缀，不伪造完整正文。
     return {
       filePreview: sliceFromWindow(result.firstWindow),
       truncated: true,
@@ -162,7 +164,7 @@ export function resolvePreviewPaneTextReadState(
 export function resolvePreviewPaneTextNoticeIds(
   state: Pick<PreviewPaneTextReadState, "truncated" | "encodingInvalid" | "tooLarge">,
 ): PreviewPaneTextNoticeId[] {
-  // 三种前缀原因互斥：编码错误、单字符串硬上限、旧 Host 不支持分段读取。
+  // 三种前缀原因互斥：编码错误、受控字节上限、旧 Host 不支持分段读取。
   // 编码错误本身就会导致 truncated，不能因此再叠加一条 Host 能力提示。
   if (state.tooLarge) {
     return ["codeViewer.textPreviewTooLarge"];

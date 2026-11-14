@@ -1194,7 +1194,7 @@ const zhCN: Record<string, string> = {
   "codeViewer.empty": "文件为空",
   "codeViewer.textPreviewEncoding": "文件不是有效的 UTF-8 文本，仅显示已读取的内容，不会回写文件。",
   "codeViewer.textPreviewTruncated": "当前 Host 不支持分段读取，仅显示文件开头部分内容。",
-  "codeViewer.textPreviewTooLarge": "文件超过可加载的单个字符串上限，仅显示开头部分内容。",
+  "codeViewer.textPreviewTooLarge": "文件超过预览可加载的大小上限，仅显示开头部分内容。",
   "codeViewer.viewCode": "查看代码",
   "codeViewer.viewDiff": "查看 Diff",
   "codeViewer.openSourcePreview": "查看源码",

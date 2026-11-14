@@ -10,6 +10,7 @@ import type {
   FilesEditorFocusRequest,
   FilesMonacoOpenPath,
   FilesMonacoRevealPosition,
+  FilesTextDocumentBinding,
 } from "@/files-workbench/filesEditorTypes.js";
 import { PreviewPane } from "@/PreviewPane.js";
 
@@ -31,7 +32,9 @@ export function FilesEditorContent({
   isActiveView,
   markdownPreviewActive,
   loadRestoredTextFile,
-  onChange,
+  onAttachTextDocument,
+  onDetachTextDocument,
+  onTextDocumentChange,
   onOpenPath,
   revealPosition,
   onRevealPositionApplied,
@@ -46,7 +49,9 @@ export function FilesEditorContent({
   isActiveView: boolean;
   markdownPreviewActive: boolean;
   loadRestoredTextFile: (id: string) => Promise<void>;
-  onChange: (bufferId: string, text: string) => void;
+  onAttachTextDocument: (bufferId: string, document: FilesTextDocumentBinding) => void;
+  onDetachTextDocument: (bufferId: string, document: FilesTextDocumentBinding) => void;
+  onTextDocumentChange: (bufferId: string) => void;
   onOpenPath: FilesMonacoOpenPath;
   revealPosition?: FilesMonacoRevealPosition;
   onRevealPositionApplied: (path: string) => void;
@@ -109,7 +114,9 @@ export function FilesEditorContent({
             <Suspense fallback={null}>
               <FilesMonacoEditor
                 buffer={buffer}
-                onChange={(text) => onChange(buffer.id, text)}
+                onAttachTextDocument={onAttachTextDocument}
+                onDetachTextDocument={onDetachTextDocument}
+                onTextDocumentChange={onTextDocumentChange}
                 onOpenPath={onOpenPath}
                 revealPosition={revealPosition}
                 onRevealPositionApplied={onRevealPositionApplied}

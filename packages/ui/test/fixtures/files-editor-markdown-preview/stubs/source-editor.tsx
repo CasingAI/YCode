@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { FilesEditorStatusHandle } from "@/files-workbench/filesMonacoStatusHandle.js";
-import type { FilesTextBuffer } from "@/files-workbench/filesEditorTypes.js";
+import type {
+  FilesTextBuffer,
+  FilesTextDocumentBinding,
+} from "@/files-workbench/filesEditorTypes.js";
 
 /**
  * 源码编辑器边界桩。
@@ -8,14 +11,14 @@ import type { FilesTextBuffer } from "@/files-workbench/filesEditorTypes.js";
  * 真实 Monaco 需要 worker/字体/样式资产管线，隔离夹具用 textarea 代替 UI 外壳，
  * 但刻意复刻 Monaco 的关键契约：
  * - 模型按 buffer.id 缓存在模块级（对应 filesMonacoModels 的 model cache）；
- * - 卸载/重挂编辑器不会丢模型，撤销栈属于模型而不是 React 组件。
- * 切换预览后回到源码仍可 Ctrl+Z，验证的是「组视图切换没有重建 buffer 身份/模型」，
- * 不是夹具自己实现的 Markdown 切换逻辑。
+ * - 局部输入只通知 `onTextDocumentChange`，正文通过绑定文档读取；
+ * - 替代版本号随编辑前进，撤销回到保存点时回到同一版本号。
  */
 type Model = {
   value: string;
-  undo: string[];
-  redo: string[];
+  versionId: number;
+  undo: Array<{ value: string; versionId: number }>;
+  redo: Array<{ value: string; versionId: number }>;
 };
 
 const models = new Map<string, Model>();
@@ -24,7 +27,7 @@ const statusHandles = new Map<string, FilesEditorStatusHandle>();
 function getModel(id: string, value: string): Model {
   let model = models.get(id);
   if (!model) {
-    model = { value, undo: [], redo: [] };
+    model = { value, versionId: 1, undo: [], redo: [] };
     models.set(id, model);
   }
   return model;
@@ -73,16 +76,40 @@ function getStatusHandle(id: string): FilesEditorStatusHandle {
 
 export function FilesMonacoEditor({
   buffer,
-  onChange,
+  onAttachTextDocument,
+  onDetachTextDocument,
+  onTextDocumentChange,
   onStatusHandleChange,
 }: {
   buffer: FilesTextBuffer;
-  onChange: (text: string) => void;
+  onAttachTextDocument?: (bufferId: string, document: FilesTextDocumentBinding) => void;
+  onDetachTextDocument?: (bufferId: string, document: FilesTextDocumentBinding) => void;
+  onTextDocumentChange?: (bufferId: string) => void;
   onStatusHandleChange?: (handle: FilesEditorStatusHandle | null) => void;
 }) {
   const model = getModel(buffer.id, buffer.text);
   const [value, setValue] = useState(model.value);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    const document: FilesTextDocumentBinding = {
+      getText: () => model.value,
+      getVersionId: () => model.versionId,
+      replaceText: (text) => {
+        if (model.value === text) return;
+        model.value = text;
+        model.versionId += 1;
+        model.undo = [];
+        model.redo = [];
+        setValue(text);
+      },
+      getFirstLine: () => model.value.split("\n", 1)[0]?.slice(0, 2048) || undefined,
+      getLength: () => model.value.length,
+      isDisposed: () => false,
+    };
+    onAttachTextDocument?.(buffer.id, document);
+    return () => onDetachTextDocument?.(buffer.id, document);
+  }, [buffer.id, model, onAttachTextDocument, onDetachTextDocument]);
 
   // 对外交出与生产同形的状态栏句柄，让 GroupPane 的“预览上报 null / 源码恢复”可被验证。
   useEffect(() => {
@@ -90,24 +117,14 @@ export function FilesMonacoEditor({
     return () => onStatusHandleChange?.(null);
   }, [buffer.id, onStatusHandleChange]);
 
-  // 外部（保存、撤销命令、其它分屏）改了 buffer.text 时同步模型。
-  useEffect(() => {
-    if (model.value === buffer.text) return;
-    model.value = buffer.text;
-    model.undo = [];
-    model.redo = [];
-    setValue(buffer.text);
-  }, [buffer.text, model]);
-
-  const commit = (next: string, pushUndo: boolean) => {
+  const commit = (next: string) => {
     if (next === model.value) return;
-    if (pushUndo) {
-      model.undo.push(model.value);
-      model.redo = [];
-    }
+    model.undo.push({ value: model.value, versionId: model.versionId });
+    model.redo = [];
     model.value = next;
+    model.versionId += 1;
     setValue(next);
-    onChange(next);
+    onTextDocumentChange?.(buffer.id);
   };
 
   return (
@@ -118,7 +135,7 @@ export function FilesMonacoEditor({
       className="files-e2e-source-editor"
       value={value}
       spellCheck={false}
-      onChange={(event) => commit(event.target.value, true)}
+      onChange={(event) => commit(event.target.value)}
       onKeyDown={(event) => {
         const mod = event.ctrlKey || event.metaKey;
         if (!mod) return;
@@ -127,18 +144,20 @@ export function FilesMonacoEditor({
           const previous = model.undo.pop();
           if (previous === undefined) return;
           event.preventDefault();
-          model.redo.push(model.value);
-          model.value = previous;
-          setValue(previous);
-          onChange(previous);
+          model.redo.push({ value: model.value, versionId: model.versionId });
+          model.value = previous.value;
+          model.versionId = previous.versionId;
+          setValue(previous.value);
+          onTextDocumentChange?.(buffer.id);
         } else if ((key === "z" && event.shiftKey) || key === "y") {
           const next = model.redo.pop();
           if (next === undefined) return;
           event.preventDefault();
-          model.undo.push(model.value);
-          model.value = next;
-          setValue(next);
-          onChange(next);
+          model.undo.push({ value: model.value, versionId: model.versionId });
+          model.value = next.value;
+          model.versionId = next.versionId;
+          setValue(next.value);
+          onTextDocumentChange?.(buffer.id);
         }
       }}
     />

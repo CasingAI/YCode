@@ -1,5 +1,8 @@
 import { logger } from "@/logger.js";
-import { persistableDrafts, persistableOpenTabs } from "@/files-workbench/filesEditorModel.js";
+import {
+  persistableDrafts,
+  persistableOpenTabs,
+} from "@/files-workbench/filesEditorPersistableModel.js";
 import type {
   FilesEditorState,
   FilesPersistedDraft,

@@ -96,7 +96,8 @@ export async function runPersistenceScenarios(ctx, { expectedEditedLength }) {
   await page.evaluate(([line]) => window.__fullTextE2E.goToLine(line, 1), [meta.tail.lineNumber]);
   await page.keyboard.press("Home");
   await page.keyboard.press("Shift+End");
-  await page.keyboard.type(TOKENS.draftTail);
+  // 同编辑场景：大模型需要接近真实的按键间隔，否则末尾字符可能未被处理。
+  await page.keyboard.type(TOKENS.draftTail, { delay: 25 });
   const draft = await waitFor(
     async () => {
       const buffer = await activeTextBuffer();
@@ -116,7 +117,8 @@ export async function runPersistenceScenarios(ctx, { expectedEditedLength }) {
       return record ?? undefined;
     },
     "9.7 MiB 全文草稿写入 IndexedDB",
-    20_000,
+    // 9.7 MiB 正文在 IndexedDB 中序列化 + 写入可能需要数十秒，20s 在慢机器上会误报。
+    90_000,
   );
   confirm(
     "idb: 大草稿以完整长度写入 IndexedDB",

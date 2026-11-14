@@ -102,8 +102,10 @@ export function useFilesWorkbenchOpen(options: {
             path,
             request,
             // 打开与恢复共用同一读取决策：合法 UTF-8 完整读取为一份正文，
-            // 二进制转预览，非法 UTF-8 进入固定块安全模型，超硬上限显示明确错误。
-            read: () => readFilesTextForOpen(resolveServices(workspace).fileService, path),
+            // 二进制转预览，非法 UTF-8 进入固定块安全模型，超过受控字节上限显示明确错误。
+            // 请求在读取期间失效时停止调度新窗口，而不是读完整份正文再丢弃。
+            read: ({ isCancelled }) =>
+              readFilesTextForOpen(resolveServices(workspace).fileService, path, { isCancelled }),
             accept: (readResult) =>
               commitFilesEditorTextReadResult({
                 store,

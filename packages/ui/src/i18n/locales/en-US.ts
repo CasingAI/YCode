@@ -1307,7 +1307,7 @@ const enUS: Record<string, string> = {
   "codeViewer.textPreviewTruncated":
     "The current host does not support segmented reads. Only the beginning of the file is shown.",
   "codeViewer.textPreviewTooLarge":
-    "This file exceeds the single-string size limit. Only the beginning of the file is shown.",
+    "This file exceeds the preview size limit. Only the beginning of the file is shown.",
   "codeViewer.viewCode": "View code",
   "codeViewer.viewDiff": "View diff",
   "codeViewer.openSourcePreview": "Source preview",

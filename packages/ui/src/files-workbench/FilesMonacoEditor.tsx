@@ -10,15 +10,21 @@ import { createFilesMonacoStatusHandle } from "@/files-workbench/filesMonacoStat
 import type { FilesEditorStatusHandle } from "@/files-workbench/filesMonacoStatusHandle.js";
 import {
   applyFilesMonacoDetectedLanguage,
+  createFilesMonacoTextDocument,
+  filesMonacoModelForTextDocument,
+  findFilesMonacoModel,
   getOrCreateFilesMonacoModel,
   isWritingFilesMonacoModel,
   writeFilesMonacoModelValue,
 } from "@/files-workbench/filesMonacoModels.js";
 import { getFilesLanguageDetectionBackend } from "@/files-workbench/filesLanguageDetectionBackend.js";
+import { resolveFilesEditorLanguage } from "@/files-workbench/filesEditorLanguage.js";
 import {
-  filesEditorFirstLine,
-  resolveFilesEditorLanguage,
-} from "@/files-workbench/filesEditorLanguage.js";
+  activeFilesTextDocument,
+  filesTextBufferFirstLine,
+  filesTextBufferIsEmpty,
+  snapshotFilesTextBuffer,
+} from "@/files-workbench/filesTextDocumentModel.js";
 import {
   filesMonacoPathFromVirtualUri,
   filesMonacoTypescriptWorkspaceScope,
@@ -29,6 +35,7 @@ import type {
   FilesMonacoOpenPath,
   FilesMonacoRevealPosition,
   FilesTextBuffer,
+  FilesTextDocumentBinding,
 } from "@/files-workbench/filesEditorTypes.js";
 
 function positionFromSelectionOrPosition(
@@ -73,7 +80,9 @@ function applyRevealPosition(
 
 export function FilesMonacoEditor({
   buffer,
-  onChange,
+  onAttachTextDocument,
+  onDetachTextDocument,
+  onTextDocumentChange,
   onOpenPath,
   revealPosition,
   onRevealPositionApplied,
@@ -82,7 +91,12 @@ export function FilesMonacoEditor({
   onStatusHandleChange,
 }: {
   buffer: FilesTextBuffer;
-  onChange: (text: string) => void;
+  /** 模型就绪后把运行时正文文档交给 Store；Store 仍是状态唯一所有者。 */
+  onAttachTextDocument?: (bufferId: string, document: FilesTextDocumentBinding) => void;
+  /** 卸载前先固化正文快照，再解除绑定。 */
+  onDetachTextDocument?: (bufferId: string, document: FilesTextDocumentBinding) => void;
+  /** 局部输入：只通知变化，不传正文。 */
+  onTextDocumentChange?: (bufferId: string) => void;
   onOpenPath?: FilesMonacoOpenPath;
   revealPosition?: FilesMonacoRevealPosition;
   onRevealPositionApplied?: (path: string) => void;
@@ -93,7 +107,9 @@ export function FilesMonacoEditor({
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
-  const onChangeRef = useRef(onChange);
+  const onAttachTextDocumentRef = useRef(onAttachTextDocument);
+  const onDetachTextDocumentRef = useRef(onDetachTextDocument);
+  const onTextDocumentChangeRef = useRef(onTextDocumentChange);
   const onOpenPathRef = useRef(onOpenPath);
   const revealPositionRef = useRef(revealPosition);
   const onRevealPositionAppliedRef = useRef(onRevealPositionApplied);
@@ -103,7 +119,9 @@ export function FilesMonacoEditor({
   const bufferPathRef = useRef(buffer.path);
   // 已经消费过的聚焦请求号：同一个请求只生效一次。
   const consumedFocusRequestIdRef = useRef(0);
-  onChangeRef.current = onChange;
+  onAttachTextDocumentRef.current = onAttachTextDocument;
+  onDetachTextDocumentRef.current = onDetachTextDocument;
+  onTextDocumentChangeRef.current = onTextDocumentChange;
   onOpenPathRef.current = onOpenPath;
   revealPositionRef.current = revealPosition;
   onRevealPositionAppliedRef.current = onRevealPositionApplied;
@@ -141,7 +159,8 @@ export function FilesMonacoEditor({
   // 首行取自缓冲正文（无扩展名脚本靠它识别），键是字符串，编辑正文其它位置时保持稳定。
   const { settings } = useSettings();
   const associations = settings?.fileLanguageAssociations;
-  const firstLine = filesEditorFirstLine(buffer.text);
+  // 首行只读有界区间；绑定文档时不会因超长单行扫描整份正文。
+  const firstLine = filesTextBufferFirstLine(buffer);
   const resolution = useMemo(
     () =>
       resolveFilesEditorLanguage({
@@ -192,20 +211,31 @@ export function FilesMonacoEditor({
     let subscription: Monaco.IDisposable | undefined;
     let opener: Monaco.IDisposable | undefined;
     let statusHandle: FilesEditorStatusHandle | undefined;
+    let textDocument: FilesTextDocumentBinding | undefined;
 
     void loadFilesMonaco().then((monaco) => {
       if (disposed || !containerRef.current) {
         return;
       }
+      // 同一 model 已被其它分屏视图持有：正文权威在模型里，不再复制 / 比较全文。
+      const existing = findFilesMonacoModel(monaco, buffer.id, buffer.path, buffer.workspace);
+      const bound = activeFilesTextDocument(buffer);
+      const reusesBound =
+        existing !== undefined &&
+        bound !== undefined &&
+        filesMonacoModelForTextDocument(bound) === existing;
+      const initialText = reusesBound ? "" : snapshotFilesTextBuffer(buffer);
       const model = getOrCreateFilesMonacoModel(
         monaco,
         buffer.id,
-        buffer.text,
+        initialText,
         buffer.path,
         buffer.workspace,
         languageRef.current,
       );
-      writeFilesMonacoModelValue(model, buffer.text);
+      // 新建模型已带初始正文；仅复用旧模型且无权威绑定时才写回缓冲快照。
+      if (!reusesBound && existing !== undefined) writeFilesMonacoModelValue(model, initialText);
+      textDocument = createFilesMonacoTextDocument(model);
       editor = monaco.editor.create(containerRef.current, {
         model,
         automaticLayout: true,
@@ -242,8 +272,10 @@ export function FilesMonacoEditor({
         if (isWritingFilesMonacoModel()) {
           return;
         }
-        onChangeRef.current(editor?.getValue() ?? "");
+        // 逐键路径只通知变化；正文与版本号都由模型持有，不在回调里读全文。
+        onTextDocumentChangeRef.current?.(buffer.id);
       });
+      if (textDocument) onAttachTextDocumentRef.current?.(buffer.id, textDocument);
       if (applyRevealPosition(editor, buffer, revealPositionRef.current)) {
         onRevealPositionAppliedRef.current?.(revealPositionRef.current!.path);
       }
@@ -261,6 +293,8 @@ export function FilesMonacoEditor({
       statusHandle?.dispose();
       onStatusHandleChangeRef.current?.(null);
       editorRef.current = null;
+      // 模型可能随后被回收；先把当前正文固化成 Store 快照再解除绑定。
+      if (textDocument) onDetachTextDocumentRef.current?.(buffer.id, textDocument);
       editor?.dispose();
     };
   }, [
@@ -277,20 +311,28 @@ export function FilesMonacoEditor({
     void loadFilesMonaco().then((monaco) => {
       // 改名或删除可能早于 Monaco 加载完成；旧缓冲不能重新注册已经回收的路径模型。
       if (disposed) return;
+      const existing = findFilesMonacoModel(monaco, buffer.id, buffer.path, buffer.workspace);
+      // 当前编辑器已使用权威模型时只需重新套用语言；重灌正文会多复制并比较全文。
+      if (existing && editorRef.current?.getModel() === existing) {
+        getOrCreateFilesMonacoModel(monaco, buffer.id, "", buffer.path, buffer.workspace, language);
+        return;
+      }
+      const value = snapshotFilesTextBuffer(buffer);
       const model = getOrCreateFilesMonacoModel(
         monaco,
         buffer.id,
-        buffer.text,
+        value,
         buffer.path,
         buffer.workspace,
         language,
       );
-      writeFilesMonacoModelValue(model, buffer.text);
+      if (existing) writeFilesMonacoModelValue(model, value);
     });
     return () => {
       disposed = true;
     };
-  }, [buffer.id, buffer.path, buffer.workspace, buffer.text, language]);
+    // 正文变化不进入依赖：已绑定模型的正文就是权威副本，逐键重灌会覆盖撤销历史。
+  }, [buffer.id, buffer.path, buffer.workspace, language]);
 
   useEffect(() => {
     const editor = editorRef.current;
@@ -310,7 +352,7 @@ export function FilesMonacoEditor({
   // 依赖里不放 buffer.text：正文每次键入都变，那会让检测跟着反复触发。
   const bufferRef = useRef(buffer);
   bufferRef.current = buffer;
-  const bufferIsEmpty = buffer.text.length === 0;
+  const bufferIsEmpty = filesTextBufferIsEmpty(buffer);
   useEffect(() => {
     if (language.source !== "default" || bufferIsEmpty) {
       return;
@@ -320,15 +362,16 @@ export function FilesMonacoEditor({
     void loadFilesMonaco()
       .then(async (monaco) => {
         if (cancelled) return;
+        const text = snapshotFilesTextBuffer(current);
         const model = getOrCreateFilesMonacoModel(
           monaco,
           current.id,
-          current.text,
+          text,
           current.path,
           current.workspace,
           language,
         );
-        const detected = await getFilesLanguageDetectionBackend().detect(current.text);
+        const detected = await getFilesLanguageDetectionBackend().detect(text);
         if (cancelled || !detected) {
           return;
         }

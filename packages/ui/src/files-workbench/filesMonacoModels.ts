@@ -1,10 +1,27 @@
 import type * as Monaco from "monaco-editor";
 import { filesMonacoLanguageMatchFromPath } from "@/files-workbench/filesMonacoLanguage.js";
 import { filesMonacoVirtualFileUri } from "@/files-workbench/filesMonacoTypescriptPath.js";
-import type { FilesWorkspaceRef } from "@/files-workbench/filesEditorTypes.js";
+import {
+  FILES_TEXT_FIRST_LINE_MAX_CHARS,
+  forgetFilesTextDocumentSavedVersion,
+} from "@/files-workbench/filesTextDocumentModel.js";
+import type {
+  FilesTextDocumentBinding,
+  FilesWorkspaceRef,
+} from "@/files-workbench/filesEditorTypes.js";
 import type { FilesEditorLanguageSource } from "@/files-workbench/filesEditorLanguage.js";
 
 const models = new Map<string, Monaco.editor.ITextModel>();
+
+/**
+ * 每个 Monaco model 只暴露一个运行时文档绑定。
+ *
+ * 分屏两个视图共享同一个 model，但 React 会分别挂载两次；若各自创建包装对象，
+ * Store 的 `document` 会被后挂载者覆盖，先挂载视图仍存活时关闭后者会错误解绑。
+ * 绑定身份同时就是版本域身份，保存基线也必须挂在这一层。
+ */
+const documentsByModel = new WeakMap<object, FilesTextDocumentBinding>();
+const modelsByDocument = new WeakMap<FilesTextDocumentBinding, Monaco.editor.ITextModel>();
 
 /**
  * 用户显式选定的语言，按 model uri 记录。
@@ -114,12 +131,101 @@ export function writeFilesMonacoModelValue(model: FilesMonacoModelLike, value: s
   if (model.getValue() === value) {
     return;
   }
+  // 绑定存在时，外部整体重写会让旧版本号失去版本域含义；丢弃基线，
+  // 重新挂载时按缓冲正文重新判定干净 / 脏，而不是沿用卸载前的版本号。
+  const document = documentsByModel.get(model);
+  if (document) forgetFilesTextDocumentSavedVersion(document);
   writingFilesMonacoModel += 1;
   try {
     model.setValue(value);
   } finally {
     writingFilesMonacoModel -= 1;
   }
+}
+
+/**
+ * 把 Monaco 公开模型暴露成 Store 的运行时正文文档。
+ *
+ * 同一个 model 永远返回同一个绑定对象：绑定身份就是版本域身份，分屏视图、
+ * 保存基线与 reload 版本比较都依赖这一点。
+ *
+ * 只使用公开 API：`getAlternativeVersionId` 提供 O(1) 脏态与撤销语义，
+ * `getValueInRange` 只读有界首行。局部输入不经过这里读全文。
+ */
+export function createFilesMonacoTextDocument(
+  model: Monaco.editor.ITextModel,
+): FilesTextDocumentBinding {
+  const existing = documentsByModel.get(model);
+  if (existing) return existing;
+  const document: FilesTextDocumentBinding = {
+    getText: () => (model.isDisposed() ? "" : model.getValue()),
+    getVersionId: () => model.getAlternativeVersionId(),
+    replaceText: (text) => {
+      if (model.isDisposed()) return;
+      // 权威替换允许重置撤销栈；内容相同则保留历史。
+      if (model.getValueLength() === text.length && model.getValue() === text) return;
+      writingFilesMonacoModel += 1;
+      try {
+        model.setValue(text);
+      } finally {
+        writingFilesMonacoModel -= 1;
+      }
+    },
+    getFirstLine: (maxLength = FILES_TEXT_FIRST_LINE_MAX_CHARS) => {
+      if (model.isDisposed()) return undefined;
+      const endColumn = Math.min(maxLength + 1, model.getLineMaxColumn(1));
+      const line = model
+        .getValueInRange({
+          startLineNumber: 1,
+          startColumn: 1,
+          endLineNumber: 1,
+          endColumn,
+        })
+        .replace(/\r$/, "");
+      return line.length > 0 ? line : undefined;
+    },
+    getLength: () => (model.isDisposed() ? 0 : model.getValueLength()),
+    isDisposed: () => model.isDisposed(),
+  };
+  documentsByModel.set(model, document);
+  modelsByDocument.set(document, model);
+  return document;
+}
+
+/** 绑定背后的 Monaco model；测试替身没有 model 时返回 undefined。 */
+export function filesMonacoModelForTextDocument(
+  document: FilesTextDocumentBinding,
+): Monaco.editor.ITextModel | undefined {
+  return modelsByDocument.get(document);
+}
+
+function filesMonacoModelUri(
+  monaco: typeof Monaco,
+  id: string,
+  path?: string,
+  workspace?: FilesWorkspaceRef,
+): string {
+  return path && workspace
+    ? filesMonacoVirtualFileUri(monaco, workspace, path)
+    : `inmemory://files/${encodeURIComponent(id)}`;
+}
+
+/**
+ * 查找该 buffer id 已存在的 model；URI 不一致时视为不存在（路径 / 工作区已变）。
+ *
+ * 挂载边界用它判断能否直接复用权威 model，避免为了比较正文再复制一次全文。
+ */
+export function findFilesMonacoModel(
+  monaco: typeof Monaco,
+  id: string,
+  path?: string,
+  workspace?: FilesWorkspaceRef,
+): Monaco.editor.ITextModel | undefined {
+  const model = models.get(id);
+  if (!model || model.isDisposed()) return undefined;
+  return model.uri.toString() === filesMonacoModelUri(monaco, id, path, workspace)
+    ? model
+    : undefined;
 }
 
 export function getOrCreateFilesMonacoModel(
@@ -130,10 +236,7 @@ export function getOrCreateFilesMonacoModel(
   workspace?: FilesWorkspaceRef,
   language?: FilesMonacoModelLanguage,
 ): Monaco.editor.ITextModel {
-  const uri =
-    path && workspace
-      ? filesMonacoVirtualFileUri(monaco, workspace, path)
-      : `inmemory://files/${encodeURIComponent(id)}`;
+  const uri = filesMonacoModelUri(monaco, id, path, workspace);
   // 语言由调用方解析后传入；未传时退回按路径推断，保证旧调用点仍可用。
   const resolvedLanguage = language ?? filesMonacoLanguageMatchFromPath(path);
   const existing = models.get(id);
