@@ -13,7 +13,7 @@ export { analyzeBashCommand, isBashCommandPermissionSafe } from "./bash-command-
 export { isSedInPlaceOption } from "./bash-readonly-policy-callbacks.js";
 
 /** 白名单判定版本号。规则内容变更时递增，供 harness 侧缓存失效。 */
-export const BASH_READONLY_POLICY_VERSION = 2;
+export const BASH_READONLY_POLICY_VERSION = 3;
 
 /**
  * 判断一条 Bash 命令是否为只读命令。

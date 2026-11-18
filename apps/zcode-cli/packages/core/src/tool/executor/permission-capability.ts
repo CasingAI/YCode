@@ -39,9 +39,13 @@ export function resolveToolCallCapabilityFlags(
 }
 
 export function resolveRuntimePermissionContext(
-  deps: ToolExecutorDeps,
+  deps: Pick<ToolExecutorDeps,
+    "bashShellSelection" | "getBashShellSelection" | "getWorkingDirectory" | "getWorkspaceRoot" | "runtimeScope"
+  >,
 ): ToolRuntimePermissionCapabilityContext {
+  const shell = deps.getBashShellSelection?.() ?? deps.bashShellSelection;
   return {
+    gitBash: shell?.dialect === "git-bash",
     runtimeScope: deps.runtimeScope,
     workingDirectory: deps.getWorkingDirectory(),
     workspaceRoot: deps.getWorkspaceRoot(),

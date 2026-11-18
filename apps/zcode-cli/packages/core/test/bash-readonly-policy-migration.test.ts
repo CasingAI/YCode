@@ -7,6 +7,12 @@ import {
   BASH_READONLY_POLICY_VERSION,
   isReadOnlyBashCommand,
 } from "@zcode/shared/node/bash-readonly";
+import { PermissionService } from "../src/permission/service.js";
+import {
+  resolveRuntimePermissionCapability,
+  resolveRuntimePermissionContext,
+} from "../src/tool/executor/permission-capability.js";
+import { bashToolEntry } from "../src/tool/handlers/bash.js";
 import { isRuntimeReadOnlyBashCommand } from "../src/tool/handlers/bash-semantics.js";
 
 // 迁移一致性：CLI 侧 isRuntimeReadOnlyBashCommand 只是共享实现的别名，
@@ -89,6 +95,77 @@ test("git -C 指向工作区外或不存在的目录时拒绝", () => {
   }
 });
 
+function toGitBashDrivePath(path: string): string {
+  assert.match(path, /^[A-Za-z]:[\\/]/);
+  return `/${path[0]!.toLowerCase()}${path.slice(2).replaceAll("\\", "/")}`;
+}
+
+test(
+  "Windows Git Bash 会话在 Ask 和 Plan 放行工作区内的 Git 查询",
+  { skip: process.platform !== "win32" },
+  () => {
+    const { workspaceRoot, workingDirectory } = createWorkspaceWithGitFixture();
+    const directory = join(workspaceRoot, "带空格 的目录");
+    mkdirSync(directory);
+    const service = new PermissionService();
+    const shellContext = (dialect: "git-bash" | "cmd") =>
+      resolveRuntimePermissionContext({
+        getWorkingDirectory: () => workingDirectory,
+        getWorkspaceRoot: () => workspaceRoot,
+        getBashShellSelection: () => ({
+          dialect,
+          display: { name: dialect },
+          id: dialect,
+          label: dialect,
+          source: "auto-detected",
+        }),
+      });
+    const gitBash = shellContext("git-bash");
+    const cmd = shellContext("cmd");
+
+    for (const command of [
+      `git -C '${toGitBashDrivePath(workspaceRoot)}' grep -n -i -E 'editMessage|editHistory|rewind'`,
+      `git -C '${toGitBashDrivePath(directory)}' log -25 --oneline --grep=编辑`,
+    ]) {
+      const input = { command };
+      const capability = resolveRuntimePermissionCapability(bashToolEntry, input, gitBash);
+      for (const mode of ["readonly", "plan"] as const) {
+        const decision = service.checkPermission(
+          { toolName: "Bash", input, riskLevel: "high", mode },
+          capability,
+        );
+        assert.equal(decision.ruleId, `mode.${mode}.readOnly`, command);
+      }
+      assert.notEqual(
+        resolveRuntimePermissionCapability(bashToolEntry, input, cmd).readOnly,
+        true,
+        command,
+      );
+    }
+  },
+);
+
+test(
+  "Git Bash 盘符路径仍校验工作区边界、目标和只读子命令",
+  { skip: process.platform !== "win32" },
+  () => {
+    const context = { ...createWorkspaceWithGitFixture(), gitBash: true };
+    const workspace = toGitBashDrivePath(context.workspaceRoot);
+    symlinkSync(outsideDirectory, join(context.workspaceRoot, "escape-link"), "junction");
+    mkdirSync(join(context.workspaceRoot, "not[a]path"));
+    for (const command of [
+      `git -C '${toGitBashDrivePath(outsideDirectory)}' status`,
+      `git -C '${workspace}/escape-link' status`,
+      `git -C '${workspace}/not[a]path' status`,
+      `git -C '${workspace}/missing' status`,
+      `git -C '${workspace}/packages' -C ../.. status`,
+      `git -C '${workspace}' reset --hard`,
+    ]) {
+      assert.equal(isReadOnlyBashCommand(command, context), false, command);
+    }
+  },
+);
+
 test("git -C 缺运行时上下文时按拒绝处理", () => {
   for (const command of ["git -C . status", "git -C/tmp status"]) {
     assert.equal(isReadOnlyBashCommand(command), false, command);
@@ -158,16 +235,29 @@ test("无值参数与 -C 混用时两种顺序都放行", () => {
 
 test("符号链接指向工作区外时拒绝", () => {
   const context = createWorkspaceWithGitFixture();
-  symlinkSync(outsideDirectory, join(context.workspaceRoot, "escape-link"), "dir");
+  symlinkSync(
+    outsideDirectory,
+    join(context.workspaceRoot, "escape-link"),
+    process.platform === "win32" ? "junction" : "dir",
+  );
   // realpath 归一后逃出工作区，必须拒绝。
   assert.equal(isReadOnlyBashCommand("git -C escape-link status", context), false);
   assert.equal(isReadOnlyBashCommand("git -C escape-link/. status", context), false);
 });
 
-test("第二个 -C 逃出工作区时整条拒绝", () => {
+test("多个 -C 依次以第一个校验后的目录为基准", () => {
   const context = createWorkspaceWithGitFixture();
-  assert.equal(isReadOnlyBashCommand("git -C . -C /tmp status", context), false);
-  assert.equal(isReadOnlyBashCommand("git -C packages -C .. status", context), false);
+  for (const command of ["git -C packages -C ui status", "git -C packages -C .. status"]) {
+    assert.equal(isReadOnlyBashCommand(command, context), true, command);
+  }
+  for (const command of [
+    "git -C . -C /tmp status",
+    "git -C packages -C ../.. status",
+    "git -C packages -C packages/ui status",
+    "git -C .. -C . status",
+  ]) {
+    assert.equal(isReadOnlyBashCommand(command, context), false, command);
+  }
 });
 
 test("-C 的值形态异常时拒绝", () => {

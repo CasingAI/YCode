@@ -463,6 +463,7 @@ export interface ToolRuntimePermissionCapability {
 }
 
 export interface ToolRuntimePermissionCapabilityContext {
+  gitBash?: boolean;
   runtimeScope?: ToolRuntimeScope;
   workingDirectory?: string;
   workspaceRoot?: string;

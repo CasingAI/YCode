@@ -7,13 +7,12 @@ import {
 } from "./bash-readonly-policy-commands.js";
 import {
   isGitRuntimeContextUnsafe,
-  isPathInsideWorkspaceRoot,
+  resolveWorkspaceDirectory,
   type BashReadonlyRuntimeContext,
 } from "./bash-git-runtime-safety.js";
 import type { BashReadonlyCommandPolicy } from "./bash-readonly-policy-types.js";
 import { isArgvAllowedByPolicy } from "./bash-readonly-policy-argv-flags.js";
 
-// -c 只能以粘连形态带值（`git -cfoo.bar=1`），但 -C 两种拼写都合法：`git -C dir` 与 `git -Cdir`。
 const GIT_ATTACHED_DANGEROUS_SHORT_FLAGS = ["-c"];
 const GIT_DIRECTORY_SHORT_FLAG = "-C";
 
@@ -45,27 +44,20 @@ function normalizeGitArgv(
   context?: BashReadonlyRuntimeContext,
 ): readonly string[] | undefined {
   const normalized = ["git"];
+  let workingDirectory = context?.workingDirectory;
   for (let index = 1; index < argv.length; index += 1) {
     const word = argv[index];
     if (!word) continue;
     if (GIT_GLOBAL_NO_VALUE_FLAGS.has(word)) continue;
     if (hasDangerousGitGlobalOptionWord(word)) return undefined;
-    // 粘连写法 `-C<path>`：Git 允许，所以按目录切换消费并校验，而不是当成未登记参数拒绝。
-    if (
-      word.startsWith(GIT_DIRECTORY_SHORT_FLAG) &&
-      word.length > GIT_DIRECTORY_SHORT_FLAG.length
-    ) {
-      if (!gitChangeDirectoryArgumentIsSafe(word.slice(GIT_DIRECTORY_SHORT_FLAG.length), context)) {
-        return undefined;
-      }
-      continue;
-    }
-    if (GIT_GLOBAL_VALUE_FLAGS.has(word)) {
-      const value = argv[index + 1];
-      // 带值全局参数缺值即无法判定 git 实际行为，按拒绝处理。
-      if (value === undefined || value.startsWith("-")) return undefined;
-      if (!gitChangeDirectoryArgumentIsSafe(value, context)) return undefined;
-      index += 1;
+    if (GIT_GLOBAL_VALUE_FLAGS.has(word) || word.startsWith(GIT_DIRECTORY_SHORT_FLAG)) {
+      const value =
+        word === GIT_DIRECTORY_SHORT_FLAG
+          ? argv[++index]
+          : word.slice(GIT_DIRECTORY_SHORT_FLAG.length);
+      if (!value || value.startsWith("-")) return undefined;
+      workingDirectory = resolveSafeGitDirectory(value, workingDirectory, context);
+      if (!workingDirectory) return undefined;
       continue;
     }
     if (word.startsWith("-")) return undefined;
@@ -100,25 +92,35 @@ function hasDangerousAttachedGitShortOptionWord(word: string): boolean {
  * 且必须落在工作区内——否则等于让 Ask 去读工作区外的仓库。
  * 缺 workspaceRoot 时无法判边界，按拒绝处理。
  */
-function gitChangeDirectoryArgumentIsSafe(
+function resolveSafeGitDirectory(
   path: string,
+  workingDirectory: string | undefined,
   context: BashReadonlyRuntimeContext | undefined,
-): boolean {
-  const workingDirectory = context?.workingDirectory;
+): string | undefined {
   const workspaceRoot = context?.workspaceRoot;
-  if (!workingDirectory || !workspaceRoot || path.length === 0) return false;
-  // git 自己会把 `-C "a\nb"` 拆成两个目录依次切换，单词解析看不到第二个目标，直接拒绝。
-  if (containsAsciiControlCharacter(path)) return false;
+  if (!workingDirectory || !workspaceRoot || containsAsciiControlCharacter(path)) return undefined;
 
-  const targetDirectory = isAbsoluteGitPath(path) ? path : resolveGitPath(workingDirectory, path);
-  if (!targetDirectory) return false;
-  if (!isPathInsideWorkspaceRoot(targetDirectory, workspaceRoot)) return false;
-  // 边界通过后仍要过 .git / symlink / 裸仓库探测：`git -C <子目录>` 会让 git 从该目录
-  // 向上发现仓库，路径合法不代表 git 加载的配置与 hooks 可信。
-  return !isGitRuntimeContextUnsafe({
-    workingDirectory: targetDirectory,
-    workspaceRoot,
-  });
+  const windows = process.platform === "win32";
+  if (windows && context.gitBash && path.startsWith("/")) {
+    // Git Bash 把 /c/... 作为盘符路径传给本机 Git，Node 却按当前盘根目录解释。
+    // MSYS 对冒号、分号等有其他转换规则；不能确定目标时不按只读放行。
+    const drive = /^\/([A-Za-z])(?=\/|$)/u.exec(path)?.[1];
+    if (!drive || /[:;[\]\\]/u.test(path)) return undefined;
+    path = `${drive}:/${path.slice(2).replace(/^\/+/, "")}`;
+  }
+
+  const targetDirectory = windows
+    ? resolve(workingDirectory, path)
+    : isAbsolute(path)
+      ? path
+      : `${workingDirectory}/${path}`;
+  const realDirectory = resolveWorkspaceDirectory(targetDirectory, workspaceRoot);
+  if (!realDirectory) return undefined;
+  for (const directory of new Set([realDirectory, targetDirectory])) {
+    if (isGitRuntimeContextUnsafe({ workingDirectory: directory, workspaceRoot })) return undefined;
+  }
+  // Windows Git 进入目录链接后，下一次相对 -C 仍以链接路径为准。
+  return windows ? targetDirectory : realDirectory;
 }
 
 function containsAsciiControlCharacter(value: string): boolean {
@@ -127,18 +129,6 @@ function containsAsciiControlCharacter(value: string): boolean {
     if (code < 0x20 || code === 0x7f) return true;
   }
   return false;
-}
-
-function isAbsoluteGitPath(path: string): boolean {
-  return isAbsolute(path) || /^[A-Za-z]:[\\/]/.test(path) || path.startsWith("\\\\");
-}
-
-function resolveGitPath(base: string, path: string): string | undefined {
-  try {
-    return resolve(base, path);
-  } catch {
-    return undefined;
-  }
 }
 
 let gitPoliciesByLength: Array<[string, BashReadonlyCommandPolicy]> | undefined;

@@ -10,6 +10,7 @@ import {
 import { dirname, isAbsolute, join, resolve } from "node:path";
 
 export interface BashReadonlyRuntimeContext {
+  gitBash?: boolean;
   workingDirectory?: string;
   workspaceRoot?: string;
 }
@@ -76,11 +77,16 @@ const MAX_GITDIR_FILE_BYTES = 32 * 1024;
  * 而在 Linux 等大小写敏感的文件系统上那会把 `/tmp/WS` 误判成 `/tmp/ws`，让工作区外的
  * 目录通过边界检查。因此边界判定只在 Windows / macOS 这类大小写不敏感的平台上折叠大小写。
  */
-export function isPathInsideWorkspaceRoot(path: string, workspaceRoot: string): boolean {
-  const canonical = canonicalPathPreservingCase(path);
-  const canonicalRoot = canonicalPathPreservingCase(workspaceRoot);
-  if (!canonical || !canonicalRoot) return false;
-  return pathIsSameOrInside(canonical, canonicalRoot);
+export function resolveWorkspaceDirectory(path: string, workspaceRoot: string): string | undefined {
+  try {
+    const realDirectory = realpathSync.native(path);
+    const canonical = canonicalPathForWorkspace(realDirectory);
+    const canonicalRoot = canonicalPathForWorkspace(realpathSync.native(workspaceRoot));
+    if (!pathIsSameOrInside(canonical, canonicalRoot)) return undefined;
+    return statSync(realDirectory).isDirectory() ? realDirectory : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export function isGitRuntimeContextUnsafe(
@@ -207,15 +213,11 @@ function canonicalPath(path: string): string | undefined {
  * 边界判定专用：归一 realpath 与分隔符。只在文件系统默认大小写不敏感的平台上折叠大小写
  * （Windows 与 macOS 的常规卷），Linux 等大小写敏感平台必须原样比较。
  */
-function canonicalPathPreservingCase(path: string): string | undefined {
-  try {
-    const canonical = realpathSync.native(resolve(path)).replace(/\\/g, "/").normalize("NFC");
-    return process.platform === "win32" || process.platform === "darwin"
-      ? canonical.toLowerCase()
-      : canonical;
-  } catch {
-    return undefined;
-  }
+function canonicalPathForWorkspace(path: string): string {
+  const canonical = path.replace(/\\/g, "/").normalize("NFC");
+  return process.platform === "win32" || process.platform === "darwin"
+    ? canonical.toLowerCase()
+    : canonical;
 }
 
 function normalizeCanonicalPath(path: string): string {
