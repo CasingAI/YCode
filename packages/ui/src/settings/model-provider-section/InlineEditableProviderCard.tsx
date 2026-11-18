@@ -230,6 +230,7 @@ export function InlineEditableProviderCard({
   const nameInputRef = useRef<HTMLInputElement | null>(null);
   const nameCompositionActiveRef = useRef(false);
   const nameEditProviderIdRef = useRef<string | null>(null);
+  const submittedNamesRef = useRef(new Set<{ providerId: string; name: string }>());
   const technicalInputCompositionActiveRef = useRef(false);
   const deleteRequestedRef = useRef(false);
   const selfSaveRequestedRef = useRef(false);
@@ -431,14 +432,28 @@ export function InlineEditableProviderCard({
   const commitPendingDraft = useCallback(
     async (reason: string, nameConfirmed = false): Promise<void> => {
       cancelIdleDraftSaveRef.current();
+      // 上一次改名可能仍在保存；对比旧视图会丢掉紧接着改回原名的确认。
+      const lastConfirmedName = nameConfirmed
+        ? [...submittedNamesRef.current]
+            .filter((entry) => entry.providerId === provider.providerId)
+            .at(-1)?.name
+        : undefined;
       const nextProvider = resolvePendingProviderDraftSave({
         provider,
         draft: draftRef.current,
         readOnlyEndpoints,
         protocolOnly: isCliProxyProvider,
         nameConfirmed,
+        lastConfirmedName,
         now: Date.now,
       });
+      if (
+        nameConfirmed &&
+        lastConfirmedName === undefined &&
+        nextProvider?.providerNameUpdate === undefined
+      ) {
+        dirtyProviderFieldsRef.current.delete("nameValue");
+      }
       if (!nextProvider) {
         return;
       }
@@ -446,8 +461,16 @@ export function InlineEditableProviderCard({
         ...draftRef.current,
         nameValue: nameConfirmed ? draftRef.current.nameValue : getProviderFormLabel(provider),
       });
-      if (lastSubmittedDraftSignatureRef.current === signature) return;
+      if (
+        nextProvider.providerNameUpdate === undefined &&
+        lastSubmittedDraftSignatureRef.current === signature
+      )
+        return;
       lastSubmittedDraftSignatureRef.current = signature;
+      const submittedName = nextProvider.providerNameUpdate
+        ? { providerId: provider.providerId, name: nextProvider.providerNameUpdate }
+        : null;
+      if (submittedName) submittedNamesRef.current.add(submittedName);
 
       // Linux 下点击左侧供应商切换时，输入框 blur 与 Popover 关闭顺序不稳定，
       // 连接草稿可能在组件卸载前还没走到 blur 保存。这里在切换/卸载前兜底提交，
@@ -456,11 +479,15 @@ export function InlineEditableProviderCard({
         providerId: provider.providerId,
         reason,
       });
-      await saveProviderWithCleanupGuard(nextProvider, () => {
-        if (lastSubmittedDraftSignatureRef.current === signature) {
-          lastSubmittedDraftSignatureRef.current = null;
-        }
-      });
+      try {
+        await saveProviderWithCleanupGuard(nextProvider, () => {
+          if (lastSubmittedDraftSignatureRef.current === signature) {
+            lastSubmittedDraftSignatureRef.current = null;
+          }
+        });
+      } finally {
+        if (submittedName) submittedNamesRef.current.delete(submittedName);
+      }
     },
     [provider, readOnlyEndpoints, saveProviderWithCleanupGuard],
   );
@@ -601,11 +628,13 @@ export function InlineEditableProviderCard({
     setEditingName(false);
     const trimmed = draftRef.current.nameValue.trim();
     const currentLabel = getProviderFormLabel(provider);
-    if (trimmed && trimmed !== currentLabel) {
+    // 保存会去掉首尾空白；草稿也必须归一化，才能被权威回显清除。
+    const confirmed = trimmed || currentLabel;
+    draftRef.current.nameValue = confirmed;
+    setNameValue(confirmed);
+    if (trimmed) {
       void commitPendingDraft("name-blur", true).catch(() => undefined);
     } else {
-      draftRef.current.nameValue = currentLabel;
-      setNameValue(currentLabel);
       dirtyProviderFieldsRef.current.delete("nameValue");
     }
   }, [commitPendingDraft, provider]);

@@ -43,6 +43,38 @@ function buildView(
   } as unknown as ModelSelectionView;
 }
 
+test("账号模型显示发现标签，但选择值保留各自的完整 ID", () => {
+  const view = buildView([
+    { providerId: "account-a", providerName: "Codex A" },
+    { providerId: "account-b", providerName: "Codex B" },
+    { providerId: "ordinary" },
+  ]);
+  const providers = view.providers.map((provider, index) => ({
+    ...provider,
+    models: provider.models.map((model) => ({
+      ...model,
+      modelId: ["codex-a/vendor/model", "codex-b-2/vendor/model", "vendor/other"][index]!,
+      config: {
+        ...model.config,
+        ...(index < 2 ? { displayName: "vendor/model" } : {}),
+      },
+    })),
+  }));
+  const groups = buildGroups({ ...view, providers });
+  assert.deepEqual(
+    groups.map((group) => group.items[0]?.name),
+    ["vendor/model", "vendor/model", "vendor/other"],
+  );
+  assert.deepEqual(
+    groups.map((group) => group.items[0]?.value),
+    [
+      "custom:account-a:codex-a%2Fvendor%2Fmodel",
+      "custom:account-b:codex-b-2%2Fvendor%2Fmodel",
+      "custom:ordinary:vendor%2Fother",
+    ],
+  );
+});
+
 const SELECTED = "glm" as never;
 const OTHER_LABEL = "其他";
 

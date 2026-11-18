@@ -74,7 +74,7 @@ export function ModelGroupMemberPickerDialog({
       items: providerCandidates.map((candidate) => ({
         key: `${candidate.providerId}/${candidate.modelId}`,
         value: encodeCustomModelValue(candidate.providerId, candidate.modelId),
-        name: candidate.modelId,
+        name: candidate.modelDisplayName ?? candidate.modelId,
         ...(!candidate.available
           ? { badgeLabel: intl.formatMessage({ id: "settings.modelGroups.memberUnavailable" }) }
           : candidate.providerHidden
@@ -152,6 +152,7 @@ export function ModelGroupMemberPickerDialog({
                 modelGroups={modelGroups}
                 normalizedValue={selectedValue}
                 triggerLabel={
+                  selectedCandidate?.modelDisplayName ??
                   selectedCandidate?.modelId ??
                   intl.formatMessage({ id: "settings.modelGroups.pickModelPlaceholder" })
                 }

@@ -226,6 +226,7 @@ export interface ModelGroupMemberCandidateView {
   readonly providerId: ProviderId;
   readonly providerLabel: string;
   readonly modelId: ModelId;
+  readonly modelDisplayName?: string;
   readonly providerEnabled: boolean;
   readonly providerExecutable: boolean;
   readonly providerHidden: boolean;
@@ -315,6 +316,9 @@ export class ProviderSettingsFacade {
             providerId: provider.providerId,
             providerLabel: provider.providerName?.trim() || provider.providerId,
             modelId: model.modelId,
+            ...(model.config.displayName == null
+              ? {}
+              : { modelDisplayName: model.config.displayName }),
             providerEnabled: provider.enabled,
             providerExecutable: executableProviderIds.has(provider.providerId),
             providerHidden: provider.config.visibility === "hidden",

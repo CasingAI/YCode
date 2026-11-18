@@ -439,6 +439,8 @@ test("按账号模型清单：只保留该前缀的模型，能力按精确 id �
             return jsonResponse({
               models: [
                 { id: "codex-77bf18ea/gpt-5-codex" },
+                { id: "codex-77bf18ea/vendor/model" },
+                { id: "codex-77bf18ea/" },
                 { id: "codex-abcdef/gpt-5-codex" },
                 { id: "gpt-5-codex" },
               ],
@@ -458,7 +460,11 @@ test("按账号模型清单：只保留该前缀的模型，能力按精确 id �
     assert.equal(snapshot.stale, false);
     assert.deepEqual(
       snapshot.models.map((model) => model.id),
-      ["codex-77bf18ea/gpt-5-codex"],
+      ["codex-77bf18ea/gpt-5-codex", "codex-77bf18ea/vendor/model"],
+    );
+    assert.deepEqual(
+      snapshot.models.map((model) => model.displayName),
+      ["gpt-5-codex", "vendor/model"],
     );
     assert.equal(snapshot.models[0]?.capabilities?.contextWindow, 200000);
   } finally {

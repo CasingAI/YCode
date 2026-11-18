@@ -534,7 +534,7 @@ export function ModelGroupsSection() {
                               {handle}
                               <div className="flex min-w-0 flex-1 basis-40 flex-wrap items-center gap-x-2 gap-y-1">
                                 <span className="min-w-0 truncate font-mono text-ui-base text-foreground">
-                                  {member.modelId}
+                                  {candidate?.modelDisplayName ?? member.modelId}
                                 </span>
                                 <span
                                   className="inline-flex h-5 max-w-40 items-center truncate rounded-md border border-border bg-surface px-1.5 font-mono text-ui-sm text-foreground-subtle"

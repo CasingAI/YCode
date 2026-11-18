@@ -60,6 +60,7 @@ export interface CliProxyModelCapabilities {
 
 export interface CliProxyModelEntry {
   id: string;
+  displayName?: string;
   capabilities?: CliProxyModelCapabilities;
 }
 

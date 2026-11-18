@@ -786,12 +786,15 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
           rawSelection,
         ) ?? rawSelection)
       : null;
-    if (!selection) {
+    if (!selection || state.status !== "ready") {
       // 模型视图未就绪或无有效选择：退回静态说明，别让副文案空着或显示不存在的模型。
       return intl.formatMessage({ id: "commandCenter.aiSearch.hint" });
     }
+    const model = state.view.providers
+      .find((provider) => provider.providerId === selection.providerId)
+      ?.models.find((candidate) => candidate.modelId === selection.modelId);
     return formatModelChangeThoughtLabel({
-      modelLabel: formatModelDisplayName(selection.modelId),
+      modelLabel: formatModelDisplayName(model?.config.displayName ?? selection.modelId),
       thought: selection.options?.reasoningLevel,
       intl,
     });

@@ -781,6 +781,7 @@ export function createCliProxyService(options: CliProxyServiceOptions): ICliProx
       const models = snapshot.models.map((model) => ({
         modelId: model.id,
         config: new ModelConfig({
+          displayName: model.displayName,
           properties:
             model.capabilities?.contextWindow === undefined &&
             !model.capabilities?.inputModalities?.includes("image")

@@ -383,7 +383,7 @@ export async function fetchCliProxyCredentialModels(
         body.models.flatMap((entry) => {
           if (!isRecord(entry) || typeof entry.id !== "string") return [];
           const id = entry.id.trim();
-          return id.startsWith(prefixRoot) ? [id] : [];
+          return id.startsWith(prefixRoot) && id.length > prefixRoot.length ? [id] : [];
         }),
       ),
     ];
@@ -397,7 +397,11 @@ export async function fetchCliProxyCredentialModels(
       const discovered = capabilitiesResult.capabilities.get(id);
       const cached = previous?.models.find((model) => model.id === id)?.capabilities;
       const capabilities = discovered ?? (capabilitiesResult.error ? cached : undefined);
-      return { id, ...(capabilities ? { capabilities } : {}) };
+      return {
+        id,
+        displayName: id.slice(prefixRoot.length),
+        ...(capabilities ? { capabilities } : {}),
+      };
     });
     const fetchedAt = Date.now();
     modelsCache.set(scopedCacheKey, { models, fetchedAt });

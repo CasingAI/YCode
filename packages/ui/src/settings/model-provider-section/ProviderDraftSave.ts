@@ -36,6 +36,7 @@ export function resolvePendingProviderDraftSave({
   readOnlyEndpoints,
   protocolOnly = false,
   nameConfirmed = false,
+  lastConfirmedName = getProviderFormLabel(provider),
 }: {
   provider: ProviderSettingsFormProvider;
   draft: ProviderDraftValues;
@@ -46,13 +47,14 @@ export function resolvePendingProviderDraftSave({
    */
   protocolOnly?: boolean;
   nameConfirmed?: boolean;
+  lastConfirmedName?: string;
   now: () => number;
 }): ProviderSettingsFormProvider | null {
   const label = draft.nameValue.trim();
   const baseURL = normalizeConfiguredBaseUrl(draft.baseUrlValue);
   // ID 和默认协议只用于空配置的表单展示，不是用户覆盖；脏检查与表单初始化必须同源。
   // 名称只在 Enter/失焦确认；连接的闲时保存、测试和卸载不能夹带未确认的名称。
-  const labelChanged = nameConfirmed && label !== getProviderFormLabel(provider);
+  const labelChanged = nameConfirmed && label.length > 0 && label !== lastConfirmedName;
   const typeChanged =
     (protocolOnly || !readOnlyEndpoints) &&
     draft.apiFormat !== (provider.config.api?.type ?? "anthropic-messages");
@@ -103,7 +105,7 @@ export function resolvePendingProviderDraftSave({
   }
   return {
     ...provider,
-    ...(labelChanged ? { providerName: label || null, providerNameUpdate: label || null } : {}),
+    ...(labelChanged ? { providerName: label, providerNameUpdate: label } : {}),
     config,
     personalConfig,
   };

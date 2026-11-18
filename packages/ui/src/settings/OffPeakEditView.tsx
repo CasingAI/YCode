@@ -167,13 +167,16 @@ export function OffPeakEditView({
     editing?.modelSelection?.providerId ?? modelSelectionView.providers[0]?.providerId ?? "";
   const allowedModels = useMemo(
     () =>
-      modelSelectionView.providers
-        .find((provider) => provider.providerId === offPeakProviderId)
-        ?.models.map((candidate) => candidate.modelId) ?? [],
+      modelSelectionView.providers.find((provider) => provider.providerId === offPeakProviderId)
+        ?.models ?? [],
     [modelSelectionView, offPeakProviderId],
   );
-  const initialModel = editing ? (editing.modelSelection?.modelId ?? "") : (allowedModels[0] ?? "");
+  const initialModel = editing
+    ? (editing.modelSelection?.modelId ?? "")
+    : (allowedModels[0]?.modelId ?? "");
   const [model, setModel] = useState(initialModel);
+  const modelLabel =
+    allowedModels.find((candidate) => candidate.modelId === model)?.config.displayName ?? model;
   const [thoughtLevel, setThoughtLevel] = useState<string | undefined>(() =>
     editing
       ? editing.modelSelection?.options?.reasoningLevel
@@ -205,9 +208,9 @@ export function OffPeakEditView({
               key: "off-peak",
               label: "",
               items: allowedModels.map((allowedModel) => ({
-                key: allowedModel,
-                value: allowedModel,
-                name: allowedModel,
+                key: allowedModel.modelId,
+                value: allowedModel.modelId,
+                name: allowedModel.config.displayName ?? allowedModel.modelId,
               })),
             },
           ]
@@ -655,7 +658,9 @@ export function OffPeakEditView({
                   <ModelConfigSelect
                     modelGroups={modelSelectGroups}
                     normalizedValue={model}
-                    triggerLabel={model || intl.formatMessage({ id: "offPeak.form.modelLabel" })}
+                    triggerLabel={
+                      modelLabel || intl.formatMessage({ id: "offPeak.form.modelLabel" })
+                    }
                     showProviderLevel={false}
                     showManageModelsAction={false}
                     lockReasonMessage=""

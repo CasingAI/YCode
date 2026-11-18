@@ -75,6 +75,7 @@ export function ModelRowInput({
     resolve: onResolveDraft,
   });
   const { draft } = editor;
+  const modelLabel = model.config.displayName ?? model.modelId;
   const [draftErrorField, setDraftErrorField] = useState<
     | "id"
     | "contextWindow"
@@ -189,17 +190,16 @@ export function ModelRowInput({
   };
 
   const handleTest = useCallback(async () => {
-    if (!onTest || isTesting || !providerEnabled) {
-      return;
-    }
+    if (!onTest || isTesting || !providerEnabled) return;
 
     const modelId = draft.idValue.trim();
     const dedupeKey = `model-test:${providerId}:${modelId}`;
+    const identity = { provider: providerName, model: modelLabel };
     showFeedback({
       key: dedupeKey,
       message: intl.formatMessage(
         { id: "settings.modelProvider.testModel.connectingWithIdentity" },
-        { provider: providerName, model: modelId },
+        identity,
       ),
       state: "pending",
       durationMs: 0,
@@ -212,7 +212,7 @@ export function ModelRowInput({
           key: dedupeKey,
           message: intl.formatMessage(
             { id: "settings.modelProvider.testModel.successWithIdentity" },
-            { provider: providerName, model: modelId },
+            identity,
           ),
           state: "success",
           successEmphasis: true,
@@ -239,7 +239,7 @@ export function ModelRowInput({
           key: dedupeKey,
           message: intl.formatMessage(
             { id: "settings.modelProvider.testModel.failedWithIdentity" },
-            { provider: providerName, model: modelId, reason },
+            { ...identity, reason },
           ),
           state: "failure",
           durationMs: 8_000,
@@ -253,8 +253,7 @@ export function ModelRowInput({
         message: intl.formatMessage(
           { id: "settings.modelProvider.testModel.failedWithIdentity" },
           {
-            provider: providerName,
-            model: modelId,
+            ...identity,
             reason:
               error instanceof Error
                 ? error.message
@@ -273,6 +272,7 @@ export function ModelRowInput({
     onTest,
     isTesting,
     draft.idValue,
+    modelLabel,
     intl,
     providerId,
     providerName,
@@ -311,7 +311,7 @@ export function ModelRowInput({
             data-testid={inputTestId}
             className="min-w-0 truncate font-mono text-ui-base text-foreground"
           >
-            {model.modelId}
+            {modelLabel}
           </span>
           <span
             className="inline-flex h-5 max-w-20 shrink-0 items-center truncate rounded-md border border-border bg-surface px-1.5 font-mono text-ui-sm text-foreground-subtle"

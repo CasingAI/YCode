@@ -15,6 +15,28 @@ function storedFile(providerRules: unknown[]) {
   };
 }
 
+test("账号模型的发现标签经 codec 往返，不改写模型 ID", () => {
+  const stored = storedFile([]);
+  const discoveredModelRules = {
+    providerModelRules: [
+      {
+        providerId: "account-a",
+        modelId: "codex-a/vendor/model",
+        config: { displayName: "vendor/model" },
+      },
+    ],
+    manualProviderModelRules: [],
+  };
+  const decoded = decodeProviderConfigFile({
+    ...stored,
+    config: { ...stored.config, discoveredModelRules },
+  });
+  assert.deepEqual(
+    encodeProviderConfigFile(decoded).config.discoveredModelRules,
+    discoveredModelRules,
+  );
+});
+
 test("模型组成员选择策略经 codec 往返且保留重复条目", () => {
   const modelGroups = [
     {

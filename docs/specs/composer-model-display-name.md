@@ -60,10 +60,9 @@ flowchart LR
 
 ## 负面边界
 
-- **下拉列表项不改**：`ModelConfigSelect` 的列表项仍显示原始 id，本次刻意只改胶囊，接受「合上格式化、展开原始」的不对称。
-- **其它展示位置不改**：模型切换分割线（`ConversationRowView` / `SessionPane` 的 `formatModelChangeLabel`）、workflow 时间线（`subagent-model-label`）、设置页子代理与自动化（`automationAgentConfigOptions`、`SubagentsSection`）仍显示原始 id。
+- **下拉列表项不做排版格式化**。默认显示原始 ID。例外是 [CLI Proxy 账号模型](./plugin-cli-proxy-binary.md#模型名与展示已定)：存在同步生成的发现标签时，列表显示该标签，胶囊基于该标签继续做排版。下拉选中值和请求始终使用原始 ID。
+- **诊断保留原始 ID**：模型切换历史、workflow 执行记录和单轮请求详情在没有发现标签时仍显示记录中的原始 ID，不根据斜杠猜测账号前缀。
 - **套餐/配额卡片不改**：`formatQuotaModelDisplayName` 虽规则相近，但带自己的 `GLM-*` 特殊分支且服务另一条产品语义，本次不合并、不改写。
-- **不新增数据字段**：不给模型目录、共享类型或 CLI 加 `displayName`；不碰 `packages/shared`、`packages/provider`、`apps/zcode-cli`。
 - **不做本地化**：展示名是 id 的排版结果，不引入 i18n 文案（中文 UI 下同样显示 `Deepseek V4.1 Flash`）。
 
 ## 验收场景

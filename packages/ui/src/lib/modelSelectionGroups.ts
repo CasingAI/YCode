@@ -88,7 +88,7 @@ export function buildRegistryModelSelectGroups(
     const items = provider.models.map(({ modelId, config }) => ({
       key: `registry-provider:${provider.providerId}:${modelId}`,
       value: encodeCustomModelValue(provider.providerId, modelId),
-      name: modelId,
+      name: config.displayName ?? modelId,
       ...(shouldShowModelVisionBadge(
         modelId,
         config.properties?.inputFormat?.supportsImage,

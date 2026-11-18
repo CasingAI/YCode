@@ -75,6 +75,7 @@ export function serializeRegistryModelConfig(
 ): RegistryModelConfigObject {
   return {
     enabled: config.enabled,
+    ...(config.displayName === undefined ? {} : { displayName: config.displayName }),
     ...(config.proxyMode === undefined ? {} : { proxyMode: config.proxyMode }),
     properties: {
       requiresMfjsToolSchema: config.properties.requiresMfjsToolSchema,
