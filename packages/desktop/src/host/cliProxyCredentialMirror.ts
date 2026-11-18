@@ -9,11 +9,13 @@
 import type { IProviderSettingsService } from "@zcode/services";
 import {
   createServiceLogger,
+  getDataBaseDir,
   listCliProxyAuthFiles,
   readCliProxyCredentialPrefix,
   readCliProxyMirrorState,
   resolveCliProxyCredentialAccounts,
   resolveCliProxyLayout,
+  resolveCliProxyRoot,
   runCliProxyCredentialMirror,
   writeCliProxyMirrorState,
 } from "@zcode/services/node";
@@ -41,7 +43,10 @@ export function createCliProxyCredentialMirror(deps: CliProxyCredentialMirrorDep
   const run = async (phase: "startup" | "running"): Promise<void> => {
     const providerSettings = deps.getProviderSettings();
     if (!providerSettings) return;
-    const layout = resolveCliProxyLayout();
+    // 必须与 CliProxyService 同源：服务按 getDataBaseDir() 解析根目录（自定义数据目录时
+    // 不等于 homedir）。直接 resolveCliProxyLayout() 只认 homedir，会读到空 auth 目录，
+    // 表现为"镜像跑了但一张账号卡都没有"。
+    const layout = resolveCliProxyLayout(resolveCliProxyRoot(getDataBaseDir()));
     const accounts = resolveCliProxyCredentialAccounts(await listCliProxyAuthFiles(layout.authDir));
     const state = await readCliProxyMirrorState(layout);
     const view = await providerSettings.getView();

@@ -219,6 +219,47 @@ test("迁移：旧渠道账本 + 多账号/无账号 → 旧卡退役，多账�
   ]);
 });
 
+test("迁移：模板基底卡 + 多账号 → 退役旧卡，按账号各建一条", () => {
+  // 一卡一渠道时期用户手工启用的模板卡（providerId === templateId），没有 v1 账本。
+  const providers = [{ providerId: "cliproxy-codex", templateId: "cliproxy-codex" }];
+  const accounts = resolveCliProxyCredentialAccounts([
+    "codex-77bf18ea-a@example.com.json",
+    "codex-abcdef-b@example.com.json",
+  ]);
+  assert.deepEqual(
+    plan({ accounts, providers }).map((action) => action.kind),
+    ["retire-legacy", "seed", "seed"],
+  );
+});
+
+test("迁移：模板基底卡 + 单账号 → 认领复用，不再退役、不新种", () => {
+  const providers = [{ providerId: "cliproxy-codex", templateId: "cliproxy-codex" }];
+  assert.deepEqual(plan({ providers }), [
+    {
+      kind: "adopt",
+      channel: "codex",
+      accountKey: "codex:77bf18ea",
+      providerId: "cliproxy-codex",
+      credentialName: "codex-77bf18ea-a@example.com-pro.json",
+    },
+  ]);
+});
+
+test("迁移：账号账本已落账后模板基底卡不再被退役", () => {
+  const providers = [{ providerId: "cliproxy-codex", templateId: "cliproxy-codex" }];
+  const state = {
+    version: 2 as const,
+    accounts: {
+      "codex:77bf18ea": {
+        providerId: "cliproxy-codex",
+        seededAt: "2026-11-18T00:00:00.000Z",
+        credentialName: "codex-77bf18ea-a@example.com-pro.json",
+      },
+    },
+  };
+  assert.deepEqual(plan({ state, providers }), []);
+});
+
 // ── 引擎（注入端口）──
 
 function fakePorts(

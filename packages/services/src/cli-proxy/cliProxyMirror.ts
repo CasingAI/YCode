@@ -290,7 +290,23 @@ export function resolveCliProxyCredentialMirrorPlan(
   const legacyChannels = input.state.legacyChannels ?? {};
   for (const { channel, templateId, name } of input.channelTemplates) {
     const channelAccounts = input.accounts.filter((account) => account.channel === channel);
-    const legacyEntry = legacyChannels[channel];
+    // 旧形态的"模板基底卡"（providerId === templateId，一卡一渠道时期手工启用）同样按
+    // 渠道级旧卡处理：单账号认领、多账号隐藏后按账号重建。已有账号账本时不再重复处理，
+    // 因此认领/重建落账后这条合成条目自然消失，不需要额外持久标记。
+    const hasAccountBindings = channelAccounts.some(
+      (account) => input.state.accounts[account.accountKey] !== undefined,
+    );
+    const templateBaselineProvider =
+      channelAccounts.length > 0 && !hasAccountBindings
+        ? input.providers.find(
+            (provider) => provider.providerId === templateId && provider.templateId === templateId,
+          )
+        : undefined;
+    const legacyEntry =
+      legacyChannels[channel] ??
+      (templateBaselineProvider
+        ? { providerId: templateBaselineProvider.providerId, seededAt: "" }
+        : undefined);
     const adoptableLegacy =
       legacyEntry !== undefined &&
       !legacyEntry.withdrawn &&

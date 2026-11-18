@@ -362,7 +362,7 @@ export type {
   CliProxyMirrorChannelState,
   CliProxyMirrorState,
 } from "./cli-proxy/cliProxyMirror.js";
-export { resolveCliProxyLayout } from "./cli-proxy/cliProxyVersions.js";
+export { resolveCliProxyLayout, resolveCliProxyRoot } from "./cli-proxy/cliProxyVersions.js";
 export type { CliProxyLayout } from "./cli-proxy/cliProxyVersions.js";
 export {
   buildOfficialMcpAuthHeaders,
