@@ -1,10 +1,7 @@
 import type { Event } from "@zcode/rpc";
 import type { ProviderId } from "@zcode/provider";
 import { ServiceChannels, type CliProxyLoginChannel } from "@zcode/shared";
-import type {
-  CliProxyModelsSnapshot,
-  CliProxyQuotaSnapshot,
-} from "@zcode/shared";
+import type { CliProxyModelsSnapshot, CliProxyQuotaSnapshot } from "@zcode/shared";
 import { createServiceDescriptor } from "../descriptors.js";
 
 /** CLI Proxy 二进制版本来源：随应用打包的兜底，或用户联网下载。 */
@@ -135,6 +132,11 @@ export interface CliProxyStatus {
    * 快照携带，不持久化；found 表示已自动开始下载，进度经 download 字段派生展示。
    */
   updateOutcome?: CliProxyUpdateOutcome;
+  /**
+   * 账号凭据落盘时间（登录轮询到 ok 时更新）。Host 据此在运行期重跑镜像，
+   * 让新账号立即成为独立 provider，而不必等下次重启/代理状态边沿。
+   */
+  credentialsChangedAt?: string | null;
   errorCode?: CliProxyErrorCode;
   error?: string;
 }
@@ -185,8 +187,17 @@ export interface ICliProxyService {
   pollAuthStatus(state: string): Promise<"wait" | "ok">;
   submitAuthCallback(channel: CliProxyLoginChannel, payload: Record<string, string>): Promise<void>;
   fetchModels(channel?: CliProxyLoginChannel): Promise<CliProxyModelsSnapshot>;
-  syncModels(providerId: ProviderId): Promise<import("@zcode/shared").CliProxyModelSyncResult>;
+  /**
+   * 同步模型清单。账号 provider 传入 account（凭据文件名 + 前缀），只同步该账号
+   * 命名空间下的带前缀模型；缺省时按镜像账本反查，查不到再按全量 /v1/models（手动卡片）。
+   */
+  syncModels(
+    providerId: ProviderId,
+    account?: { credentialName: string; prefix: string },
+  ): Promise<import("@zcode/shared").CliProxyModelSyncResult>;
   fetchQuota(providerId: string, channel: CliProxyLoginChannel): Promise<CliProxyQuotaSnapshot>;
+  /** 幂等写入账号前缀（管理面 PATCH credentials/fields）；账号面上唯一的前缀写入入口。 */
+  setCredentialPrefix(credentialName: string, prefix: string): Promise<void>;
   listAuthFiles(): Promise<string[]>;
   /**
    * 状态变更事件。
@@ -196,9 +207,7 @@ export interface ICliProxyService {
   readonly onDidChangeStatus: Event<CliProxyStatus>;
 }
 
-export const ICliProxyService = createServiceDescriptor<ICliProxyService>(
-  ServiceChannels.CliProxy,
-);
+export const ICliProxyService = createServiceDescriptor<ICliProxyService>(ServiceChannels.CliProxy);
 
 /** 仅查询额度快照的窄服务面，可按 attachment 单独授权给手机远控。 */
 export interface ICliProxyQuotaService {

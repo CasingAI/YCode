@@ -38,13 +38,16 @@ import {
 } from "./cliProxyVersions.js";
 import { checkCliProxyUpdates, getNewestVersion, isNewerVersion } from "./cliProxyReleases.js";
 import {
+  fetchCliProxyCredentialModels,
   fetchCliProxyModels,
   fetchCliProxyQuota,
   getCliProxyAuthUrl,
   listCliProxyAuthFiles,
   pollCliProxyAuthStatus,
+  setCliProxyCredentialPrefix,
   submitCliProxyAuthCallback,
 } from "./cliProxyAccount.js";
+import { findCliProxyMirrorAccountForProvider } from "./cliProxyMirror.js";
 import type {
   CliProxyDownloadState,
   CliProxyStatus,
@@ -135,9 +138,10 @@ export interface CliProxyServiceOptions {
    */
   resolveUpstreamProxyUrl?: () => Promise<string | null>;
   /** 读取 Provider Settings 配置视图。 */
-  getProviderSettings?: () =>
-    | Pick<import("../model-provider/providerFacadeServices.js").IProviderSettingsService, "getView">
-    | null;
+  getProviderSettings?: () => Pick<
+    import("../model-provider/providerFacadeServices.js").IProviderSettingsService,
+    "getView"
+  > | null;
   /** Host 内部写入自动发现模型，不通过 Provider Settings RPC 暴露。 */
   syncDiscoveredProviderModels?: (
     providerId: ProviderId,
@@ -321,7 +325,10 @@ export function createCliProxyService(options: CliProxyServiceOptions): ICliProx
   const syncEndpoints = async (port: number): Promise<void> => {
     if (!options.syncProviderEndpoints) return;
     try {
-      await options.syncProviderEndpoints({ port, dataKey: await ensureKeyFile(layout.dataKeyFile) });
+      await options.syncProviderEndpoints({
+        port,
+        dataKey: await ensureKeyFile(layout.dataKeyFile),
+      });
     } catch (error) {
       logger.warn("cli-proxy provider endpoint sync failed", { message: errorMessage(error) });
     }
@@ -503,7 +510,10 @@ export function createCliProxyService(options: CliProxyServiceOptions): ICliProx
       archiveSha256: string;
       archiveSizeBytes?: number;
     },
-    runOptions?: { publishProgress?: boolean; onProgress?: (receivedBytes: number, totalBytes: number | null) => void },
+    runOptions?: {
+      publishProgress?: boolean;
+      onProgress?: (receivedBytes: number, totalBytes: number | null) => void;
+    },
   ): Promise<void> => {
     const publishProgress = runOptions?.publishProgress !== false;
     if (publishProgress) {
@@ -519,8 +529,7 @@ export function createCliProxyService(options: CliProxyServiceOptions): ICliProx
       runOptions?.onProgress?.(receivedBytes, totalBytes);
       if (!publishProgress) return;
       const current = downloadState;
-      if (!current || current.stage !== "downloading" || current.version !== asset.version)
-        return;
+      if (!current || current.stage !== "downloading" || current.version !== asset.version) return;
       publishDownload({ ...current, receivedBytes, totalBytes });
     };
     try {
@@ -537,8 +546,12 @@ export function createCliProxyService(options: CliProxyServiceOptions): ICliProx
       // runtime-only 失败态：驻内存（含重试数据），不落盘，不污染版本登记。
       publishDownload({
         version: asset.version,
-        receivedBytes: downloadState?.version === asset.version ? (downloadState?.receivedBytes ?? 0) : 0,
-        totalBytes: downloadState?.version === asset.version ? (downloadState?.totalBytes ?? null) : (asset.archiveSizeBytes ?? null),
+        receivedBytes:
+          downloadState?.version === asset.version ? (downloadState?.receivedBytes ?? 0) : 0,
+        totalBytes:
+          downloadState?.version === asset.version
+            ? (downloadState?.totalBytes ?? null)
+            : (asset.archiveSizeBytes ?? null),
         stage: "failed",
         error: errorMessage(error),
         retryAsset: { ...asset },
@@ -547,9 +560,7 @@ export function createCliProxyService(options: CliProxyServiceOptions): ICliProx
     }
   };
 
-  const runUpdateCheck = async (
-    markStartupDone = false,
-  ): Promise<CliProxyStatus> => {
+  const runUpdateCheck = async (markStartupDone = false): Promise<CliProxyStatus> => {
     if (updateCheckInFlight) return updateCheckInFlight;
     updateCheckInFlight = (async () => {
       // 检查成功语义：只有真正取到上游 latestVersion 才记为成功；断网/限流返回空结果不置位，
@@ -576,9 +587,7 @@ export function createCliProxyService(options: CliProxyServiceOptions): ICliProx
           const usableVersions = await Promise.all(
             state.versions
               .filter((version) => version.target === target)
-              .map(async (version) =>
-                (await findBinaryInDir(version.dir)) ? version : null,
-              ),
+              .map(async (version) => ((await findBinaryInDir(version.dir)) ? version : null)),
           );
           const usable = usableVersions.filter((version) => version !== null);
           // 未登记的内置目录同样参与基线；内置版本登记由 syncStatusFromDisk 负责。
@@ -603,7 +612,8 @@ export function createCliProxyService(options: CliProxyServiceOptions): ICliProx
           updateAvailable = isNewerVersion(latestVersion, newest) ? latestVersion : null;
           if (!updateAvailable) {
             outcome = "no-update";
-          } else {            // 当前 target 上仅当真实二进制存在才算已安装；无效同号登记不得阻断下载。
+          } else {
+            // 当前 target 上仅当真实二进制存在才算已安装；无效同号登记不得阻断下载。
             const alreadyInstalled = usable.some(
               (version) => version.target === target && version.version === latestVersion,
             );
@@ -730,7 +740,12 @@ export function createCliProxyService(options: CliProxyServiceOptions): ICliProx
       return { url, state };
     },
     async pollAuthStatus(state) {
-      return pollCliProxyAuthStatus({ layout, port: status.port }, state);
+      const result = await pollCliProxyAuthStatus({ layout, port: status.port }, state);
+      if (result === "ok") {
+        // 凭据已落盘：广播一次，Host 借此在运行期立即重跑镜像（新账号 → 新 provider）。
+        publish({ ...status, credentialsChangedAt: new Date().toISOString() });
+      }
+      return result;
     },
     async submitAuthCallback(channel, payload) {
       await submitCliProxyAuthCallback({ layout, port: status.port }, channel, payload);
@@ -738,7 +753,10 @@ export function createCliProxyService(options: CliProxyServiceOptions): ICliProx
     async fetchModels(channel = "codex") {
       return fetchCliProxyModels({ layout, port: status.port }, "default", channel);
     },
-    async syncModels(providerId: ProviderId): Promise<CliProxyModelSyncResult> {
+    async syncModels(
+      providerId: ProviderId,
+      account?: { credentialName: string; prefix: string },
+    ): Promise<CliProxyModelSyncResult> {
       const settings = options.getProviderSettings?.();
       if (!settings) throw new Error("Provider Settings 服务不可用");
       const view = await settings.getView();
@@ -748,7 +766,17 @@ export function createCliProxyService(options: CliProxyServiceOptions): ICliProx
       }
       const channel = cliProxyChannelFromTemplateId(provider.templateId);
       if (!channel) throw new Error(`无法识别 CLI Proxy Provider 渠道: ${providerId}`);
-      const snapshot = await fetchCliProxyModels({ layout, port: status.port }, providerId, channel);
+      // 账号卡片：只同步该账号命名空间下的带前缀模型（唯一能点名该凭据的 id）。
+      // 账本反查覆盖 UI「同步模型」按钮；镜像执行期由宿主显式传入（账本尚未落盘）。
+      const binding = account ?? (await findCliProxyMirrorAccountForProvider(layout, providerId));
+      const snapshot = binding
+        ? await fetchCliProxyCredentialModels(
+            { layout, port: status.port },
+            binding.credentialName,
+            binding.prefix,
+            providerId,
+          )
+        : await fetchCliProxyModels({ layout, port: status.port }, providerId, channel);
       if (snapshot.stale) throw new Error(snapshot.error ?? "CLI Proxy 模型名单不可用");
       const models = snapshot.models.map((model) => ({
         modelId: model.id,
@@ -777,7 +805,19 @@ export function createCliProxyService(options: CliProxyServiceOptions): ICliProx
       };
     },
     async fetchQuota(providerId, channel) {
-      return fetchCliProxyQuota({ layout, port: status.port }, providerId, channel);
+      // 账号卡片只读绑定凭据的额度；手动卡片（无账本绑定）沿用按渠道合并。
+      const binding = await findCliProxyMirrorAccountForProvider(layout, providerId);
+      return fetchCliProxyQuota(
+        { layout, port: status.port },
+        providerId,
+        channel,
+        binding
+          ? { accountKey: binding.accountKey, credentialName: binding.credentialName }
+          : undefined,
+      );
+    },
+    async setCredentialPrefix(credentialName, prefix) {
+      await setCliProxyCredentialPrefix({ layout, port: status.port }, credentialName, prefix);
     },
     async listAuthFiles() {
       return listCliProxyAuthFiles();

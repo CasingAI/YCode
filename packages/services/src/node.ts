@@ -332,24 +332,34 @@ export {
 } from "./cli-proxy/cliProxy.js";
 export type { CliProxyProviderEndpointPatch } from "./cli-proxy/cliProxy.js";
 export {
+  fetchCliProxyCredentialModels,
   fetchCliProxyModels,
   fetchCliProxyQuota,
   getCliProxyAuthUrl,
   listCliProxyAuthFiles,
   pollCliProxyAuthStatus,
+  readCliProxyCredentialPrefix,
+  setCliProxyCredentialPrefix,
   submitCliProxyAuthCallback,
 } from "./cli-proxy/cliProxyAccount.js";
+export type { CliProxyQuotaAccountBinding } from "./cli-proxy/cliProxyAccount.js";
 export {
+  findCliProxyMirrorAccountForProvider,
   readCliProxyMirrorState,
+  resolveCliProxyCredentialAccount,
+  resolveCliProxyCredentialAccounts,
   resolveCliProxyCredentialChannels,
   runCliProxyCredentialMirror,
   writeCliProxyMirrorState,
 } from "./cli-proxy/cliProxyMirror.js";
 export type {
+  CliProxyCredentialAccount,
   CliProxyCredentialMirrorInput,
   CliProxyCredentialMirrorPorts,
   CliProxyCredentialMirrorResult,
+  CliProxyMirrorAccountState,
   CliProxyMirrorAction,
+  CliProxyMirrorChannelState,
   CliProxyMirrorState,
 } from "./cli-proxy/cliProxyMirror.js";
 export { resolveCliProxyLayout } from "./cli-proxy/cliProxyVersions.js";

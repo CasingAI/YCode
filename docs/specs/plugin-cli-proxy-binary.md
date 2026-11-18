@@ -96,7 +96,7 @@
   - 未登录（凭据缺失 → `not-logged-in`，或代理未启动 → `proxy-stopped`）：文案为引导 + 「登录 Codex 账号」；
   - 已登录但无观测（`no-observation`，或已拿到窗口）：文案改为「重新登录 / 切换账号」，
     按钮与流程相同，不隐藏入口。
-  web/远端（服务不可用）仍不渲染入口，只显示桌面端提示；失败态与手动兜底按钮不变。
+    web/远端（服务不可用）仍不渲染入口，只显示桌面端提示；失败态与手动兜底按钮不变。
 - **额度快照随运行态刷新（2026-10-14 真机复测修正）**：额度与登录可用性都由代理运行态决定。
   旧实现只在挂载与页面可见时取一次快照，添加 provider 触发按需启动后不再重取，
   真机上出现"代理已在 `127.0.0.1:8317` 监听、额度区仍显示代理正在启动"的陈旧态。
@@ -222,7 +222,7 @@
 - **表单（已定）**：CLI Proxy 分类的 provider 详情**不渲染连接区**——Base URL（运行时决定、含端口让位）与协议选择都不给控件。协议固定 Responses：走 `/v1/responses` 时代理无需做协议翻译、更稳定（用户拍板；v8.0.27 真机验证三端点均真实存在，但 Codex 走 responses 之外的等价性未验证）。普通供应商表单不受影响。
 - **端点投影（已实现，2026-10-14 从"端口回填"扩展）**：代理启动成功（含 `EADDRINUSE`
   让位）后与运行期 provider 变更（`refresh()` 发现已 running）时，把**实际绑定端口**与
-  **数据面 api-key**（`data.key`，唯一事实源）投影到 cliproxy-* provider（稀疏 overlay、
+  **数据面 api-key**（`data.key`，唯一事实源）投影到 cliproxy-\* provider（稀疏 overlay、
   幂等：补丁为 null 即不写；只碰回环地址的端口段与 `access.apiKey`，用户自定义地址不动，
   不触发 refresh，无循环）。运行期补投影的原因：运行中新增的依赖 provider 不会走
   `doStart`，若只在启动时投影，后加的 provider 永远拿不到 api-key。端口与密钥的事实来源
@@ -238,7 +238,7 @@ xai/devin/antigravity；API-key：各渠道 + 通用 OpenAI 兼容）。首批�
 - **模板**：`cliproxy-claude`（anthropic-messages）/ `cliproxy-gemini`、
   `cliproxy-antigravity`（openai-chat-completions），endpoint 同为本机实例
   `http://127.0.0.1:8317/v1`。**协议兜底改为"模板声明优先"**：
-  `resolveCliProxyForcedApiType(templateId, configApiType)` 只在 cliproxy-*
+  `resolveCliProxyForcedApiType(templateId, configApiType)` 只在 cliproxy-\*
   无任何协议时兜底 openai-responses（旧版对前缀一刀切强制 Responses 已废）。
 - **登录参数化**：`getAuthUrl(channel)` / `pollAuthStatus(state)` /
   `submitAuthCallback(channel, payload)` / `fetchQuota(providerId, channel)`；
@@ -258,7 +258,7 @@ CLI Proxy 出网（上游渠道，如 Codex→OpenAI）与 YCode→endpoint（�
 模型级 proxyMode 只管前者之前的 YCode 一跳，管不到代理进程的出网。上游代理由
 config.yaml 顶层 `proxy-url` 承载（真机确认字段存在并随 CONFIG RELOAD 热加载）：
 
-- **Provider 级开关**：cliproxy-* 提供商规则新增 `proxyMode`（与 isPrimary 同层，
+- **Provider 级开关**：cliproxy-\* 提供商规则新增 `proxyMode`（与 isPrimary 同层，
   不进执行配置体），三档语义对齐 `docs/specs/network-settings.md`：
   - `default`（未写视为它）：跟随全局「为全局启用」开关；
   - `proxy`：强制走「网络」分区填写的代理地址（地址未填则直连）；
@@ -268,7 +268,7 @@ config.yaml 顶层 `proxy-url` 承载（真机确认字段存在并随 CONFIG RE
   无人要求或地址未填 → 直连。粒度是**实例级**，不按模型分流（二进制无模型级代理映射）。
 - **生效时机**：启动前裁决一次写入；运行期 provider 变更（refresh 已 running）裁决变化时
   重写 config.yaml，代理 watch 热加载，无需重启进程。
-- **模型级网络选项隐藏**：cliproxy-* 提供商的模型编辑弹窗不渲染代理模式选项
+- **模型级网络选项隐藏**：cliproxy-\* 提供商的模型编辑弹窗不渲染代理模式选项
   （`hideProxyMode`）——该选项只作用于 YCode→endpoint（回环）一跳，对 CLI Proxy
   场景没有实际效果，保留只会误导（用户预期它管出网）；上游代理只在 Provider 级配置。
 - **已知问题闭环**：此前生成 config.yaml 不写 proxy-url，代理进程又继承不到 shell 的
@@ -293,24 +293,69 @@ CLIProxy 默认按账号/模型记录额度冷却。远端额度已经恢复时�
   `routing.cooldown` 段——`disable-cooling: true` 表示全局关闭；键名是嵌套写法，
   不是顶层 `disable-cooling`（旧字段）也不是 `disable_cooling`。
 
-### 绑定粒度：单个共享实例 + 一账号一条 provider（已定，修正旧表述）
+### 绑定粒度：单个共享实例 + 一账号一条 provider（2026-11-18 收敛为账号粒度）
 
-旧版"一实例多上游"的表述修正为：
-
-- **实例层共享**：CLI Proxy 默认是**单个共享实例**（一进程一份 `config`，`--config` 指定；多实例需多进程多端口——我们默认单实例）。
-- **provider 层一账号一条**：**一个 Codex 账号 = 一个 provider 条目**，列在「模型与供应商」的 CLI Proxy API 分类下。provider 条目是该账号在 UI 上的映射，不是新实例。
-- 首批 UI 只开放 **Codex**；后续上游同样遵循"实例共享、provider 条目按账号增"。
+- **实例层共享**：CLI Proxy 仍是**单个共享实例**（一进程一份 `config`，`--config` 指定；多实例需多进程多端口——我们默认单实例）。
+- **provider 层按账号**：**一个上游账号（一条 auth 凭据）= 一条 provider**，列在「模型与供应商」的 CLI Proxy API 分类下。provider 条目是该账号在 UI 上的映射，不是新实例。
+- **账号身份**：取凭据文件名 `codex-<accountHash>-<email>[-<plan>].json` 中的 `<accountHash>`（`internal/auth/codex/filename.go`；同账号重登稳定）。providerId 沿用 `createPersonalProvider` 生成的 id，账号与卡片的绑定以镜像账本（accountKey → providerId）为准；展示名 = 模板名 + 账号邮箱。
+- **账号隔离靠模型前缀**：每条账号 provider 的模型清单只含该账号命名空间下的模型 id（`<prefix>/<model>`）；请求带前缀 → 代理命中该凭据 → 剥离前缀转发上游。见「账号前缀与模型路由」。
+- **现状修正**：此前实现为"一渠道一条 provider"（镜像账本以 channel 为键、卡片底部列出该渠道全部账号），多账号无法区分。本节口径为最终形态，渠道级条目按「凭据镜像」的迁移规则收敛。
+- 首批 UI 只开放 **Codex**；后续渠道（claude/gemini/antigravity）同样遵循"实例共享、provider 条目按账号增"。
 
 ```
 ┌─ CLI Proxy 实例（单个共享，本机 127.0.0.1:8317）─┐
-│  config.yaml + ~/.cli-proxy-api/*.json（一账号一文件）│
+│  config.yaml + ~/.ycode/cli-proxy/auth/*.json（一账号一文件）│
 └──────────────┬──────────────┬──────────────┘
                │              │
-     provider 条目 A        provider 条目 B
-     （Codex 账号 A）       （Codex 账号 B）
-     「模型与供应商」       「模型与供应商」
-     CLI Proxy API 分类     CLI Proxy API 分类
+     provider 条目 A（前缀 a）  provider 条目 B（前缀 b）
+     a/<model> …              b/<model> …
+     「模型与供应商」           「模型与供应商」
+     CLI Proxy API 分类         CLI Proxy API 分类
 ```
+
+### 账号前缀与模型路由（2026-11-18 新增）
+
+上游 CLI Proxy v8.0.27（本仓内置二进制同版本，源码 `router-for-me/CLIProxyAPI`）确认了
+"一账号一命名空间"的完整机制：
+
+- **前缀是凭据元数据**：auth JSON 顶层可选 `prefix` 字段，加载时写入 `auth.Prefix`
+  （`sdk/auth/filestore.go:301-303`）。**默认没有前缀**，多个账号注册同名模型、
+  `/v1/models` 只出现一份，请求由 `routing.strategy` 自动分配——这正是"两个账号看起来一样、
+  无法选择"的根因。
+- **前缀生成模型命名空间**：注册该凭据的模型时额外注册 `prefix/<model>` 克隆
+  （`sdk/cliproxy/service_models.go:641-681` 的 `applyModelPrefixes`；OAuth 路径见
+  `sdk/cliproxy/service_executors.go:581`）。注册表按模型 id 记录归属凭据，请求
+  `prefix/<model>` 只会命中该凭据。
+- **前缀在转发前被剥离**：`rewriteModelForAuth`（`sdk/cliproxy/auth/conductor_models.go:700-713`）
+  去掉 `prefix/` 后发给上游，上游模型名不变。
+- **格式约束**：去空白、去首尾 `/`；含 `/` 视为非法（`internal/config/config_normalization.go:416-425`）。
+- **写入途径**：管理面 `PATCH /v8/management/credentials/fields`，体
+  `{ "name": "<凭据文件名或 auth id>", "prefix": "<值>" }`；代理负责落盘与热加载
+  （`internal/api/handlers/management/auth_files_fields.go:259-340,604-610`）。
+- **`force-model-prefix` 不开**：该全局开关为 true 时隐藏带前缀凭据的裸模型名
+  （`internal/config/sdk_config.go:52-55`、`config.example.yaml:180-181`）。我们始终请求带前缀的
+  模型 id，不依赖它，避免影响用户手动卡片与裸模型请求。
+
+产品规则：
+
+- **前缀派生**：`<渠道>-<账号标识>`（如 `codex-77bf18ea`，取凭据文件名中的 accountHash；
+  旧式无 hash 文件名回退为规范化邮箱）。只含 `[a-z0-9-]`、不含 `/`；同账号重登不变，
+  不同账号必不同；同渠道内冲突时追加短序号。
+- **写入时机**：凭据落盘后（登录轮询到 ok，或 running 镜像发现无前缀的凭据）经管理面写入；
+  当前值等于目标值时跳过（幂等）。写入失败只记日志、卡片保留，下次 running 镜像重试。
+- **模型清单按账号**：账号 provider 的模型 =
+  `GET /v8/management/credentials/models?name=<凭据文件名>` 返回的 id（即该账号命名空间下的模型，
+  `internal/api/handlers/management/auth_files.go:333-378`）；不使用全量 `/v1/models` 的并集。
+- **能力目录**：`/v1/models?client_version=...` 的 `slug` 与注册表模型 id 同源（带前缀），
+  按精确 id 匹配；该调用是实例级的，返回所有账号命名空间（真机复核见未决问题）。
+- **请求链路**：provider 的 baseURL 仍是同一个代理（`http://127.0.0.1:<port>/v1`），
+  模型 id 带前缀是唯一差异；用户选哪个 provider 就等于选哪个账号，不需要额外的账号选择控件。
+- **事实源与只读校验**：账号前缀的事实源是凭据文件（代理落盘）；我方只在镜像时读取，
+  写入只走管理面 PATCH，不直接改凭据文件，也不写代理 config。
+- **手动卡片不受影响**：用户从模板手动添加的 cliproxy 卡片不写前缀、镜像不管；它继续使用
+  裸模型名（可能落到任一账号），与账号卡片共存。
+- **不在本 spec 范围**：账号级退出/删除入口（现有登录入口只负责新增账号）单开需求，本 spec
+  只定义账号身份、前缀与路由。
 
 ### 登录流程：界面内引导授权（已定）
 
@@ -328,57 +373,77 @@ CLIProxy 默认按账号/模型记录额度冷却。远端额度已经恢复时�
 - **OAuth 类（Codex）**：经上述登录流程走浏览器授权，**一个账号一个 auth JSON**，落盘 `~/.ycode/cli-proxy/auth/`；文件内含 `type`/`email`/`access_token`/`refresh_token`/`id_token`/`account_id`（来源：CLIProxyAPI 官方源码/文档）。
 - **API Key 类**：写在 `config.yaml` 顶层 `api-keys:` 下按上游分组（`base-url`/`headers`/`models[]`/`keys[].api-key`），与下游鉴权 `access.api-keys` **相互独立**（来源：CLIProxyAPI 官方源码/文档）。
 - **下游不需要切换供应商**：一个 base_url（如 `http://127.0.0.1:8317/v1`）+ 一个自定 api-key + 模型名即可。
-- 按请求固定走某账号靠模型名前缀 `prefix`（如 `test/gemini-3-pro-preview`）或唯一 `alias`；**没有面向下游的点名账号公开手段**。多账号路由由 `routing.strategy`（round-robin / weighted-round-robin / fill-first）+ `request-retry` + `session-affinity` 自动完成（来源：CLIProxyAPI 官方源码/文档）。
+- **按请求固定账号靠模型名前缀 `prefix`**（`prefix/<model>`，如 `codex-77bf18ea/gpt-5-codex`）：
+  这是唯一面向下游的点名账号手段，实现见「账号前缀与模型路由」。不带前缀的多账号路由仍由
+  `routing.strategy`（round-robin / weighted-round-robin / fill-first）+ `request-retry` +
+  `session-affinity` 自动完成（来源：CLIProxyAPI 官方源码/文档）。
 
-### 凭据镜像：auth 目录 → provider 列表（2026-10-14 已定）
+### 凭据镜像：auth 目录 → provider 列表（2026-10-14 已定；2026-11-18 改为账号粒度）
 
 产品规则（用户拍板）：**auth 目录里有哪些支持渠道的凭据，provider 列表就应该全部显示出来，
 哪怕不是在软件里亲自添加的**（迁移/外部登录进来的账号不得要求先手建卡片）；凭据消失，
-对应条目退场。实现为**镜像**而非同步轮询：没有文件 watcher，只在两个时机各跑一次。
+对应条目退场。2026-11-18 起镜像粒度为**账号**：**一条凭据一条 provider**，不再按渠道聚合成
+一张卡。实现为**镜像**而非同步轮询：没有文件 watcher，只在两个时机各跑一次。
 
-- **渠道识别**：auth 目录文件名 `<渠道>-*.json` 前缀（实测样本
-  `codex-77bf18ea-<email>-pro.json`）。管理面 credentials 的 `provider` 字段才是权威，
-  但它要求代理在跑；启动期代理未起，文件名前缀是唯一可得来源。前缀不认识 → 忽略。
+- **账号识别**：auth 目录文件名 `<渠道>-*.json`（实测样本 `codex-77bf18ea-<email>-pro.json`）。
+  渠道 = 文件名首段；账号标识 = 文件名中 accountHash 段（旧式无 hash 文件名回退为规范化邮箱）。
+  管理面 credentials 的 `provider`/`email` 是运行期权威字段，但它要求代理在跑；启动期代理
+  未起，文件名是唯一可得来源。渠道前缀不认识 → 忽略。
+- **账本键**：`mirror-state.json` 的键从 channel 改为账号，`accounts: { "<accountKey>": {...} }`，
+  `accountKey` = `<渠道>:<accountHash 或规范化邮箱>`。
 - **触发时机（两条，无轮询）**：
   1. Host 初始化，**按需启动判定之前**跑一次（否则死锁：无 provider → 不启动代理 →
      镜像永远不跑 → provider 永远不出现）；
-  2. 代理状态**转 running**（边沿触发，非电平）时再跑一次：补模型同步 + 拾取运行期
-     落盘的新凭据（如迁移在应用运行中搬入文件）。
-- **种子**：渠道有凭据 ∧ 无镜像记录 ∧ 该渠道模板存在（`view.providerTemplates` 里的
-  cliproxy-* 模板，已覆盖 codex/claude/gemini/antigravity 四渠道）∧ 没有可见的同模板
-  卡片（手动建过就不重复种）→
-  `createPersonalProvider({ templateId })`。端点（端口/data.key）不在这里写——种子发生在
-  启动前，启动后既有 syncEndpoints 投影会覆盖到它。
-- **模型同步**：种子条目在 running 镜像时经 `/v1/models` 动态补模型（与「同步模型」按钮
-  同路径，`addPersonalModel(useRecommendedConfig=true)`）；**只在新鲜拉取成功**（非 stale、
-  非空）时写入并记 `modelsSynced`，失败不记，下次转 running 重试。
-- **隐藏/恢复**：镜像种子条目在凭据消失时写 `visibility:"hidden"`（设置列表与模型选择器
+  2. 代理状态**转 running**（边沿触发，非电平）时再跑一次：写/补前缀、按账号同步模型 +
+     拾取运行期落盘的新凭据（如迁移在应用运行中搬入文件）。
+- **种子**：账号有凭据 ∧ 无该账号账本记录 ∧ 该渠道模板存在（`view.providerTemplates` 里的
+  cliproxy-\* 模板，已覆盖 codex/claude/gemini/antigravity 四渠道）→
+  `createPersonalProvider({ templateId, providerName: "<模板名> · <账号邮箱>" })`。
+  手动卡片没有账号绑定，不会阻止种子（与账号卡片共存）。
+  端点（端口/data.key）不在这里写——种子发生在启动前，启动后既有 syncEndpoints 投影会覆盖。
+- **前缀与模型**：卡片建立后，running 镜像先写账号前缀（见「账号前缀与模型路由」，幂等），
+  再按 `GET /v8/management/credentials/models?name=<凭据文件名>` 同步该账号模型清单；
+  **只有前缀写入成功且模型清单非空**才记 `modelsSynced`，失败不记，下次转 running 重试。
+- **隐藏/恢复**：账号凭据消失时该账号卡片写 `visibility:"hidden"`（设置列表与模型选择器
   同步退场，`hasDependentProviders` 随之为 false → 代理停，不需要的状态不留进程）；
-  凭据回来时写 `visibility:"visible"` 恢复。
-- **手动卡片不受镜像管束**：存在可见同模板卡片时不种子、不隐藏、不恢复——镜像只对自己
-  种下的条目负责。用户删掉镜像条目后记 `withdrawn`，**永久不再自动种子**（尊重删除意图；
-  想要回来就手动从模板添加，凭据还在、登录态不丢）。
+  凭据回来时同 accountKey 恢复可见并重算模型清单。
+- **手动卡片不受镜像管束**：该账号已有可见卡片时不重复种子；镜像只对自己种下的条目负责。
+  用户删掉镜像条目后记 `withdrawn`，**永久不再自动为该账号种子**（尊重删除意图；想要回来
+  就手动从模板添加，凭据还在、登录态不丢）。
+- **迁移（2026-11-18 前建立的渠道级账本）**——只跑一次，处理后删除旧键，失败留待下次重试：
+  - 该渠道恰有 1 个凭据 → 复用旧卡片作为该账号 provider（providerId 与卡片名保留），
+    写入新账号账本键，删除旧渠道键；
+  - 该渠道多于 1 个凭据 → 旧卡片 hide，成功后删除旧渠道键（它由镜像种下，隐藏不违背
+    用户意图），再按账号各建一条；
+  - 该渠道 0 个凭据 → 旧卡片 hide，成功后删除旧渠道键。
+    迁移与种子冲突时以迁移优先：已认领旧卡片的账号不再新种一条。
 - **状态所有者**：`{cli-proxy 根}/mirror-state.json`（0600），只记录**镜像自己种下的**
-  providerId 与 `hidden`/`withdrawn`/`modelsSynced`。hidden 与 deleted 无法从
-  `getView()` 区分（视图已滤掉 hidden），全靠这份状态分辨；文件损坏按空状态重建
-  （最坏情况是重新种子一次，可接受）。
+  providerId 与 `hidden`/`withdrawn`/`modelsSynced`（键为 accountKey）。hidden 与 deleted
+  无法从 `getView()` 区分（视图已滤掉 hidden），全靠这份状态分辨；文件损坏按空状态重建
+  （最坏情况是重新种子一次，可接受；旧 `channels` 结构按迁移规则处理）。
 
 ```
 Host 初始化
-  → 镜像(startup)：读 auth 目录 + mirror-state.json + getView
-      → 种子/隐藏/恢复/withdrawn（写 provider 配置 → onDidChange）
+  → 镜像(startup)：读 auth 目录（按账号解析）+ mirror-state.json + getView
+      → 迁移旧渠道键 / 种子/隐藏/恢复/withdrawn（写 provider 配置 → onDidChange）
   → resumeIfEnabled → refresh：needed=（有可见 cliproxy 卡片）
       → 有 → doStart → running（syncEndpoints 给种子条目投影端口/key）
-          → 镜像(running 边沿)：/v1/models 补齐种子条目模型 + 拾取新凭据
+          → 镜像(running 边沿)：
+              写账号前缀（credentials/fields，幂等）
+              → 拉 credentials/models → 同步该账号模型清单 + 拾取新凭据
       → 无 → 停（隐藏条目不进视图，needed 自然为 false）
 
-所有权：凭据文件（代理 OAuth 落盘）= 事实源；mirror-state.json = 镜像归属账本；
+所有权：凭据文件（代理 OAuth 落盘）= 事实源（渠道/账号/前缀的最终权威）；
+mirror-state.json = 镜像归属账本（accountKey → providerId）；
 provider 个人配置 = 唯一 UI 事实（种子/隐藏都是对它的普通写入，无第二条写入路径）。
 ```
 
 ### 模型名单与能力同步（更新）
 
 - 模型名单仍从代理端 `GET /v1/models` 获取。它决定可同步的模型 ID；YCode 不内置动态名单。
+- **账号 provider 用按账号清单（2026-11-18）**：账号 provider 的名单来自
+  `GET /v8/management/credentials/models?name=<凭据文件名>`，只含该账号命名空间下的
+  带前缀 id；全量 `/v1/models` 只用于手动卡片。按账号清单失败时保留已有模型，不写空名单。
 - Codex 的能力目录从代理端 `GET /v1/models?client_version=0.153.0` 获取。v8.0.27 本机实测该响应包含 `slug`、`context_window`、`max_context_window`、`input_modalities`、`supports_image_detail_original` 和 `supported_reasoning_levels`。目录版本号是已验证的兼容参数，不代表 YCode 版本。
 - 能力目录只按 `slug` 与名单中的 `id` 精确匹配。目录里不在名单中的条目不会被添加。其它渠道不套用 Codex 目录。
 - 将上游字段规范化到模型能力配置。`context_window` 映射推荐 `contextWindow`；`max_context_window` 只保留为目录信息，不作为默认上下文预算；`input_modalities` 明确包含 `image` 才设置图片支持；视频不从图片能力推断。推理档位只有在映射与现有语义一致时才同步。没有依据的输出上限字段不映射。
@@ -417,13 +482,17 @@ provider 个人配置 = 唯一 UI 事实（种子/隐藏都是对它的普通写
 
 - **来源**：Codex 上游响应带 `rate_limits{primary/secondary{used_percent,window_minutes,reset_after_seconds/reset_at},limit_reached}` 与 `credits/plan_type`；代理在 `internal/runtime/executor/helps/codex_quota.go`（CLIProxyAPI 官方源码）归一化为 `X-Codex-*` 头（`Primary/Secondary-Used-Percent`、`*-Window-Minutes`、`*-Reset-After-Seconds/Reset-At`、`Limit-Reached`、`Plan-Type`、`Active-Limit`、`Credits-Balance`），再由 `sdk/cliproxy/auth/quota_signals.go:ObserveResponseHeadersForProvider`（CLIProxyAPI 官方源码）存为该凭据的快照，**替换语义而非累积**。
 - **读取**：`GET /v8/management/credentials`（`Authorization: Bearer <management-key>` 或 `X-Management-Key`，v8.0.27 真机验证两者均 200），条目形如 `quota = {observed_at(RFC3339), signals}`，另有逐模型 `model_quotas`；多账号逐条读。（来源：CLIProxyAPI 官方源码/文档 + 真机验证；`credentials` 返回里额度字段的确切键名需实测，见未决问题。）
-- **真机形态（v8.0.27 实测）**：空实例返回 `{"files":[],"observed_at":"..."}`；条目顶层 `quota.signals` 无观测时为空对象 `{}`；`model_quotas` 无数据时整个字段缺席（读取按可选处理）；`secret-key` 明文启动后会被代理改写成 bcrypt 哈希。
+- **真机形态（v8.0.27 实测）**：空实例返回 `{"files":[],"observed_at":"..."}`；条目顶层 `quota.signals` 无观测时为空对象 `{}`；`model_quotas` 无数据时整个字段缺席（读取按可选处理）；`secret-key` 明文启动后会被代理改写成 bcrypt 哈希。`signals` 内具体键为 **HTTP 头形态**（2026-10-14 真实补全后抓取）：`X-Codex-Primary-Used-Percent` / `*-Window-Minutes` / `*-Reset-After-Seconds` / `*-Reset-At`（epoch 秒字符串）/ `X-Codex-Plan-Type` / `X-Codex-Active-Limit` / `X-Codex-Credits-Balance` 等，值均为字符串；secondary 可能是 0 分钟空槽位。解析器兼容头形态与早期假设的小写短横线形态两种（`parseCliProxyQuotaSignals`）。
 - **触发条件（产品规则）**：仅在**真实补全响应**上观测（调用点 `auth/conductor_cooldown.go:1035`，CLIProxyAPI 官方源码）。`GET /v1/models`、5xx、传输失败都不刷新，保持旧快照；准备失败路径显式置 `SkipQuotaObservation`。因此"连通性测试顺带刷新额度"**只有在该测试发的是真实补全（极小 max_tokens）时成立**，并会消耗极小上游用量；若测试只调 `/v1/models` 则不刷新。
 - **窗口区分（重要纠正）**：不要硬编码 primary=5h。代理只是按上游字段名循环输出 primary/secondary（`codex_quota.go:180`，CLIProxyAPI 官方源码），未绑定窗口时长；某档位只有一个窗口时就是少一个槽位。正确做法是读 `*-Window-Minutes` 自行归类（300≈5 小时、10080≈7 天）。注意该头**非必有**：需 `used_percent`+`window_minutes`+`reset_after/at` 同时合法才收录，缺一即丢弃该窗口。`Active-Limit` 取上游 `metered_limit_name`，是"当前生效的 limit 名"而非窗口时长；`Plan-Type` 原样透传（见过 `free/plus/team/business/go`，另有 `pro`）。档位与窗口数量的对照表在源码中**不存在**，标为未确认。
+- **账号粒度（2026-11-18）**：额度按账号展示——每张账号卡片只读该 provider 绑定凭据
+  （`name` 或 accountHash 匹配）的 `quota`，不再把同渠道多账号窗口合并成一行。
+  `quota-snapshot.json` 的缓存键从渠道改为 accountKey；旧渠道缓存直接忽略（最坏一次无缓存
+  回落，下次真实请求覆盖，可接受）。
 - **时效**：无 TTL；**重启后代理内存快照清空**（2026-10-14 实测：credentials 的
   quota.signals 清空）。但 UI 承诺的是"最后一次观测值"——**打开软件立刻可见，不得要求
   先发一次请求**（用户明确要求）。因此 Host 在每次成功读取到窗口时把合并快照落盘为
-  `{cli-proxy 根}/quota-snapshot.json`（0600，按渠道分条），之后的读取在 live 无窗口
+  `{cli-proxy 根}/quota-snapshot.json`（0600，按账号分条），之后的读取在 live 无窗口
   （代理未启动/重启后无观测/管理面失败/无凭据）时回落这份缓存：observedAt 是旧值，
   界面按"N 小时前观测"如实呈现；下一次真实请求自动覆盖。
 - **展示**：tooltip 只显示**最后一次观测值** + 友好化时间（"5 分钟前""1 分钟内"这类）；无数据时显示"—"。不做定时轮询；打开设置页时拉一次，页面可见时低频兜底，代理未启动不拉。
@@ -443,9 +512,11 @@ provider 个人配置 = 唯一 UI 事实（种子/隐藏都是对它的普通写
 
 ### 模型名与展示（已定）
 
-- **不改模型 id**。代理转发前会剥离前缀（`auth/conductor_models.go:rewriteModelForAuth` 的 `TrimPrefix`，CLIProxyAPI 官方源码），上游收到的是真名。
+- **上游模型 id 不变，下游命名空间带账号前缀**。账号 provider 在 YCode 侧使用
+  `<账号前缀>/<model>` 作为模型 id；代理转发前剥离前缀（`auth/conductor_models.go:rewriteModelForAuth`
+  的 `TrimPrefix`，CLIProxyAPI 官方源码），上游收到的是真名。这只是下游命名空间，不是改上游模型 id。
 - **不向模型注入自我身份**：在 `packages/provider`、`packages/services` 搜过，无此类 system prompt，所以不存在"模型自我认知错乱"。副作用只在下游展示。
-- 我们的展示名直接由 id 派生（`packages/ui/src/lib/modelDisplayName.ts:63`），没有展示名/请求名分离字段。所以区分账号用 **provider 名 + 模型条目自带的 `name` 字段**。
+- 我们的展示名直接由 id 派生（`packages/ui/src/lib/modelDisplayName.ts:63`），没有展示名/请求名分离字段。因此账号区分放在 **provider 名（含邮箱）** 上；模型条目 id 带账号前缀，展示名沿用同一派生逻辑，不再额外拼接账号文字。
 - 代理侧 `models[].alias` 是给下游看的名字、`name` 才是上游真名，属换壳，不改变可用模型（来源：CLIProxyAPI 官方源码/文档）。
 
 ## 事件顺序与生命周期
@@ -471,9 +542,12 @@ provider 个人配置 = 唯一 UI 事实（种子/隐藏都是对它的普通写
        │           └─ 失败 → state = error（不改用户意图）
        └─ 更新检查：启动时一次 + 每日一次（现有更新提示通道，不单独做角标）
 
-用户在「模型与供应商」添加 Codex 配置（一账号一条 provider）
+用户在「模型与供应商」添加 Codex 配置（一账号一条 provider，2026-11-18）
   ├─ 界面内引导授权（管理面 OAuth 三步；回调端口被占时降级提示，不承诺设备码）
   ├─ 凭据落盘即被代理热加载（不写代理 config 的账号分组）
+  ├─ 凭据落盘后：按 accountHash 建/复用该账号 provider，写账号前缀（credentials/fields，
+  │   幂等），按 credentials/models 同步该账号模型清单
+  │     └─ 任一步失败：卡片保留，下次转 running 的镜像重试（不阻塞登录成功态）
   └─ 触发依赖判定重算：需要 → start()（含 EADDRINUSE 让位 + 端点投影：按实际端口与
       data.key 投影 provider 的 baseURL/access.apiKey）；运行中新增依赖 provider 时
       refresh() 补一次投影；移除最后一个依赖 provider → stop()
@@ -545,7 +619,7 @@ provider 个人配置 = 唯一 UI 事实（种子/隐藏都是对它的普通写
 5. ~~更新检查频率与提示方式~~：**已定**——启动时一次 + 每日一次，走现有更新提示通道，不单独做角标。
 6. ~~macOS quarantine 策略~~：**已定**——不做去 quarantine；做 sha256 校验 + 可执行位 + ad-hoc 签名。
 7. ~~安装/卸载语义~~：**已定**（见「安装/卸载语义」）。
-8. ~~绑定粒度~~：**已定**——单个共享实例 + 一账号一条 provider。
+8. ~~绑定粒度~~：**已定**——单个共享实例 + 一账号一条 provider；账号经模型前缀 `prefix` 命名空间隔离（2026-11-18）。
 9. ~~第四签~~：**已定**——独立第四签「外部插件」，插件级过滤 `binaryPlugin != null`。
 10. ~~Codex 登录流程~~：**已定**——界面内引导授权（管理面 OAuth 三步；回调端口被占时降级提示，不承诺设备码）。
 
@@ -558,11 +632,14 @@ provider 个人配置 = 唯一 UI 事实（种子/隐藏都是对它的普通写
 - `GET /v8/management/oauth/auth-url?provider=codex` 返回 `{"state","status":"ok","url"}`；`status?state=` 未完成返回 `{"status":"wait"}`。
 - 设备码相关管理面端点（`oauth/device*` 四个候选路径）实测全 404，不实现设备码回退。
 - 本机直连 github.com 被拒，经 `localhost:7890` 代理可下载（应用内下载必须支持代理环境变量）。
+- 源码核对（v8.0.27 同版本源码，2026-11-18）：凭据 `prefix` 默认不存在；有前缀时注册
+  `prefix/<model>` 命名空间并在转发前剥离。管理面 credentials 列表**不返回** `prefix`，
+  写入走 `PATCH /v8/management/credentials/fields`（`{name, prefix}`），读取前缀以 auth 文件为准。
 
 ## Web/移动端边界（已定）
 
 - **仅桌面可添加**：CLI Proxy API 分类的供应商新增入口只在桌面端开放。判定取 `!isDesktop || isRemoteWorkspace`（`ModelProviderSection` 经 `SettingsPage` 透传；`isDesktop` 为全仓 UI 区分桌面/Web 的规范做法，Web 产物恒为 `false`，手机远控跑的正是这份 Web 产物，天然覆盖）。
-- **原因**：代理进程、凭据目录（`~/.cli-proxy-api`）、以及 OAuth 回调（硬编码 `http://localhost:1455/auth/callback`）全在桌面本机；web/手机端添加必然断在登录。
+- **原因**：代理进程、凭据目录（`~/.ycode/cli-proxy/auth/`）、以及 OAuth 回调（硬编码 `http://localhost:1455/auth/callback`）全在桌面本机；web/手机端添加必然断在登录。
 - **Web 与远端行为**：`ProviderTemplatePicker` 的 cliproxy 分组卡片 `disabled` 并附提示（`settings.modelProvider.cliproxyDesktopOnlyHint`：「请在桌面端添加」）；其它分组与桌面端行为不变。
 - **Web/远端登录入口**：额度区不渲染登录按钮，仅显示桌面端提示（`settings.modelProvider.cliproxyLogin.desktopOnly`）；服务缺失时 `startLogin` 置 `failed/desktop-only` 而非静默无反应（`useCliProxyAccount.ts:63`）。
 - **已存在条目仍可用**：已添加的代理条目在 web/远端仍可正常使用——聊天、模型选择、额度展示不受影响，只禁新增入口与登录。
@@ -584,6 +661,19 @@ provider 个人配置 = 唯一 UI 事实（种子/隐藏都是对它的普通写
 - i18n：`settings.plugin.tab.*` 新增第四个 key（`packages/ui/src/i18n/locales/zh-CN.ts:3509-3512` 与 `en-US.ts` 对应位置）+ 版本区块文案。
 - 播种：`apps/zcode-cli/packages/bootstrap/src/app/official-plugin-definitions.ts`（把 CLI Proxy 注册为内置插件）。
 - 运行时（新）：Host 侧 `CliProxyService` + 新增落盘文件；下载/校验/解压/版本目录复用 `packages/zcode-server-cli/src/runtime/`；macOS 侧加 ad-hoc 签名与可执行位保障。
+- **账号粒度镜像（2026-11-18）**：
+  - `packages/services/src/cli-proxy/cliProxyMirror.ts`：账本 schema 改 `accounts`（accountKey）；
+    决策改为按账号种子/隐藏/恢复，新增旧 `channels` 迁移；running 阶段加"写前缀 + 按账号模型同步"。
+  - `packages/services/src/cli-proxy/cliProxyAccount.ts`：新增 `fetchCliProxyCredentialModels(name)`
+    （`/v8/management/credentials/models?name=`）与 `setCliProxyCredentialPrefix(name, prefix)`
+    （`PATCH /v8/management/credentials/fields`）；`fetchCliProxyQuota` 改为按账号过滤。
+  - `packages/desktop/src/host/cliProxyCredentialMirror.ts`：读 auth 目录改为按账号解析
+    （渠道 + accountHash），端口注入前缀写入与按账号模型同步。
+  - `packages/services/src/cli-proxy/cliProxyService.ts`：账号相关调用只在 running 且管理面可达时执行；
+    `quota-snapshot.json` 键改 accountKey。
+  - UI：`CliProxyAccountFooter` 保持"有账号即显示"（账号事实的安全提示；账号卡片与卡片名
+    重复但卡片可被改名，迁移认领的旧卡片名不含邮箱）；`useCliProxyAccount` 的登录入口仍按
+    渠道，登录成功后由镜像派生新卡片。
 - **不动**：`plugin-components.ts` 与组件枚举（`PluginComponentType`、协议组件 zod 枚举、`PluginComponentGroups` 徽标、`enumeratePluginComponents`）。
 
 ## 验收场景
@@ -596,18 +686,25 @@ provider 个人配置 = 唯一 UI 事实（种子/隐藏都是对它的普通写
 6. 启动及每日联网检查发现 GitHub 新 release：自动下载到 `releases/<version>-<target>-<sha12>/`；旧版本目录与兜底版本行仍在，已有 active 保持不变；首次没有任何可用版本时下载完成后自动激活，保证可启动。比较基线与“已安装而跳过下载”的判定只使用当前 target 且二进制实际存在的版本；同号但 target 不符或二进制缺失的登记项不能阻止下载。
 7. 版本排序按数字语义比较，覆盖多段数字边界（例如 `8.0.9` < `8.0.10` < `8.0.100`），不依赖字典序。
 8. 在**插件详情**里切换版本：active 指针更新，旧目录保留；运行中切换会重启服务且端口不变。
-8. 下载内容 sha256 与期望不符：拒绝安装并如实报错，已下载的既有版本不受影响。
-9. 真实补全后打开设置页：tooltip 显示最后一次观测的额度 + 友好化时间；仅调 `/v1/models` 时额度不刷新。
-10. **凭据镜像**：把一个 `codex-*.json` 凭据放进 auth 目录后冷启动，CLI Proxy API 分类下自动出现对应条目（含动态模型），无需手动添加；删掉该凭据文件再冷启动，条目从设置列表与模型选择器退场且代理不启动；凭据放回后条目恢复。手动删除镜像条目后，即使凭据仍在也不再自动重建；手动从模板建的卡片始终不受镜像影响。
-11. macOS 上下载的新版本：可执行位正确、ad-hoc 签名完成，可直接启动，无需用户手动放行 quarantine。
-12. `pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed` 通过；新增单测通过。
+9. 下载内容 sha256 与期望不符：拒绝安装并如实报错，已下载的既有版本不受影响。
+10. 真实补全后打开设置页：tooltip 显示最后一次观测的额度 + 友好化时间；仅调 `/v1/models` 时额度不刷新。
+11. **凭据镜像（账号粒度）**：把两个 `codex-*.json` 凭据放进 auth 目录后冷启动，CLI Proxy API 分类下出现**两张卡片**（各含自己的邮箱与模型清单），而不是一张合并卡；删掉其中一个凭据再冷启动，只有对应卡片退场、代理仍因另一张卡片保持运行；凭据放回后该卡片恢复。手动删除镜像条目后，即使凭据仍在也不再自动重建；手动从模板建的卡片始终不受镜像影响。
+12. **账号前缀与点名路由**：两条 Codex 凭据在运行后各自拿到不同前缀（写入凭据文件，`credentials/fields` 幂等，重复运行不变）；账号 A 的卡片模型均为 `a/<model>`、B 为 `b/<model>`；选择账号 A 的模型发请求，代理命中 A 凭据、转发上游的模型名不带前缀；同一轮对话不会漂移到 B。
+13. **旧渠道级账本迁移**：升级前只有一张渠道卡的实例——该渠道单凭据时复用原卡片并补充前缀与按账号模型；多凭据时旧卡隐藏、按账号各建一张；迁移只跑一次，重启不重复。
+14. 真实补全后打开设置页：每张账号卡片的额度只显示**该账号**的最后一次观测值；仅调 `/v1/models` 时额度不刷新。
+15. macOS 上下载的新版本：可执行位正确、ad-hoc 签名完成，可直接启动，无需用户手动放行 quarantine。
+16. `pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed` 通过；新增单测通过。
 
 ## 未决问题（只保留真正未定）
 
 - 档位与窗口数量对照表缺失（CLIProxyAPI 源码中不存在，需长期按 `Window-Minutes` 自行归类）。
-- `credentials` 额度字段（8.0.27 实测）：条目顶层 `quota` 对象内含 `signals`（无观测时为 `{}`）；`model_quotas` 无数据时字段缺席（非空数组），读取需做可选处理；空实例返回 `{"files":[],"observed_at":"..."}`。`signals` 内具体信号键**已实测**（2026-10-14 真实补全后抓取）：为 **HTTP 头形态**——
-`X-Codex-Primary-Used-Percent` / `*-Window-Minutes` / `*-Reset-After-Seconds` /
-`*-Reset-At`（epoch 秒字符串）/ `X-Codex-Plan-Type` / `X-Codex-Active-Limit` /
-`X-Codex-Credits-Balance` 等，值均为字符串；secondary 可能是 0 分钟空槽位。
-解析器兼容头形态与早期假设的小写短横线形态两种（`parseCliProxyQuotaSignals`）。
+- 能力目录 slug 是否带账号前缀：源码显示目录由带前缀的注册表模型构建，需真机抓一份多账号
+  `/v1/models?client_version=...` 确认 `slug` 形如 `a/<model>`；若不带前缀，则目录按基名加上
+  该账号前缀后再匹配。
+- 前缀写入后模型注册的生效时机：`PATCH credentials/fields` 触发凭据重载，新命名空间出现在
+  `/v1/models` 可能滞后一次刷新；当前按"下次转 running 的镜像重算"兜底，需真机确认可接受的
+  等待窗口。
+- 同渠道账号标识冲突（accountHash 缺失或重复）时的前缀去重规则（追加短序号）在真实文件名
+  分布下是否会被触发，需抽样验证。
+- 账号级退出/删除入口（删除凭据 → 卡片退场）未纳入本 spec，单开需求。
 - 内置版本打包与随应用升级的具体机制（打包路径、升级时是否覆盖）。

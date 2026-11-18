@@ -2037,8 +2037,11 @@ const cliProxyRuntime = createCliProxyService({
  */
 const cliProxyCredentialMirror = createCliProxyCredentialMirror({
   getProviderSettings: () => activeServices?.getOptional(IProviderSettingsService) ?? null,
-  syncModels: async (providerId) => {
-    await cliProxyRuntime.syncModels(providerId);
+  syncModels: async (providerId, account) => {
+    await cliProxyRuntime.syncModels(providerId, account);
+  },
+  setCredentialPrefix: async (credentialName, prefix) => {
+    await cliProxyRuntime.setCredentialPrefix(credentialName, prefix);
   },
   refreshVisibleProviderCapabilities: async () => {
     const providerSettings = activeServices?.getOptional(IProviderSettingsService);
@@ -2055,13 +2058,18 @@ const cliProxyCredentialMirror = createCliProxyCredentialMirror({
     }
   },
 });
-// running 边沿触发一次 running 镜像（补种子条目模型 + 拾取运行期新凭据）；
+// running 边沿触发一次 running 镜像（按账号写前缀/补模型 + 拾取运行期新凭据）；
+// 登录落盘后 credentialsChangedAt 变化同样触发（运行中新增账号无需等重启）。
 // 电平触发会在每次 refresh 的 publish 上重复跑，必须比对前态。
 let lastCliProxyState: CliProxyStatus["state"] | null = null;
+let lastCliProxyCredentialsChangedAt: string | null | undefined = undefined;
 cliProxyRuntime.onDidChangeStatus((nextStatus) => {
   const previous = lastCliProxyState;
+  const previousCredentialsChangedAt = lastCliProxyCredentialsChangedAt;
   lastCliProxyState = nextStatus.state;
-  if (nextStatus.state === "running" && previous !== "running") {
+  lastCliProxyCredentialsChangedAt = nextStatus.credentialsChangedAt;
+  const credentialsChanged = nextStatus.credentialsChangedAt !== previousCredentialsChangedAt;
+  if (nextStatus.state === "running" && (previous !== "running" || credentialsChanged)) {
     void cliProxyCredentialMirror.run("running");
   }
 });

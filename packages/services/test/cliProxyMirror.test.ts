@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   readCliProxyMirrorState,
+  resolveCliProxyCredentialAccount,
+  resolveCliProxyCredentialAccounts,
   resolveCliProxyCredentialChannels,
   resolveCliProxyCredentialMirrorPlan,
   runCliProxyCredentialMirror,
@@ -14,121 +16,207 @@ import { resolveCliProxyLayout } from "../src/cli-proxy/cliProxyVersions.js";
 import type { CliProxyCredentialMirrorPorts } from "../src/cli-proxy/cliProxyMirror.js";
 
 // 凭据镜像（docs/specs/plugin-cli-proxy-binary.md「凭据镜像」）：
-// auth 目录里的支持渠道凭据自动镜像成 provider 条目；凭据消失条目退场；
-// 手动卡片不受镜像管束；用户删过就永久放弃（withdrawn）。
+// auth 目录里的一条凭据 = 一张 provider 卡片；账号靠模型前缀隔离；
+// 凭据消失卡片退场；用户删过就永久放弃（withdrawn）；旧渠道级账本一次性迁移。
 
 function codexTemplates() {
-  return [{ channel: "codex", templateId: "cliproxy-codex" }];
+  return [{ channel: "codex", templateId: "cliproxy-codex", name: "CLI Proxy API (Codex)" }];
 }
 
 function plan(overrides: Partial<Parameters<typeof resolveCliProxyCredentialMirrorPlan>[0]> = {}) {
   return resolveCliProxyCredentialMirrorPlan({
-    channels: ["codex"],
+    accounts: resolveCliProxyCredentialAccounts(["codex-77bf18ea-a@example.com-pro.json"]),
     channelTemplates: codexTemplates(),
     providers: [],
-    state: { version: 1, channels: {} },
+    state: { version: 2, accounts: {} },
     ...overrides,
   });
 }
 
-test("渠道识别：codex 前缀（真实样本）、多渠道去重、未知前缀与 lock 忽略", () => {
+test("账号解析：hash/邮箱/计划后缀、无 hash 旧式文件名、未知前缀忽略", () => {
+  assert.deepEqual(resolveCliProxyCredentialAccount("codex-77bf18ea-a@example.com-pro.json"), {
+    channel: "codex",
+    accountKey: "codex:77bf18ea",
+    fileName: "codex-77bf18ea-a@example.com-pro.json",
+    accountId: "77bf18ea",
+    email: "a@example.com",
+    prefix: "codex-77bf18ea",
+  });
+  const legacy = resolveCliProxyCredentialAccount("codex-b@example.com.json");
+  assert.equal(legacy?.accountKey, "codex:b-example-com");
+  assert.equal(legacy?.email, "b@example.com");
+  assert.equal(legacy?.prefix, "codex-b-example-com");
+  assert.equal(resolveCliProxyCredentialAccount("config-backup.json"), null);
+  assert.equal(resolveCliProxyCredentialAccount("codex-xxx.json.lock"), null);
+  assert.equal(resolveCliProxyCredentialAccount("README.md"), null);
+});
+
+test("账号列表：按文件名稳定排序、同账号去重、前缀冲突追加序号", () => {
+  const accounts = resolveCliProxyCredentialAccounts([
+    "codex-77bf18ea-a@example.com-pro.json",
+    "codex-77bf18ea-a@example.com.json",
+    "codex-abcdef-b@example.com.json",
+    "claude-cccccc-c@example.com.json",
+  ]);
+  assert.deepEqual(
+    accounts.map((account) => account.accountKey),
+    ["claude:cccccc", "codex:77bf18ea", "codex:abcdef"],
+  );
   assert.deepEqual(
     resolveCliProxyCredentialChannels([
-      "codex-77bf18ea-thisisforgpt1234@gmail.com-pro.json",
-      "codex-abc123-another@gmail.com.json",
-      "claude-something.json",
-      "config-backup.json",
-      "codex-xxx.json.lock",
-      "not-a-channel.json",
-      "README.md",
+      "codex-77bf18ea-a@example.com-pro.json",
+      "claude-cccccc-c@example.com.json",
     ]),
-    ["codex", "claude"],
+    ["claude", "codex"],
   );
-  // 空目录/无文件 → 空渠道。
-  assert.deepEqual(resolveCliProxyCredentialChannels([]), []);
 });
 
-test("规划：有凭据 + 无账本 + 无卡片 → 种子", () => {
-  assert.deepEqual(plan(), [{ kind: "seed", channel: "codex", templateId: "cliproxy-codex" }]);
+test("规划：两个账号 + 无账本 → 各自种子，卡片名带邮箱", () => {
+  const accounts = resolveCliProxyCredentialAccounts([
+    "codex-77bf18ea-a@example.com.json",
+    "codex-abcdef-b@example.com.json",
+  ]);
+  assert.deepEqual(plan({ accounts }), [
+    {
+      kind: "seed",
+      channel: "codex",
+      templateId: "cliproxy-codex",
+      accountKey: "codex:77bf18ea",
+      providerName: "CLI Proxy API (Codex) · a@example.com",
+      credentialName: "codex-77bf18ea-a@example.com.json",
+    },
+    {
+      kind: "seed",
+      channel: "codex",
+      templateId: "cliproxy-codex",
+      accountKey: "codex:abcdef",
+      providerName: "CLI Proxy API (Codex) · b@example.com",
+      credentialName: "codex-abcdef-b@example.com.json",
+    },
+  ]);
 });
 
-test("规划：已有可见同模板卡片（手动建过）→ 不种子、不收编", () => {
+test("规划：手动添加的同模板卡片不阻止账号种子（手动卡片没有账号绑定）", () => {
+  const actions = plan({
+    providers: [{ providerId: "personal-codex", templateId: "cliproxy-codex" }],
+  });
   assert.deepEqual(
-    plan({
-      providers: [{ providerId: "personal-codex", templateId: "cliproxy-codex" }],
-    }),
-    [],
+    actions.map((action) => action.kind),
+    ["seed"],
   );
 });
 
-test("规划：在岗种子条目 + 凭据消失 → 隐藏；凭据回来 → 不动", () => {
+test("规划：在岗账号凭据消失 → 隐藏；凭据回来 → 恢复", () => {
   const state = {
-    version: 1 as const,
-    channels: {
-      codex: { providerId: "personal-codex", seededAt: "2026-10-14T00:00:00.000Z" },
+    version: 2 as const,
+    accounts: {
+      "codex:77bf18ea": {
+        providerId: "personal-codex",
+        seededAt: "2026-11-18T00:00:00.000Z",
+        credentialName: "codex-77bf18ea-a@example.com.json",
+      },
     },
   };
-  const providers = [{ providerId: "personal-codex", templateId: "cliproxy-codex" as const }];
-  assert.deepEqual(plan({ channels: [], state, providers }), [
-    { kind: "hide", channel: "codex", providerId: "personal-codex" },
+  const providers = [{ providerId: "personal-codex", templateId: "cliproxy-codex" }];
+  assert.deepEqual(plan({ accounts: [], state, providers }), [
+    { kind: "hide", channel: "codex", accountKey: "codex:77bf18ea", providerId: "personal-codex" },
   ]);
   assert.deepEqual(plan({ state, providers }), []);
-});
-
-test("规划：已隐藏 + 凭据回来 → 恢复；仍无凭据 → 维持现状", () => {
-  const state = {
-    version: 1 as const,
-    channels: {
-      codex: {
-        providerId: "personal-codex",
-        seededAt: "2026-10-14T00:00:00.000Z",
+  const hiddenState = {
+    version: 2 as const,
+    accounts: {
+      "codex:77bf18ea": {
+        ...state.accounts["codex:77bf18ea"]!,
         hidden: true,
       },
     },
   };
-  assert.deepEqual(plan({ state }), [
-    { kind: "unhide", channel: "codex", providerId: "personal-codex" },
-  ]);
-  assert.deepEqual(plan({ channels: [], state }), []);
-});
-
-test("规划：账本在岗但条目被用户删了（不在可见视图）→ withdraw，与凭据有无无关", () => {
-  const state = {
-    version: 1 as const,
-    channels: {
-      codex: { providerId: "personal-codex", seededAt: "2026-10-14T00:00:00.000Z" },
+  assert.deepEqual(plan({ state: hiddenState }), [
+    {
+      kind: "unhide",
+      channel: "codex",
+      accountKey: "codex:77bf18ea",
+      providerId: "personal-codex",
     },
-  };
-  const expected = [{ kind: "withdraw", channel: "codex", providerId: "personal-codex" }];
-  assert.deepEqual(plan({ state }), expected);
-  assert.deepEqual(plan({ channels: [], state }), expected);
+  ]);
+  assert.deepEqual(plan({ accounts: [], state: hiddenState }), []);
 });
 
-test("规划：withdrawn 后永不动作（尊重删除意图，手动添加不受影响）", () => {
+test("规划：账本在岗但卡片被删（不在可见视图）→ withdraw；withdrawn 后永不动作", () => {
   const state = {
-    version: 1 as const,
-    channels: {
-      codex: {
+    version: 2 as const,
+    accounts: {
+      "codex:77bf18ea": {
         providerId: "personal-codex",
-        seededAt: "2026-10-14T00:00:00.000Z",
-        withdrawn: true,
+        seededAt: "2026-11-18T00:00:00.000Z",
+        credentialName: "codex-77bf18ea-a@example.com.json",
       },
     },
   };
-  assert.deepEqual(plan({ state }), []);
-  // 即使后来用户手动建了卡片再删掉，账本仍 withdrawn，不重新种子。
+  assert.deepEqual(plan({ state }), [
+    {
+      kind: "withdraw",
+      channel: "codex",
+      accountKey: "codex:77bf18ea",
+      providerId: "personal-codex",
+    },
+  ]);
+  const withdrawn = {
+    version: 2 as const,
+    accounts: {
+      "codex:77bf18ea": { ...state.accounts["codex:77bf18ea"]!, withdrawn: true },
+    },
+  };
+  assert.deepEqual(plan({ state: withdrawn }), []);
+});
+
+test("迁移：旧渠道账本 + 单账号 + 可见旧卡片 → 认领复用，不新种", () => {
+  const legacyState = {
+    version: 2 as const,
+    accounts: {},
+    legacyChannels: {
+      codex: { providerId: "personal-legacy", seededAt: "2026-10-14T00:00:00.000Z" },
+    },
+  };
   assert.deepEqual(
     plan({
-      state,
-      providers: [{ providerId: "personal-codex-2", templateId: "cliproxy-codex" }],
+      state: legacyState,
+      providers: [{ providerId: "personal-legacy", templateId: "cliproxy-codex" }],
     }),
-    [],
+    [
+      {
+        kind: "adopt",
+        channel: "codex",
+        accountKey: "codex:77bf18ea",
+        providerId: "personal-legacy",
+        credentialName: "codex-77bf18ea-a@example.com-pro.json",
+      },
+    ],
   );
 });
 
-test("规划：无模板的渠道不参与；模板在但无凭据且无账本不动作", () => {
-  assert.deepEqual(plan({ channels: ["claude"] }), []);
-  assert.deepEqual(plan({ channels: [] }), []);
+test("迁移：旧渠道账本 + 多账号/无账号 → 旧卡退役，多账号各建一条", () => {
+  const legacyState = {
+    version: 2 as const,
+    accounts: {},
+    legacyChannels: {
+      codex: { providerId: "personal-legacy", seededAt: "2026-10-14T00:00:00.000Z" },
+    },
+  };
+  const providers = [{ providerId: "personal-legacy", templateId: "cliproxy-codex" }];
+  const accounts = resolveCliProxyCredentialAccounts([
+    "codex-77bf18ea-a@example.com.json",
+    "codex-abcdef-b@example.com.json",
+  ]);
+  const actions = plan({ accounts, state: legacyState, providers });
+  assert.equal(actions[0]?.kind, "retire-legacy");
+  assert.deepEqual(
+    actions.slice(1).map((action) => action.kind),
+    ["seed", "seed"],
+  );
+  assert.deepEqual(plan({ accounts: [], state: legacyState, providers }), [
+    { kind: "retire-legacy", channel: "codex", providerId: "personal-legacy" },
+  ]);
 });
 
 // ── 引擎（注入端口）──
@@ -136,117 +224,258 @@ test("规划：无模板的渠道不参与；模板在但无凭据且无账本�
 function fakePorts(
   overrides: Partial<CliProxyCredentialMirrorPorts> = {},
 ): CliProxyCredentialMirrorPorts & {
-  created: string[];
+  created: Array<{ templateId: string; providerName?: string }>;
   visibility: Array<{ providerId: string; visibility: string }>;
-  added: Array<{ providerId: string; modelId: string }>;
+  prefixes: Array<{ credentialName: string; prefix: string }>;
+  synced: Array<{ providerId: string; credentialName?: string; prefix?: string }>;
 } {
-  const created: string[] = [];
+  const created: Array<{ templateId: string; providerName?: string }> = [];
   const visibility: Array<{ providerId: string; visibility: string }> = [];
-  const added: Array<{ providerId: string; modelId: string }> = [];
+  const prefixes: Array<{ credentialName: string; prefix: string }> = [];
+  const synced: Array<{ providerId: string; credentialName?: string; prefix?: string }> = [];
   return {
     created,
     visibility,
-    added,
-    createProviderFromTemplate: async (templateId) => {
-      created.push(templateId);
+    prefixes,
+    synced,
+    createProviderFromTemplate: async (templateId, options) => {
+      created.push({
+        templateId,
+        ...(options?.providerName ? { providerName: options.providerName } : {}),
+      });
       return { providerId: `personal-${templateId}-${created.length}` };
     },
     saveProviderVisibility: async (providerId, nextVisibility) => {
       visibility.push({ providerId, visibility: nextVisibility });
     },
-    syncModels: async (providerId) => {
-      added.push({ providerId, modelId: "gpt-6" }, { providerId, modelId: "gpt-6-codex" });
+    ensureCredentialPrefix: async (credentialName, prefix) => {
+      prefixes.push({ credentialName, prefix });
+      return { changed: false };
+    },
+    syncModels: async (providerId, account) => {
+      synced.push({
+        providerId,
+        ...(account ? { credentialName: account.credentialName, prefix: account.prefix } : {}),
+      });
     },
     refreshVisibleProviderCapabilities: async () => {},
     ...overrides,
   };
 }
 
-test("引擎 startup：种子记录 providerId 与 seededAt，不做模型同步（代理还没起）", async () => {
+const oneAccount = resolveCliProxyCredentialAccounts(["codex-77bf18ea-a@example.com.json"]);
+
+test("引擎 startup：种子记录 accountKey/凭据文件名，不做前缀与模型同步", async () => {
   const ports = fakePorts({
+    ensureCredentialPrefix: async () => {
+      throw new Error("startup 不该写前缀");
+    },
     syncModels: async () => {
       throw new Error("startup 不该拉模型");
     },
   });
   const { actions, nextState } = await runCliProxyCredentialMirror({
     phase: "startup",
-    channels: ["codex"],
+    accounts: oneAccount,
     channelTemplates: codexTemplates(),
     providers: [],
-    state: { version: 1, channels: {} },
+    state: { version: 2, accounts: {} },
     ports,
-    now: () => new Date("2026-10-14T08:00:00.000Z"),
+    now: () => new Date("2026-11-18T08:00:00.000Z"),
   });
-  assert.deepEqual(actions, [{ kind: "seed", channel: "codex", templateId: "cliproxy-codex" }]);
-  assert.deepEqual(ports.created, ["cliproxy-codex"]);
-  assert.deepEqual(ports.added, []);
-  assert.deepEqual(nextState.channels.codex, {
+  assert.deepEqual(
+    actions.map((action) => action.kind),
+    ["seed"],
+  );
+  assert.deepEqual(ports.created, [
+    { templateId: "cliproxy-codex", providerName: "CLI Proxy API (Codex) · a@example.com" },
+  ]);
+  assert.deepEqual(ports.prefixes, []);
+  assert.deepEqual(ports.synced, []);
+  assert.deepEqual(nextState.accounts["codex:77bf18ea"], {
     providerId: "personal-cliproxy-codex-1",
-    seededAt: "2026-10-14T08:00:00.000Z",
+    seededAt: "2026-11-18T08:00:00.000Z",
+    credentialName: "codex-77bf18ea-a@example.com.json",
   });
 });
 
-test("引擎 running：可见的未同步条目补模型并记账；拉取失败/为空不记账", async () => {
-  const state = {
-    version: 1 as const,
-    channels: {
-      codex: { providerId: "personal-codex", seededAt: "2026-10-14T00:00:00.000Z" },
+test("引擎迁移：单账号认领旧卡后丢弃渠道键，下一轮不再退役", async () => {
+  const ports = fakePorts();
+  const legacyState = {
+    version: 2 as const,
+    accounts: {},
+    legacyChannels: {
+      codex: { providerId: "personal-legacy", seededAt: "2026-10-14T00:00:00.000Z" },
     },
   };
-  const providers = [{ providerId: "personal-codex", templateId: "cliproxy-codex" as const }];
-  const ports = fakePorts();
-  const { nextState } = await runCliProxyCredentialMirror({
-    phase: "running",
-    channels: ["codex"],
+  const providers = [{ providerId: "personal-legacy", templateId: "cliproxy-codex" }];
+  const first = await runCliProxyCredentialMirror({
+    phase: "startup",
+    accounts: oneAccount,
     channelTemplates: codexTemplates(),
     providers,
-    state,
+    state: legacyState,
     ports,
   });
-  assert.deepEqual(ports.added, [
-    { providerId: "personal-codex", modelId: "gpt-6" },
-    { providerId: "personal-codex", modelId: "gpt-6-codex" },
-  ]);
-  assert.equal(nextState.channels.codex.modelsSynced, true);
-
-  // 拉取失败：不写模型、不记账（下次转 running 重试）。
-  const retryPorts = fakePorts({
-    syncModels: async () => {
-      throw new Error("network down");
-    },
+  assert.deepEqual(
+    first.actions.map((action) => action.kind),
+    ["adopt"],
+  );
+  assert.equal(first.nextState.accounts["codex:77bf18ea"]?.providerId, "personal-legacy");
+  assert.equal(first.nextState.legacyChannels?.codex, undefined);
+  // 第二轮：认领已落账，旧键不再残留 → 不会再对刚认领的卡片退役，也不新种。
+  const second = await runCliProxyCredentialMirror({
+    phase: "startup",
+    accounts: oneAccount,
+    channelTemplates: codexTemplates(),
+    providers,
+    state: first.nextState,
+    ports,
   });
-  const retried = await runCliProxyCredentialMirror({
+  assert.deepEqual(second.actions, []);
+  assert.deepEqual(ports.created, []);
+});
+
+test("引擎 running：先幂等写前缀，再按账号同步模型并记账；前缀变化时重新同步", async () => {
+  const state = {
+    version: 2 as const,
+    accounts: {
+      "codex:77bf18ea": {
+        providerId: "personal-codex",
+        seededAt: "2026-11-18T00:00:00.000Z",
+        credentialName: "codex-77bf18ea-a@example.com.json",
+        prefix: "codex-77bf18ea",
+        modelsSynced: true,
+      },
+    },
+  };
+  const providers = [{ providerId: "personal-codex", templateId: "cliproxy-codex" }];
+  const unchanged = fakePorts();
+  const first = await runCliProxyCredentialMirror({
     phase: "running",
-    channels: ["codex"],
+    accounts: oneAccount,
     channelTemplates: codexTemplates(),
     providers,
     state,
-    ports: retryPorts,
+    ports: unchanged,
   });
-  assert.deepEqual(retryPorts.added, []);
-  assert.equal(retried.nextState.channels.codex.modelsSynced, undefined);
+  assert.deepEqual(unchanged.prefixes, [
+    { credentialName: "codex-77bf18ea-a@example.com.json", prefix: "codex-77bf18ea" },
+  ]);
+  // 前缀值未变且模型已同步：不重复拉模型。
+  assert.deepEqual(unchanged.synced, []);
+  assert.equal(first.nextState.accounts["codex:77bf18ea"]?.modelsSynced, true);
+
+  // 前缀被外部清掉（changed=true）：必须重同步。
+  const changed = fakePorts({
+    ensureCredentialPrefix: async (credentialName, prefix) => {
+      changed.prefixes.push({ credentialName, prefix });
+      return { changed: true };
+    },
+  });
+  const second = await runCliProxyCredentialMirror({
+    phase: "running",
+    accounts: oneAccount,
+    channelTemplates: codexTemplates(),
+    providers,
+    state,
+    ports: changed,
+  });
+  assert.deepEqual(changed.synced, [
+    {
+      providerId: "personal-codex",
+      credentialName: "codex-77bf18ea-a@example.com.json",
+      prefix: "codex-77bf18ea",
+    },
+  ]);
+  assert.equal(second.nextState.accounts["codex:77bf18ea"]?.modelsSynced, true);
 });
 
-test("引擎 running：hidden/withdrawn/modelsSynced 条目跳过模型同步", async () => {
-  const ports = fakePorts();
-  await runCliProxyCredentialMirror({
+test("引擎 running：前缀写入失败 → 不记 modelsSynced（下次 running 重试）", async () => {
+  const ports = fakePorts({
+    ensureCredentialPrefix: async () => {
+      throw new Error("management unavailable");
+    },
+  });
+  const { nextState } = await runCliProxyCredentialMirror({
     phase: "running",
-    channels: ["codex"],
+    accounts: oneAccount,
     channelTemplates: codexTemplates(),
-    providers: [],
+    providers: [{ providerId: "personal-codex", templateId: "cliproxy-codex" }],
     state: {
-      version: 1,
-      channels: {
-        codex: {
+      version: 2,
+      accounts: {
+        "codex:77bf18ea": {
           providerId: "personal-codex",
-          seededAt: "2026-10-14T00:00:00.000Z",
-          modelsSynced: true,
+          seededAt: "2026-11-18T00:00:00.000Z",
+          credentialName: "codex-77bf18ea-a@example.com.json",
         },
       },
     },
     ports,
   });
-  assert.deepEqual(ports.added, []);
+  assert.deepEqual(ports.synced, []);
+  assert.equal(nextState.accounts["codex:77bf18ea"]?.modelsSynced, undefined);
+});
+
+test("引擎：hidden/withdrawn 账号跳过前缀与模型同步", async () => {
+  const ports = fakePorts();
+  await runCliProxyCredentialMirror({
+    phase: "running",
+    accounts: oneAccount,
+    channelTemplates: codexTemplates(),
+    providers: [],
+    state: {
+      version: 2,
+      accounts: {
+        "codex:77bf18ea": {
+          providerId: "personal-codex",
+          seededAt: "2026-11-18T00:00:00.000Z",
+          credentialName: "codex-77bf18ea-a@example.com.json",
+          withdrawn: true,
+        },
+      },
+    },
+    ports,
+  });
+  assert.deepEqual(ports.prefixes, []);
+  assert.deepEqual(ports.synced, []);
+});
+
+test("引擎：旧卡退役成功才丢弃 legacyChannels；失败保留待重试", async () => {
+  const legacyState = {
+    version: 2 as const,
+    accounts: {},
+    legacyChannels: {
+      codex: { providerId: "personal-legacy", seededAt: "2026-10-14T00:00:00.000Z" },
+    },
+  };
+  const okPorts = fakePorts();
+  const ok = await runCliProxyCredentialMirror({
+    phase: "startup",
+    accounts: [],
+    channelTemplates: codexTemplates(),
+    providers: [{ providerId: "personal-legacy", templateId: "cliproxy-codex" }],
+    state: legacyState,
+    ports: okPorts,
+  });
+  assert.deepEqual(okPorts.visibility, [{ providerId: "personal-legacy", visibility: "hidden" }]);
+  assert.equal(ok.nextState.legacyChannels?.codex, undefined);
+
+  const failing = fakePorts({
+    saveProviderVisibility: async () => {
+      throw new Error("not found");
+    },
+  });
+  const failed = await runCliProxyCredentialMirror({
+    phase: "startup",
+    accounts: [],
+    channelTemplates: codexTemplates(),
+    providers: [{ providerId: "personal-legacy", templateId: "cliproxy-codex" }],
+    state: legacyState,
+    ports: failing,
+  });
+  assert.equal(failed.nextState.legacyChannels?.codex?.providerId, "personal-legacy");
 });
 
 test("引擎：unhide 失败（条目已被手删）转 withdrawn，防止每次启动重试", async () => {
@@ -257,72 +486,70 @@ test("引擎：unhide 失败（条目已被手删）转 withdrawn，防止每次
   });
   const { nextState } = await runCliProxyCredentialMirror({
     phase: "startup",
-    channels: ["codex"],
+    accounts: oneAccount,
     channelTemplates: codexTemplates(),
     providers: [],
     state: {
-      version: 1,
-      channels: {
-        codex: {
+      version: 2,
+      accounts: {
+        "codex:77bf18ea": {
           providerId: "personal-codex",
-          seededAt: "2026-10-14T00:00:00.000Z",
+          seededAt: "2026-11-18T00:00:00.000Z",
+          credentialName: "codex-77bf18ea-a@example.com.json",
           hidden: true,
         },
       },
     },
     ports,
   });
-  assert.equal(nextState.channels.codex.withdrawn, true);
+  assert.equal(nextState.accounts["codex:77bf18ea"]?.withdrawn, true);
 });
 
-test("引擎：hide/seed 失败不改账本（下次镜像重试），不中断其它动作", async () => {
-  const ports = fakePorts({
-    createProviderFromTemplate: async () => {
-      throw new Error("busy");
-    },
-  });
-  const { nextState } = await runCliProxyCredentialMirror({
-    phase: "startup",
-    channels: ["codex"],
-    channelTemplates: codexTemplates(),
-    providers: [],
-    state: { version: 1, channels: {} },
-    ports,
-  });
-  assert.equal(nextState.channels.codex, undefined);
-});
-
-test("状态账本：roundtrip + 损坏按空状态重建", async () => {
+test("状态账本：v2 roundtrip、v1 读入迁移、损坏按空状态重建", async () => {
   const dir = await mkdtemp(join(tmpdir(), "cli-proxy-mirror-"));
   try {
     const layout = resolveCliProxyLayout(join(dir, "cli-proxy"));
+    const account = {
+      providerId: "personal-codex",
+      seededAt: "2026-11-18T00:00:00.000Z",
+      credentialName: "codex-77bf18ea-a@example.com.json",
+      prefix: "codex-77bf18ea",
+    };
     await writeCliProxyMirrorState(layout, {
-      version: 1,
-      channels: {
-        codex: { providerId: "personal-codex", seededAt: "2026-10-14T00:00:00.000Z" },
-      },
+      version: 2,
+      accounts: { "codex:77bf18ea": account },
     });
-    // 0600 落盘（与其他状态文件同一安全边界）。
-    const raw = await readFile(join(layout.root, "mirror-state.json"), "utf8");
-    assert.deepEqual(JSON.parse(raw), {
-      version: 1,
-      channels: {
-        codex: { providerId: "personal-codex", seededAt: "2026-10-14T00:00:00.000Z" },
-      },
-    });
+    const raw = JSON.parse(await readFile(join(layout.root, "mirror-state.json"), "utf8"));
+    assert.deepEqual(raw, { version: 2, accounts: { "codex:77bf18ea": account } });
     assert.deepEqual(await readCliProxyMirrorState(layout), {
-      version: 1,
-      channels: {
-        codex: { providerId: "personal-codex", seededAt: "2026-10-14T00:00:00.000Z" },
+      version: 2,
+      accounts: { "codex:77bf18ea": account },
+    });
+
+    // v1 渠道级账本读入为 legacyChannels（迁移前的输入），不会丢。
+    await writeFile(
+      join(layout.root, "mirror-state.json"),
+      JSON.stringify({
+        version: 1,
+        channels: {
+          codex: { providerId: "personal-legacy", seededAt: "2026-10-14T00:00:00.000Z" },
+        },
+      }),
+      "utf8",
+    );
+    assert.deepEqual(await readCliProxyMirrorState(layout), {
+      version: 2,
+      accounts: {},
+      legacyChannels: {
+        codex: { providerId: "personal-legacy", seededAt: "2026-10-14T00:00:00.000Z" },
       },
     });
 
     await writeFile(join(layout.root, "mirror-state.json"), "{broken", "utf8");
-    assert.deepEqual(await readCliProxyMirrorState(layout), { version: 1, channels: {} });
-    // 缺文件同样空状态。
+    assert.deepEqual(await readCliProxyMirrorState(layout), { version: 2, accounts: {} });
     assert.deepEqual(await readCliProxyMirrorState(resolveCliProxyLayout(join(dir, "none"))), {
-      version: 1,
-      channels: {},
+      version: 2,
+      accounts: {},
     });
   } finally {
     await rm(dir, { recursive: true, force: true });

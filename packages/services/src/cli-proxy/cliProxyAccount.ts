@@ -36,6 +36,8 @@ export interface CliProxyAccountContext {
 
 interface ManagementCredentialsFile {
   id?: unknown;
+  /** 凭据文件名（buildAuthFileEntry 的 name 字段）。 */
+  name?: unknown;
   account?: unknown;
   email?: unknown;
   label?: unknown;
@@ -200,10 +202,7 @@ function parseModelCapabilities(value: unknown): CliProxyModelCapabilities | nul
   if (Number.isSafeInteger(value.context_window) && (value.context_window as number) > 0) {
     capabilities.contextWindow = value.context_window as number;
   }
-  if (
-    Number.isSafeInteger(value.max_context_window) &&
-    (value.max_context_window as number) > 0
-  ) {
+  if (Number.isSafeInteger(value.max_context_window) && (value.max_context_window as number) > 0) {
     capabilities.maxContextWindow = value.max_context_window as number;
   }
   if (
@@ -299,11 +298,11 @@ export async function fetchCliProxyModels(
         ? await fetchCliProxyModelCapabilities(context, headers)
         : { capabilities: new Map<string, CliProxyModelCapabilities>(), error: null };
     const models = ids.map((id) => {
-        const discovered = capabilitiesResult.capabilities.get(id);
-        const cached = previous?.models.find((model) => model.id === id)?.capabilities;
-        const capabilities = discovered ?? (capabilitiesResult.error ? cached : undefined);
-        return { id, ...(capabilities ? { capabilities } : {}) };
-      });
+      const discovered = capabilitiesResult.capabilities.get(id);
+      const cached = previous?.models.find((model) => model.id === id)?.capabilities;
+      const capabilities = discovered ?? (capabilitiesResult.error ? cached : undefined);
+      return { id, ...(capabilities ? { capabilities } : {}) };
+    });
     const fetchedAt = Date.now();
     modelsCache.set(scopedCacheKey, { models, fetchedAt });
     return {
@@ -330,6 +329,143 @@ export async function fetchCliProxyModels(
 }
 
 /**
+ * 账号模型清单：管理面 `GET /v8/management/credentials/models?name=<凭据文件名>`。
+ *
+ * 只保留该账号命名空间下的带前缀 id（`<prefix>/<model>`）：账号 provider 的模型
+ * 必须是能唯一点名该凭据的 id，否则会和其它账号的裸模型名冲突（spec「账号前缀与模型路由」）。
+ * 能力目录仍是实例级 `/v1/models?client_version=`，按带前缀的精确 id 匹配 slug。
+ */
+export async function fetchCliProxyCredentialModels(
+  context: CliProxyAccountContext,
+  credentialName: string,
+  prefix: string,
+  cacheKey = credentialName,
+): Promise<CliProxyModelsSnapshot> {
+  const layout = context.layout ?? resolveCliProxyLayout();
+  const scopedCacheKey = `${layout.root}:${context.port ?? "stopped"}:credential:${prefix}:${cacheKey}`;
+  const previous = modelsCache.get(scopedCacheKey);
+  const cachedModels = previous?.models ?? [];
+  if (context.port === null) {
+    return {
+      models: cachedModels,
+      fetchedAt: previous?.fetchedAt ?? Date.now(),
+      stale: true,
+      capabilitiesStale: true,
+      capabilitiesError: "proxy-stopped",
+      error: "proxy-stopped",
+    };
+  }
+  const headers = await managementHeaders(layout);
+  if (!headers) {
+    return {
+      models: cachedModels,
+      fetchedAt: previous?.fetchedAt ?? Date.now(),
+      stale: true,
+      capabilitiesStale: true,
+      capabilitiesError: "management-key-missing",
+      error: "management-key-missing",
+    };
+  }
+  try {
+    const response = await fetchWithTimeout(
+      `http://127.0.0.1:${context.port}/v8/management/credentials/models?name=${encodeURIComponent(credentialName)}`,
+      { headers },
+      context.fetchImpl,
+    );
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const body: unknown = await response.json();
+    if (!isRecord(body) || !Array.isArray(body.models)) {
+      throw new Error("账号模型清单返回格式无效");
+    }
+    const prefixRoot = `${prefix}/`;
+    const ids = [
+      ...new Set(
+        body.models.flatMap((entry) => {
+          if (!isRecord(entry) || typeof entry.id !== "string") return [];
+          const id = entry.id.trim();
+          return id.startsWith(prefixRoot) ? [id] : [];
+        }),
+      ),
+    ];
+    if (ids.length === 0) throw new Error("账号模型清单为空（前缀尚未生效）");
+    const catalogHeaders = await dataHeaders(layout);
+    const capabilitiesResult =
+      catalogHeaders === null
+        ? { capabilities: new Map<string, CliProxyModelCapabilities>(), error: "data-key-missing" }
+        : await fetchCliProxyModelCapabilities(context, catalogHeaders);
+    const models = ids.map((id) => {
+      const discovered = capabilitiesResult.capabilities.get(id);
+      const cached = previous?.models.find((model) => model.id === id)?.capabilities;
+      const capabilities = discovered ?? (capabilitiesResult.error ? cached : undefined);
+      return { id, ...(capabilities ? { capabilities } : {}) };
+    });
+    const fetchedAt = Date.now();
+    modelsCache.set(scopedCacheKey, { models, fetchedAt });
+    return {
+      models,
+      fetchedAt,
+      stale: false,
+      capabilitiesStale: capabilitiesResult.error !== null,
+      capabilitiesError: capabilitiesResult.error,
+      error: null,
+    };
+  } catch (error) {
+    logger.warn("cli-proxy credential models fetch failed, falling back to cache", {
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return {
+      models: cachedModels,
+      fetchedAt: previous?.fetchedAt ?? Date.now(),
+      stale: true,
+      capabilitiesStale: true,
+      capabilitiesError: error instanceof Error ? error.message : String(error),
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+/** 读凭据文件里已落盘的账号前缀（管理面列表不返回该字段，文件是事实源）。 */
+export async function readCliProxyCredentialPrefix(
+  layout: CliProxyLayout,
+  credentialName: string,
+): Promise<string | null> {
+  try {
+    const raw: unknown = JSON.parse(await readFile(join(layout.authDir, credentialName), "utf8"));
+    if (!isRecord(raw) || typeof raw.prefix !== "string") return null;
+    const trimmed = raw.prefix.trim();
+    return trimmed ? trimmed : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 写入账号前缀：管理面 `PATCH /v8/management/credentials/fields`
+ * （体 `{name, prefix}`，代理负责落盘 + 触发模型重新注册）。
+ * 调用方先用 readCliProxyCredentialPrefix 判等实现幂等。
+ */
+export async function setCliProxyCredentialPrefix(
+  context: CliProxyAccountContext,
+  credentialName: string,
+  prefix: string,
+): Promise<void> {
+  const layout = context.layout ?? resolveCliProxyLayout();
+  if (context.port === null) throw new Error("proxy-stopped");
+  const headers = await managementHeaders(layout);
+  if (!headers) throw new Error("management-key-missing");
+  const response = await fetchWithTimeout(
+    `http://127.0.0.1:${context.port}/v8/management/credentials/fields`,
+    {
+      method: "PATCH",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify({ name: credentialName, prefix }),
+    },
+    context.fetchImpl,
+  );
+  if (!response.ok) throw new Error(`prefix 写入失败：HTTP ${response.status}`);
+}
+
+/**
  * 额度"最后一次观测"的本地缓存（docs/specs/plugin-cli-proxy-binary.md「额度」）。
  *
  * 上游观测只存在代理进程内存里，代理重启即清空——而 UI 承诺的是"最后一次观测值"，
@@ -351,7 +487,7 @@ function quotaCacheFile(layout: CliProxyLayout): string {
 
 async function writeCliProxyQuotaCache(
   layout: CliProxyLayout,
-  channel: CliProxyLoginChannel,
+  cacheKey: string,
   entry: CliProxyQuotaCacheEntry,
 ): Promise<void> {
   try {
@@ -362,13 +498,19 @@ async function writeCliProxyQuotaCache(
     };
     try {
       const parsed = JSON.parse(await readFile(file, "utf8")) as typeof body;
-      if (parsed && typeof parsed === "object" && parsed.channels && typeof parsed.channels === "object") {
+      if (
+        parsed &&
+        typeof parsed === "object" &&
+        parsed.channels &&
+        typeof parsed.channels === "object"
+      ) {
         body = parsed;
       }
     } catch {
       // 缺文件/损坏：整份重建。
     }
-    body.channels[channel] = entry;
+    // 键为 accountKey（账号）或 channel（手动卡片）：同一份快照文件，语义按前缀自然区分。
+    body.channels[cacheKey] = entry;
     await writeFile(file, JSON.stringify(body), { encoding: "utf8", mode: 0o600 });
     await chmod(file, 0o600);
   } catch (error) {
@@ -381,13 +523,13 @@ async function writeCliProxyQuotaCache(
 
 async function readCliProxyQuotaCache(
   layout: CliProxyLayout,
-  channel: CliProxyLoginChannel,
+  cacheKey: string,
 ): Promise<CliProxyQuotaCacheEntry | null> {
   try {
     const parsed = JSON.parse(await readFile(quotaCacheFile(layout), "utf8")) as {
       channels?: Record<string, CliProxyQuotaCacheEntry | undefined>;
     };
-    const entry = parsed.channels?.[channel];
+    const entry = parsed.channels?.[cacheKey];
     if (!entry || !Array.isArray(entry.windows)) return null;
     return entry;
   } catch {
@@ -395,13 +537,21 @@ async function readCliProxyQuotaCache(
   }
 }
 
-/** 额度读取：credentials 全量条目里找该渠道的凭据（按 provider 字段），解析 quota.signals。 */
+/** 账号卡片到凭据的绑定（来自镜像账本）；缺省时按渠道合并（手动卡片）。 */
+export interface CliProxyQuotaAccountBinding {
+  accountKey: string;
+  credentialName: string;
+}
+
+/** 额度读取：credentials 全量条目里找该账号（或渠道）的凭据，解析 quota.signals。 */
 export async function fetchCliProxyQuota(
   context: CliProxyAccountContext,
   providerId: string,
   channel: CliProxyLoginChannel,
+  account?: CliProxyQuotaAccountBinding,
 ): Promise<CliProxyQuotaSnapshot> {
   const layout = context.layout ?? resolveCliProxyLayout();
+  const cacheKey = account?.accountKey ?? channel;
   const base = {
     providerId,
     fetchedAt: Date.now(),
@@ -413,7 +563,7 @@ export async function fetchCliProxyQuota(
     error: CliProxyQuotaSnapshot["error"],
     errorMessage: string | null,
   ): Promise<CliProxyQuotaSnapshot> => {
-    const cached = await readCliProxyQuotaCache(layout, channel);
+    const cached = await readCliProxyQuotaCache(layout, cacheKey);
     if (cached && cached.windows.length > 0) {
       return {
         providerId,
@@ -428,11 +578,9 @@ export async function fetchCliProxyQuota(
     }
     return { ...base, windows: [], accounts: [], planType: null, error, errorMessage };
   };
-  if (context.port === null)
-    return fallbackToCache("proxy-stopped", null);
+  if (context.port === null) return fallbackToCache("proxy-stopped", null);
   const headers = await managementHeaders(layout);
-  if (!headers)
-    return fallbackToCache("unavailable", "管理面 key 缺失");
+  if (!headers) return fallbackToCache("unavailable", "管理面 key 缺失");
   try {
     const response = await fetchWithTimeout(
       `http://127.0.0.1:${context.port}/v8/management/credentials`,
@@ -444,11 +592,15 @@ export async function fetchCliProxyQuota(
     const files: ManagementCredentialsFile[] = Array.isArray(body.files)
       ? (body.files as ManagementCredentialsFile[])
       : [];
-    // 一账号一条 provider：按渠道取全部凭据；多账号时窗口合并展示。
-    // 非 codex 渠道的 signals 目前为空（观测解析尚未适配）→ 落 no-observation 降级。
-    const channelFiles = files.filter((file) => String(file.provider ?? "") === channel);
-    if (channelFiles.length === 0)
-      return fallbackToCache("not-logged-in", null);
+    // 账号卡片只取绑定凭据；手动卡片（无绑定）沿用按渠道取全部并合并展示。
+    const channelFiles = account
+      ? files.filter((file) => {
+          const name = toNonEmptyString(file.name);
+          const id = toNonEmptyString(file.id);
+          return name === account.credentialName || id === account.credentialName;
+        })
+      : files.filter((file) => String(file.provider ?? "") === channel);
+    if (channelFiles.length === 0) return fallbackToCache("not-logged-in", null);
     const windows = [];
     const accounts: string[] = [];
     let planType: string | null = null;
@@ -460,8 +612,7 @@ export async function fetchCliProxyQuota(
         toNonEmptyString(file.label);
       if (accountName && !accounts.includes(accountName)) accounts.push(accountName);
       const quota = file.quota;
-      const rawObserved =
-        quota && typeof quota.observed_at === "string" ? quota.observed_at : null;
+      const rawObserved = quota && typeof quota.observed_at === "string" ? quota.observed_at : null;
       // model_quotas 可能整个字段缺席：按可选处理，只读顶层 quota.signals。
       const signals =
         quota && quota.signals && typeof quota.signals === "object"
@@ -472,10 +623,9 @@ export async function fetchCliProxyQuota(
       if (rawObserved && (!observedAt || rawObserved > observedAt)) observedAt = rawObserved;
       windows.push(...parsed.windows);
     }
-    if (windows.length === 0)
-      return fallbackToCache("no-observation", null);
+    if (windows.length === 0) return fallbackToCache("no-observation", null);
     // 成功观测即落盘为"最后一次观测"：代理重启清内存后，这里就是打开软件时的初始展示值。
-    await writeCliProxyQuotaCache(layout, channel, {
+    await writeCliProxyQuotaCache(layout, cacheKey, {
       windows,
       accounts,
       planType,
@@ -487,10 +637,7 @@ export async function fetchCliProxyQuota(
     logger.warn("cli-proxy quota fetch failed", {
       message: error instanceof Error ? error.message : String(error),
     });
-    return fallbackToCache(
-      "unavailable",
-      error instanceof Error ? error.message : String(error),
-    );
+    return fallbackToCache("unavailable", error instanceof Error ? error.message : String(error));
   }
 }
 

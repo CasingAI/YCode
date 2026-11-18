@@ -4,10 +4,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import {
+  fetchCliProxyCredentialModels,
   fetchCliProxyModels,
   fetchCliProxyQuota,
   getCliProxyAuthUrl,
   pollCliProxyAuthStatus,
+  readCliProxyCredentialPrefix,
+  setCliProxyCredentialPrefix,
 } from "../src/cli-proxy/cliProxyAccount.js";
 import { resolveCliProxyLayout } from "../src/cli-proxy/cliProxyVersions.js";
 
@@ -21,7 +24,10 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-async function setupLayout(): Promise<{ root: string; layout: ReturnType<typeof resolveCliProxyLayout> }> {
+async function setupLayout(): Promise<{
+  root: string;
+  layout: ReturnType<typeof resolveCliProxyLayout>;
+}> {
   const root = await mkdtemp(join(tmpdir(), "cliproxy-account-"));
   const layout = resolveCliProxyLayout(root);
   await mkdir(root, { recursive: true });
@@ -118,7 +124,10 @@ test("模型清单：拉取成功存缓存，失败回退上次结果", async ()
       layout,
       port: 18317,
       fetchImpl: (async () =>
-        jsonResponse({ data: [{ id: "gpt-5.6" }, { id: "gpt-6" }], object: "list" })) as typeof fetch,
+        jsonResponse({
+          data: [{ id: "gpt-5.6" }, { id: "gpt-6" }],
+          object: "list",
+        })) as typeof fetch,
     });
     assert.equal(fresh.stale, false);
     assert.deepEqual(
@@ -257,7 +266,13 @@ test("额度缓存：成功观测后写 quota-snapshot.json（0600）", async ()
         port: 18317,
         fetchImpl: (async () =>
           jsonResponse({
-            files: [{ provider: "codex", email: "user@example.com", quota: { observed_at: "2026-10-14T08:00:00.000Z", signals: REAL_SHAPE_SIGNALS } }],
+            files: [
+              {
+                provider: "codex",
+                email: "user@example.com",
+                quota: { observed_at: "2026-10-14T08:00:00.000Z", signals: REAL_SHAPE_SIGNALS },
+              },
+            ],
           })) as typeof fetch,
       },
       "cliproxy-codex",
@@ -285,7 +300,12 @@ test("额度缓存：live 无观测时回落最后一次观测（error 清空，
         port: 18317,
         fetchImpl: (async () =>
           jsonResponse({
-            files: [{ provider: "codex", quota: { observed_at: "2026-10-14T08:00:00.000Z", signals: REAL_SHAPE_SIGNALS } }],
+            files: [
+              {
+                provider: "codex",
+                quota: { observed_at: "2026-10-14T08:00:00.000Z", signals: REAL_SHAPE_SIGNALS },
+              },
+            ],
           })) as typeof fetch,
       },
       "cliproxy-codex",
@@ -320,17 +340,18 @@ test("额度缓存：代理未启动（port null）同样回落缓存", async ()
         port: 18317,
         fetchImpl: (async () =>
           jsonResponse({
-            files: [{ provider: "codex", quota: { observed_at: "2026-10-14T08:00:00.000Z", signals: REAL_SHAPE_SIGNALS } }],
+            files: [
+              {
+                provider: "codex",
+                quota: { observed_at: "2026-10-14T08:00:00.000Z", signals: REAL_SHAPE_SIGNALS },
+              },
+            ],
           })) as typeof fetch,
       },
       "cliproxy-codex",
       "codex",
     );
-    const stopped = await fetchCliProxyQuota(
-      { layout, port: null },
-      "cliproxy-codex",
-      "codex",
-    );
+    const stopped = await fetchCliProxyQuota({ layout, port: null }, "cliproxy-codex", "codex");
     assert.equal(stopped.error, null);
     assert.equal(stopped.windows.length, 1);
   } finally {
@@ -342,13 +363,175 @@ test("额度缓存：损坏的缓存文件不抛错，回落 live 结果", async
   const { root, layout } = await setupLayout();
   try {
     await writeFile(join(root, "quota-snapshot.json"), "{broken", { mode: 0o600 });
-    const result = await fetchCliProxyQuota(
-      { layout, port: null },
-      "cliproxy-codex",
-      "codex",
-    );
+    const result = await fetchCliProxyQuota({ layout, port: null }, "cliproxy-codex", "codex");
     assert.equal(result.error, "proxy-stopped");
     assert.equal(result.windows.length, 0);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+// 账号粒度（2026-11-18）：前缀写入、凭据文件读取、按账号模型清单与额度。
+
+test("前缀写入：PATCH credentials/fields，体为 {name, prefix}", async () => {
+  const { root, layout } = await setupLayout();
+  try {
+    let requestedUrl = "";
+    let requestedInit: RequestInit | undefined;
+    await setCliProxyCredentialPrefix(
+      {
+        layout,
+        port: 18317,
+        fetchImpl: (async (url: string | URL | Request, init?: RequestInit) => {
+          requestedUrl = String(url);
+          requestedInit = init;
+          return jsonResponse({ status: "ok" });
+        }) as typeof fetch,
+      },
+      "codex-77bf18ea-a@example.com.json",
+      "codex-77bf18ea",
+    );
+    assert.match(requestedUrl, /\/v8\/management\/credentials\/fields$/);
+    assert.equal(requestedInit?.method, "PATCH");
+    assert.deepEqual(JSON.parse(String(requestedInit?.body)), {
+      name: "codex-77bf18ea-a@example.com.json",
+      prefix: "codex-77bf18ea",
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("前缀读取：以凭据文件为准；缺失/损坏返回 null", async () => {
+  const { root, layout } = await setupLayout();
+  try {
+    await mkdir(layout.authDir, { recursive: true });
+    await writeFile(
+      join(layout.authDir, "codex-77bf18ea-a@example.com.json"),
+      JSON.stringify({ type: "codex", prefix: "codex-77bf18ea" }),
+    );
+    assert.equal(
+      await readCliProxyCredentialPrefix(layout, "codex-77bf18ea-a@example.com.json"),
+      "codex-77bf18ea",
+    );
+    await writeFile(join(layout.authDir, "codex-abcdef-b@example.com.json"), JSON.stringify({}));
+    assert.equal(
+      await readCliProxyCredentialPrefix(layout, "codex-abcdef-b@example.com.json"),
+      null,
+    );
+    assert.equal(await readCliProxyCredentialPrefix(layout, "missing.json"), null);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("按账号模型清单：只保留该前缀的模型，能力按精确 id 关联", async () => {
+  const { root, layout } = await setupLayout();
+  try {
+    const snapshot = await fetchCliProxyCredentialModels(
+      {
+        layout,
+        port: 18317,
+        fetchImpl: (async (url: string | URL | Request) => {
+          const target = String(url);
+          if (target.includes("/v8/management/credentials/models")) {
+            assert.match(target, /name=codex-77bf18ea-a%40example\.com\.json/);
+            return jsonResponse({
+              models: [
+                { id: "codex-77bf18ea/gpt-5-codex" },
+                { id: "codex-abcdef/gpt-5-codex" },
+                { id: "gpt-5-codex" },
+              ],
+            });
+          }
+          if (target.includes("client_version")) {
+            return jsonResponse({
+              data: [{ slug: "codex-77bf18ea/gpt-5-codex", context_window: 200000 }],
+            });
+          }
+          return jsonResponse({}, 404);
+        }) as typeof fetch,
+      },
+      "codex-77bf18ea-a@example.com.json",
+      "codex-77bf18ea",
+    );
+    assert.equal(snapshot.stale, false);
+    assert.deepEqual(
+      snapshot.models.map((model) => model.id),
+      ["codex-77bf18ea/gpt-5-codex"],
+    );
+    assert.equal(snapshot.models[0]?.capabilities?.contextWindow, 200000);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("按账号模型清单：前缀尚未生效（空清单）按失败处理，不写空名单", async () => {
+  const { root, layout } = await setupLayout();
+  try {
+    const snapshot = await fetchCliProxyCredentialModels(
+      {
+        layout,
+        port: 18317,
+        fetchImpl: (async () => jsonResponse({ models: [{ id: "gpt-5-codex" }] })) as typeof fetch,
+      },
+      "codex-77bf18ea-a@example.com.json",
+      "codex-77bf18ea",
+    );
+    assert.equal(snapshot.stale, true);
+    assert.match(snapshot.error ?? "", /前缀尚未生效/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("额度按账号：只取绑定凭据，不与同渠道其它账号合并", async () => {
+  const { root, layout } = await setupLayout();
+  try {
+    const snapshot = await fetchCliProxyQuota(
+      {
+        layout,
+        port: 18317,
+        fetchImpl: (async () =>
+          jsonResponse({
+            files: [
+              {
+                name: "codex-77bf18ea-a@example.com.json",
+                provider: "codex",
+                email: "a@example.com",
+                quota: {
+                  observed_at: "2026-11-18T08:00:00.000Z",
+                  signals: {
+                    "X-Codex-Primary-Used-Percent": "20",
+                    "X-Codex-Primary-Window-Minutes": "300",
+                    "X-Codex-Primary-Reset-After-Seconds": "3600",
+                  },
+                },
+              },
+              {
+                name: "codex-abcdef-b@example.com.json",
+                provider: "codex",
+                email: "b@example.com",
+                quota: {
+                  observed_at: "2026-11-18T09:00:00.000Z",
+                  signals: {
+                    "X-Codex-Primary-Used-Percent": "80",
+                    "X-Codex-Primary-Window-Minutes": "300",
+                    "X-Codex-Primary-Reset-After-Seconds": "3600",
+                  },
+                },
+              },
+            ],
+          })) as typeof fetch,
+      },
+      "cliproxy-codex-77bf18ea",
+      "codex",
+      { accountKey: "codex:77bf18ea", credentialName: "codex-77bf18ea-a@example.com.json" },
+    );
+    assert.equal(snapshot.error, null);
+    assert.deepEqual(snapshot.accounts, ["a@example.com"]);
+    assert.equal(snapshot.observedAt, "2026-11-18T08:00:00.000Z");
+    assert.equal(snapshot.windows.length, 1);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
