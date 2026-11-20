@@ -3748,6 +3748,8 @@ const enUS: Record<string, string> = {
   "settings.usage.dailyChartDescription": "Token usage trend by day across {days} days.",
   "settings.usage.dailyChart.peak": "Peak day",
   "settings.usage.dailyChart.max": "Max",
+  "settings.usage.chartMode.byModel": "By model",
+  "settings.usage.chartMode.total": "Total",
   "settings.usage.modelChartTitle": "Model usage",
   "settings.usage.modelUsageTitle": "Model usage",
   "settings.usage.toolUsageTitle": "Tool usage",

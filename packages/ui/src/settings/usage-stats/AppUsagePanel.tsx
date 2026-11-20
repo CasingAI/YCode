@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button.js";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useAppUsageStats } from "@/hooks/useUsageStats.js";
+import type { AppUsageChartMode } from "@/settings/usage-stats/appUsageDailyModelChartViewModel.js";
 import { UsageChartLoadBoundary } from "@/settings/usage-stats/UsageChartLoadBoundary.js";
 import { UsageHeatmap } from "@/settings/usage-stats/UsageHeatmap.js";
 import { UsageStatsErrorNotice } from "@/settings/usage-stats/UsageStatsErrorNotice.js";
@@ -34,6 +35,9 @@ const AppUsageModelUsagePieChart = lazy(() =>
 export function AppUsagePanel() {
   const { intl, locale } = useZCodeIntl();
   const [range, setRange] = useState<AppUsageRange>("7d");
+  // 图表模式是面板本地展示状态，不持久化；放在 Panel 层是为了在
+  // UsageChartLoadBoundary 因时间范围变化重挂载图表后仍保留用户选择。
+  const [chartMode, setChartMode] = useState<AppUsageChartMode>("byModel");
   const { snapshot: lifetimeSnapshot, refresh: refreshLifetime } = useAppUsageStats("all");
   const { snapshot, loading, error, refresh } = useAppUsageStats(range);
 
@@ -100,7 +104,11 @@ export function AppUsagePanel() {
           id: "settings.usage.appUsageLoadingDescription",
         })}
       >
-        <AppUsageDailyModelTrendChart snapshot={snapshot} />
+        <AppUsageDailyModelTrendChart
+          snapshot={snapshot}
+          mode={chartMode}
+          onModeChange={setChartMode}
+        />
       </UsageChartLoadBoundary>
       <UsageChartLoadBoundary
         scope="settings.usage.app-model-pie-chart"

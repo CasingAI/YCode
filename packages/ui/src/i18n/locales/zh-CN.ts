@@ -3536,6 +3536,8 @@ const zhCN: Record<string, string> = {
   "settings.usage.dailyChartDescription": "按天展示 Token 用量变化，共 {days} 天。",
   "settings.usage.dailyChart.peak": "峰值日期",
   "settings.usage.dailyChart.max": "最高值",
+  "settings.usage.chartMode.byModel": "分模型",
+  "settings.usage.chartMode.total": "总量",
   "settings.usage.modelChartTitle": "模型用量",
   "settings.usage.modelUsageTitle": "模型用量",
   "settings.usage.toolUsageTitle": "工具用量",

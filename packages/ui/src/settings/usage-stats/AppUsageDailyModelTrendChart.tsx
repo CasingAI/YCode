@@ -7,14 +7,21 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart.js";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import {
+  USAGE_STATS_TABS_LIST_CLASS,
+  USAGE_STATS_TABS_TRIGGER_CLASS,
   UsageEmptyState,
   formatCompactTokenUsage,
-  formatDay,
   resolveModelLabel,
 } from "@/settings/usage-stats/usageStatsUiParts.js";
 import { getAppUsageModelChartColor } from "@/settings/usage-stats/appUsageChartPalette.js";
+import {
+  type AppUsageChartMode,
+  type DailyModelChartRow,
+  buildAppUsageDailyModelChartViewModel,
+} from "@/settings/usage-stats/appUsageDailyModelChartViewModel.js";
 
 // XAxis 首尾刻度以绘图区边界为中心向两侧延伸，原 8px margin 小于日期文本半宽，
 // SVG 会裁掉首尾文字；左右保留 24px 安全区，让桌面端与手机 Web 端都能完整显示短日期。
@@ -24,19 +31,8 @@ export const APP_USAGE_TREND_CHART_MARGIN = {
   left: 24,
 } as const;
 
-type DailyModelChartRow = {
-  label: string;
-  tooltipLabel: string;
-  total: number;
-} & Record<string, number | string>;
+const APP_USAGE_CHART_MODES: AppUsageChartMode[] = ["byModel", "total"];
 
-type ModelChartKey = {
-  modelId: string | null;
-  key: string;
-  color: string;
-  label: string;
-};
-type UsageIntl = ReturnType<typeof useZCodeIntl>["intl"];
 type ChartTooltipContentProps = ComponentProps<typeof ChartTooltipContent>;
 
 export function filterDailyModelTooltipPayload<T extends { value?: unknown }>(
@@ -73,105 +69,6 @@ function shouldShowDailyChartAxisLabel(index: number, total: number): boolean {
   return index === 0 || index === total - 1 || index % step === 0;
 }
 
-function createEmptyChartRow(label: string, tooltipLabel: string, modelKeys: ModelChartKey[]) {
-  const row: DailyModelChartRow = {
-    label,
-    tooltipLabel,
-    total: 0,
-  };
-
-  for (const model of modelKeys) {
-    row[model.key] = 0;
-  }
-
-  return row;
-}
-
-function buildDailyModelChartData({
-  snapshot,
-  locale,
-  modelKeys,
-  modelKeyById,
-}: {
-  snapshot: AppUsageSnapshot;
-  locale: string;
-  modelKeys: ModelChartKey[];
-  modelKeyById: Map<string, string>;
-}): DailyModelChartRow[] {
-  const rows = new Map<string, DailyModelChartRow>();
-
-  // App Usage 的 30d 协议结果已经是每日序列，旧 all 分桶残留把
-  // 30 天按周聚合成约 5 个点，导致“最近 30 天”没有连续每日趋势。
-  for (const day of snapshot.dailyModelUsage) {
-    const label = formatDay(locale, day.date);
-    const row = rows.get(day.date) ?? createEmptyChartRow(label, label, modelKeys);
-
-    for (const model of day.models) {
-      const key = modelKeyById.get(model.modelId ?? "__unknown__");
-      if (key) {
-        row[key] = Number(row[key] ?? 0) + model.totalTokens;
-      }
-      row.total += model.totalTokens;
-    }
-
-    rows.set(day.date, row);
-  }
-
-  return [...rows.entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([, row]) => row);
-}
-
-export function buildAppUsageDailyModelChartViewModel({
-  intl,
-  locale,
-  snapshot,
-}: {
-  intl: UsageIntl;
-  locale: string;
-  snapshot: AppUsageSnapshot;
-}) {
-  const topModels = snapshot.models.slice(0, 6);
-  const modelKeys = topModels.map((model, index) => ({
-    modelId: model.modelId,
-    key: `model${index}`,
-    color: getAppUsageModelChartColor(index),
-    label: resolveModelLabel(intl, model.modelId),
-  }));
-  const modelKeyById = new Map(
-    modelKeys.map((model) => [model.modelId ?? "__unknown__", model.key]),
-  );
-  const chartConfig = modelKeys.reduce<ChartConfig>((config, model) => {
-    config[model.key] = {
-      label: model.label,
-      color: model.color,
-    };
-    return config;
-  }, {});
-  const chartData = buildDailyModelChartData({
-    snapshot,
-    locale,
-    modelKeys,
-    modelKeyById,
-  });
-  let maxTokens = 0;
-  // 图中是独立折线而非堆叠图，使用每日总量会把多模型之和（以及未展示模型）
-  // 当作 Y 轴上限，导致实际可见曲线被压在底部；坐标范围只应跟随可见序列的单点峰值。
-  for (const row of chartData) {
-    for (const model of modelKeys) {
-      maxTokens = Math.max(maxTokens, Number(row[model.key] ?? 0));
-    }
-  }
-
-  return {
-    topModels,
-    modelKeys,
-    chartConfig,
-    chartData,
-    maxTokens,
-  };
-}
-
 function DailyModelChartTooltipContent(props: ChartTooltipContentProps) {
   const filteredPayload = useMemo(
     () => filterDailyModelTooltipPayload(props.payload),
@@ -185,14 +82,37 @@ function DailyModelChartTooltipContent(props: ChartTooltipContentProps) {
   return <ChartTooltipContent {...props} payload={filteredPayload} />;
 }
 
-export function AppUsageDailyModelTrendChart({ snapshot }: { snapshot: AppUsageSnapshot }) {
+// 总量模式只有一条折线，日期与合计已在标题里给全；
+// 再列单行明细会原样重复标题数字，因此只渲染标题。
+function DailyTotalTooltipContent({ active, payload, labelFormatter }: ChartTooltipContentProps) {
+  if (!active || !payload || payload.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="grid min-w-32 items-start gap-1.5 rounded-lg border border-border/50 bg-background px-2.5 py-1.5 text-ui-sm/relaxed shadow-xl">
+      <div className="font-medium">{labelFormatter?.(null, payload)}</div>
+    </div>
+  );
+}
+
+export function AppUsageDailyModelTrendChart({
+  snapshot,
+  mode,
+  onModeChange,
+}: {
+  snapshot: AppUsageSnapshot;
+  mode: AppUsageChartMode;
+  onModeChange: (mode: AppUsageChartMode) => void;
+}) {
   const { intl, locale } = useZCodeIntl();
-  const { topModels, modelKeys, chartConfig, chartData, maxTokens } = useMemo(
+  const { models, modelKeys, chartConfig, chartData, maxModelTokens, maxTotalTokens } = useMemo(
     // Recharts 3.8 会把 data / legend / graphical item props 写入内部 store。
     // 这里稳定派生数组和配置对象，避免父组件重渲染时因引用变化反复触发内部 dispatch。
     () => buildAppUsageDailyModelChartViewModel({ intl, locale, snapshot }),
     [intl, locale, snapshot],
   );
+  const totalChartConfig = useMemo<ChartConfig>(() => ({}), []);
   const shouldShowAxisLabel = useCallback(
     (_value: string, index: number) =>
       shouldShowDailyChartAxisLabel(index, chartData.length) ? _value : "",
@@ -237,7 +157,7 @@ export function AppUsageDailyModelTrendChart({ snapshot }: { snapshot: AppUsageS
     },
     [chartConfig, locale, tokenUnit],
   );
-  const tooltipContent = useMemo(
+  const modelTooltipContent = useMemo(
     () => (
       <DailyModelChartTooltipContent
         indicator="line"
@@ -247,23 +167,71 @@ export function AppUsageDailyModelTrendChart({ snapshot }: { snapshot: AppUsageS
     ),
     [formatTooltipItem, formatTooltipLabel],
   );
+  const totalTooltipContent = useMemo(
+    () => <DailyTotalTooltipContent indicator="line" labelFormatter={formatTooltipLabel} />,
+    [formatTooltipLabel],
+  );
+  // 模式各自的空态判断：分模型看单模型峰值，总量看全天合计峰值。
+  const isChartEmpty = mode === "total" ? maxTotalTokens <= 0 : maxModelTokens <= 0;
 
   return (
     <section className="space-y-3 rounded-xl bg-surface p-4">
-      <h3 className="text-ui-base font-medium text-foreground">
-        {intl.formatMessage({ id: "settings.usage.dailyChartTitle" })}
-      </h3>
-      {maxTokens <= 0 ? (
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-ui-base font-medium text-foreground">
+          {intl.formatMessage({ id: "settings.usage.dailyChartTitle" })}
+        </h3>
+        <Tabs
+          value={mode}
+          onValueChange={(value) => onModeChange(value as AppUsageChartMode)}
+          className="shrink-0"
+        >
+          <TabsList className={USAGE_STATS_TABS_LIST_CLASS}>
+            {APP_USAGE_CHART_MODES.map((option) => (
+              <TabsTrigger key={option} value={option} className={USAGE_STATS_TABS_TRIGGER_CLASS}>
+                {intl.formatMessage({ id: `settings.usage.chartMode.${option}` })}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+      </div>
+      {isChartEmpty ? (
         <UsageEmptyState
           title={intl.formatMessage({ id: "settings.usage.emptyTitle" })}
           description={intl.formatMessage({
             id: "settings.usage.emptyDescription",
           })}
         />
+      ) : mode === "total" ? (
+        <div className="px-3 py-3">
+          <ChartContainer config={totalChartConfig} className="h-60 w-full">
+            <LineChart accessibilityLayer data={chartData} margin={APP_USAGE_TREND_CHART_MARGIN}>
+              <CartesianGrid vertical={false} strokeDasharray="3 3" />
+              <XAxis
+                dataKey="label"
+                tickLine={false}
+                axisLine={false}
+                interval={0}
+                minTickGap={0}
+                tickMargin={8}
+                tickFormatter={shouldShowAxisLabel}
+              />
+              <YAxis hide domain={[0, maxTotalTokens]} />
+              <ChartTooltip cursor={false} content={totalTooltipContent} />
+              <Line
+                dataKey="total"
+                type="monotone"
+                stroke={getAppUsageModelChartColor(0)}
+                strokeWidth={2}
+                dot={false}
+                activeDot={{ r: 4 }}
+              />
+            </LineChart>
+          </ChartContainer>
+        </div>
       ) : (
         <div className="px-3 py-3">
           <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2" role="list">
-            {topModels.map((model, index) => (
+            {models.map((model, index) => (
               <div
                 key={model.modelId ?? "__unknown__"}
                 className="flex min-w-0 items-center gap-2 text-ui-sm"
@@ -293,8 +261,8 @@ export function AppUsageDailyModelTrendChart({ snapshot }: { snapshot: AppUsageS
                 tickMargin={8}
                 tickFormatter={shouldShowAxisLabel}
               />
-              <YAxis hide domain={[0, maxTokens]} />
-              <ChartTooltip cursor={false} content={tooltipContent} />
+              <YAxis hide domain={[0, maxModelTokens]} />
+              <ChartTooltip cursor={false} content={modelTooltipContent} />
               {modelKeys.map((model) => (
                 <Line
                   key={model.key}
