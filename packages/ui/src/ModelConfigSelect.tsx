@@ -147,14 +147,18 @@ function isModelSelectGroupSelected(
 }
 
 /**
- * 供应商子菜单内容的统一外壳。固定宽度会提前截断模型名，所以按内容扩展并让 popper
- * 可用宽度优先；调用方传入的覆盖样式优先于缺省宽度。
+ * 供应商子菜单内容的统一外壳。固定宽度会提前截断模型名，所以按内容扩展；
+ * 宽度规则必须与主菜单一致（w-max min-w-48 max-w-[calc(100vw-2rem)]，见
+ * docs/specs/provider-primary.md「子菜单窄屏呈现」）。
+ * 不能用 --radix-dropdown-menu-content-available-width 做 min/max：窄屏翻转后该变量
+ * 极小，会与 DropdownMenuSubContent 的 overflow-x-hidden、条目名 truncate 叠加，
+ * 把模型名截成首字母（如 c...、g...）。改为固定下限 + 视口上限。
+ * 调用方传入的覆盖样式优先于缺省宽度。
  */
 function getProviderSubmenuContentClassName(overrideClassName?: string): string {
   return cn(
     "max-h-72 overflow-y-auto",
-    overrideClassName ??
-      "w-max min-w-[min(12rem,var(--radix-dropdown-menu-content-available-width))] max-w-(--radix-dropdown-menu-content-available-width)",
+    overrideClassName ?? "w-max min-w-[12rem] max-w-[calc(100vw-2rem)]",
   );
 }
 
@@ -642,7 +646,11 @@ export const ModelConfigSelect = memo(function ModelConfigSelectComponent({
                             <CheckIcon className="size-4 text-foreground-subtle" />
                           ) : null}
                         </DropdownMenuSubTrigger>
-                        <DropdownMenuSubContent className={getProviderSubmenuContentClassName()}>
+                        {/* 窄屏翻转后与视口保留 8px 间距，避免贴死屏幕边缘。 */}
+                        <DropdownMenuSubContent
+                          className={getProviderSubmenuContentClassName()}
+                          collisionPadding={8}
+                        >
                           {(group.subSections ?? []).map((subSection) => {
                             const subSectionSelected = isModelSelectGroupSelected(
                               subSection,
@@ -674,6 +682,7 @@ export const ModelConfigSelect = memo(function ModelConfigSelectComponent({
                                     className={getProviderSubmenuContentClassName(
                                       providerSubmenuClassName,
                                     )}
+                                    collisionPadding={8}
                                   >
                                     {renderModelItems(subSection.items)}
                                   </DropdownMenuSubContent>
@@ -726,6 +735,7 @@ export const ModelConfigSelect = memo(function ModelConfigSelectComponent({
                       </DropdownMenuSubTrigger>
                       <DropdownMenuSubContent
                         className={getProviderSubmenuContentClassName(providerSubmenuClassName)}
+                        collisionPadding={8}
                       >
                         {renderModelItems(group.items)}
                       </DropdownMenuSubContent>
