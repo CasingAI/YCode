@@ -46,6 +46,8 @@ import type {
   SavedWorkflowsOpenRunParams,
 } from "@/settings/saved-workflows/SavedWorkflowsSection.js";
 import { AutomationsMainBreadcrumbFrame } from "@/settings/AutomationsMainBreadcrumbFrame.js";
+import type { SettingsSectionId } from "@/settings/settingsPageConfig.js";
+import type { UsageStatsSectionTab } from "@/settings/UsageStatsSection.js";
 import { PluginStorePage } from "@/settings/PluginStorePage.js";
 import { SettingsPage } from "@/SettingsPage.js";
 import { TaskFindDialog } from "@/quickpick/TaskFindDialog.js";
@@ -574,6 +576,32 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
   const handleSettingsNavSlotRef = useCallback((node: HTMLDivElement | null) => {
     setSettingsNavSlot(node ?? undefined);
   }, []);
+  // 设置页的导航位置回调必须引用稳定：ModelProviderSection 的选中同步 effect
+  // 把 onSelectedProviderChange（最终经由 SettingsPage 的 onNavigationPositionChange）
+  // 列进依赖，任何一层内联函数都会让 effect 每次渲染重跑，反复以新对象调用
+  // setWebRoutePosition 必然触发重渲染，形成无限更新并在生产包命中 React #185。
+  const handleSettingsNavigationPositionChange = useCallback(
+    (
+      position: {
+        section: SettingsSectionId;
+        usageTab?: UsageStatsSectionTab;
+        pluginTab?: "plugins" | "mcps" | "skills" | "external";
+        providerId?: string;
+      },
+      options?: { replace?: boolean },
+    ) => {
+      if (webRoutePosition?.kind === "settings") {
+        onWebRoutePositionChange(
+          {
+            kind: "settings",
+            ...position,
+          },
+          options,
+        );
+      }
+    },
+    [onWebRoutePositionChange, webRoutePosition?.kind],
+  );
   const collapseSidebarAfterNavigation = useCallback(() => {
     if (
       shouldCollapseWorkspaceSidebarAfterNavigation({
@@ -2062,17 +2090,7 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
                   initialNavigationPosition={
                     webRoutePosition?.kind === "settings" ? webRoutePosition : undefined
                   }
-                  onNavigationPositionChange={(position, options) => {
-                    if (webRoutePosition?.kind === "settings") {
-                      onWebRoutePositionChange(
-                        {
-                          kind: "settings",
-                          ...position,
-                        },
-                        options,
-                      );
-                    }
-                  }}
+                  onNavigationPositionChange={handleSettingsNavigationPositionChange}
                   onShowTasks={onShowTasks}
                   onShowFiles={onShowFiles}
                   tasksTabEnabled

@@ -675,6 +675,22 @@ export function SettingsPage({
     SettingsModelProviderTarget | undefined
   >(() => initialModelProviderTarget);
   const initialPositionAppliedRef = useRef(false);
+  // 传给 ModelProviderSection 的回调必须引用稳定：分区把 onSelectedProviderChange
+  // 列进选中同步 effect 的依赖，内联函数每次渲染换新会让 effect 无条件重跑，
+  // 经 onNavigationPositionChange 以新对象写入路由状态后触发重渲染，形成
+  // 无限更新并在生产包命中 React #185（仅 Web 存在路由状态，桌面版不触发）。
+  const handleConsumePendingModelProviderTarget = useCallback(() => {
+    setPendingModelProviderTarget(undefined);
+  }, []);
+  const handleModelProviderSelectedChange = useCallback(
+    (providerId?: string) => {
+      onNavigationPositionChange?.({
+        section: "modelProvider",
+        ...(providerId ? { providerId } : {}),
+      });
+    },
+    [onNavigationPositionChange],
+  );
   const setActiveSettingsSection = useCallback(
     (
       section: SettingsSectionId,
@@ -2020,15 +2036,10 @@ export function SettingsPage({
                     isDesktop={Boolean(isDesktop)}
                     isRemoteWorkspace={isRemoteModelProviderWorkspace}
                     pendingModelProviderTarget={pendingModelProviderTarget}
-                    onConsumePendingModelProviderTarget={() =>
-                      setPendingModelProviderTarget(undefined)
+                    onConsumePendingModelProviderTarget={
+                      handleConsumePendingModelProviderTarget
                     }
-                    onSelectedProviderChange={(providerId) => {
-                      onNavigationPositionChange?.({
-                        section: "modelProvider",
-                        ...(providerId ? { providerId } : {}),
-                      });
-                    }}
+                    onSelectedProviderChange={handleModelProviderSelectedChange}
                   />
                 </ServiceProvider>
               ) : activeSection === "modelGroups" ? (
