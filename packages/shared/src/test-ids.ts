@@ -761,6 +761,8 @@ export const TID_AUTOMATIONS_STATUS_FILTER = "automations-status-filter";
 export const TID_AUTOMATION_CREATE_MENU = "automation-create-menu";
 export const TID_AUTOMATION_CREATE_MANUALLY = "automation-create-manually";
 export const TID_AUTOMATION_CARD = "automation-card";
+/** 任务卡失败原因行（定时/延时与闲时共用同一展示规则）。 */
+export const TID_AUTOMATION_CARD_FAILURE_DETAIL = "automation-card-failure-detail";
 // 闲时任务（off-peak，独立面）
 export const TID_OFFPEAK_CREATE_BUTTON = "offpeak-create-button";
 export const TID_OFFPEAK_CARD = "offpeak-card";

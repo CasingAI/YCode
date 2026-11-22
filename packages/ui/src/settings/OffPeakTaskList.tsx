@@ -13,6 +13,7 @@ import {
 } from "react";
 import { CircleCheck, Loader2, TriangleAlert } from "lucide-react";
 import {
+  TID_AUTOMATION_CARD_FAILURE_DETAIL,
   TID_OFFPEAK_ACTION_CONTINUE,
   TID_OFFPEAK_ACTION_DELETE,
   TID_OFFPEAK_ACTION_PAUSE,
@@ -42,6 +43,7 @@ import {
   AutomationPausedIcon,
   AutomationTrashIcon,
 } from "@/settings/AutomationDesignPrimitives.js";
+import { automationFailureDetailText } from "@/settings/automationFormat.js";
 import {
   resolveFailedOffPeakQueueFooter,
   resolveOffPeakStatusFooter,
@@ -167,13 +169,17 @@ export function OffPeakTaskList({
   return (
     <div
       className={cn(
-        "grid auto-rows-[132px] grid-cols-1 gap-x-4 gap-y-4 lg:grid-cols-2",
+        // 与定时任务列表同一口径：失败卡片要露出失败原因行，行高从固定 132px 放开为下限 132px。
+        "grid auto-rows-[minmax(132px,auto)] grid-cols-1 gap-x-4 gap-y-4 lg:grid-cols-2",
         // 与定时任务列表同一口径：最多露出 8 张卡片，超出由 grid 自身滚动，避免页面无限拉长。
         sorted.length > OFFPEAK_LIST_SCROLL_THRESHOLD &&
           "max-h-[1198px] overflow-y-auto overscroll-contain lg:max-h-[606px]",
       )}
     >
       {sorted.map((task) => {
+        // 终态失败原因已随任务落库；卡片直接露出原文，避免只有「已失败」三个字无从判断。
+        const failureDetail =
+          task.status === "failed" ? automationFailureDetailText(task.failureReason) : null;
         const footer =
           task.modelSelectionIssue && shouldShowOffPeakModelSelectionIssue(task.status)
             ? {
@@ -216,6 +222,15 @@ export function OffPeakTaskList({
               <p className="line-clamp-2 h-9 text-ui-base font-normal leading-snug text-foreground-subtle">
                 {task.prompt}
               </p>
+              {failureDetail ? (
+                <p
+                  data-testid={TID_AUTOMATION_CARD_FAILURE_DETAIL}
+                  className="line-clamp-2 text-ui-base font-normal leading-snug text-destructive"
+                  title={failureDetail}
+                >
+                  {failureDetail}
+                </p>
+              ) : null}
               <div className="mt-auto flex h-6 min-w-0 items-center gap-[10px] text-ui-base leading-snug">
                 {/* 状态徽章与右侧「运行会话：…」都允许收缩，长会话标题会把状态文字压到只剩一个字。
                    状态是脚注的主信息，改为 shrink-0 不可压缩，只让会话标题那一段 truncate。 */}

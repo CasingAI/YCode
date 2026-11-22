@@ -30,6 +30,18 @@ export function hasAutomationFailureState(automation: AutomationFailureLike): bo
   );
 }
 
+/**
+ * 卡片失败原因展示文本：错误消息尾部可能带仅用于跨进程诊断的 `[reason=…]` 稳定标记，
+ * 用户界面只显示人话文本；剥掉后为空则退回原文，原文为空返回 null（卡片不渲染原因行）。
+ * 见 docs/specs/automation-failure-reason-display.md。
+ */
+export function automationFailureDetailText(lastError: string | undefined | null): string | null {
+  const text = lastError?.trim();
+  if (!text) return null;
+  const humanText = text.replace(/\s*\[reason=[^\]]+\]\s*$/, "").trim();
+  return humanText || text;
+}
+
 /** 定时任务生命周期展示状态：终态优先，其次 paused/enabled，最后 active。 */
 export function resolveAutomationStatusKind(
   automation: AutomationStatusLike,

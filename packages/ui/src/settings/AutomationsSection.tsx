@@ -13,6 +13,7 @@ import {
   TID_AUTOMATION_ACTION_DELETE,
   TID_AUTOMATION_ACTION_TOGGLE,
   TID_AUTOMATION_CARD,
+  TID_AUTOMATION_CARD_FAILURE_DETAIL,
   TID_AUTOMATION_CARD_MENU,
   TID_AUTOMATIONS_LIST,
   TID_AUTOMATIONS_STATUS_FILTER,
@@ -70,6 +71,7 @@ import { OffPeakTaskList } from "@/settings/OffPeakTaskList.js";
 import { OffPeakTemplateIcon } from "@/settings/OffPeakTemplateIcon.js";
 import { OffPeakEditView, type OffPeakEditSubmit } from "@/settings/OffPeakEditView.js";
 import {
+  automationFailureDetailText,
   formatAutomationCardNextRun,
   formatDateTime,
   formatRelativeToNow,
@@ -1690,9 +1692,12 @@ export function AutomationsSection({
                     {visibleAutomations.length === 0 ? (
                       <AutomationStatusFilterEmpty />
                     ) : (
-                      <div className="grid grid-cols-1 auto-rows-[132px] gap-x-4 gap-y-4 lg:grid-cols-2">
+                      <div className="grid grid-cols-1 auto-rows-[minmax(132px,auto)] gap-x-4 gap-y-4 lg:grid-cols-2">
                         {visibleAutomations.map((automation) => {
                           const status = resolveAutomationStatusKind(automation);
+                          // 失败原因已在派发失败时落库；卡片必须把原文露出来，
+                          // 否则用户只能看到「已失败」三个字而无从判断（见 automation-failure-reason-display spec）。
+                          const failureDetail = automationFailureDetailText(automation.lastError);
                           const StatusIcon = STATUS_META[status].icon;
                           const remaining = automation.nextRunAt
                             ? formatRelativeToNow(automation.nextRunAt, now, intl)
@@ -1721,6 +1726,15 @@ export function AutomationsSection({
                                 <p className="text-wrap-phrase line-clamp-2 h-10 text-ui-base font-normal leading-5 text-foreground-subtle">
                                   {automationPromptSummary(automation.prompt)}
                                 </p>
+                                {failureDetail ? (
+                                  <p
+                                    data-testid={TID_AUTOMATION_CARD_FAILURE_DETAIL}
+                                    className="line-clamp-2 text-ui-base font-normal leading-5 text-destructive"
+                                    title={failureDetail}
+                                  >
+                                    {failureDetail}
+                                  </p>
+                                ) : null}
                                 <div className="mt-auto flex min-w-0 items-center gap-2 text-ui-base">
                                   <StatusIcon
                                     className={cn("size-4 shrink-0", STATUS_META[status].className)}
@@ -1788,7 +1802,9 @@ export function AutomationsSection({
                     <div
                       data-testid={TID_AUTOMATIONS_LIST}
                       className={cn(
-                        "grid grid-cols-1 auto-rows-[132px] gap-x-4 gap-y-4 lg:grid-cols-2",
+                        // 失败卡片要露出失败原因行，行高从固定 132px 放开为下限 132px；
+                        // 非失败卡片内容不变，仍保持原高度。
+                        "grid grid-cols-1 auto-rows-[minmax(132px,auto)] gap-x-4 gap-y-4 lg:grid-cols-2",
                         // 设计规范最多露出 8 张卡片；grid 自身负责滚动。阈值按筛选后的数量算，
                         // 否则筛出少量卡片时仍锁高度会留下大块空白。
                         visibleAutomations.length > 8 &&
@@ -1798,6 +1814,9 @@ export function AutomationsSection({
                       {visibleAutomations.map((automation) => {
                         const status = resolveAutomationStatusKind(automation);
                         const hasFailure = hasAutomationFailureState(automation);
+                        // 失败原因已在派发失败时落库；卡片必须把原文露出来，
+                        // 否则用户只能看到「已失败」三个字而无从判断（见 automation-failure-reason-display spec）。
+                        const failureDetail = automationFailureDetailText(automation.lastError);
                         const statusMeta = STATUS_META[status];
                         const StatusIcon = statusMeta.icon;
                         const scheduleText = describeAutomationCardSchedule(automation, intl);
@@ -1854,6 +1873,15 @@ export function AutomationsSection({
                               <p className="text-wrap-phrase line-clamp-2 h-10 text-ui-base font-normal leading-5 text-foreground-subtle">
                                 {automationPromptSummary(automation.prompt)}
                               </p>
+                              {failureDetail ? (
+                                <p
+                                  data-testid={TID_AUTOMATION_CARD_FAILURE_DETAIL}
+                                  className="line-clamp-2 text-ui-base font-normal leading-5 text-destructive"
+                                  title={failureDetail}
+                                >
+                                  {failureDetail}
+                                </p>
+                              ) : null}
                               <div className="mt-auto flex h-6 min-w-0 items-center gap-2 text-ui-base leading-5">
                                 <div className="flex min-w-0 flex-1 items-center gap-2">
                                   {hasFailure ? (
