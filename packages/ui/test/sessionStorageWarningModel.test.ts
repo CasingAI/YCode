@@ -40,7 +40,7 @@ const backgroundWork = (
   anchorRowId: null,
 });
 
-test("warning requires a complete scan strictly above 100 MiB and no dismissal", () => {
+test("warning requires a complete scan strictly above 500 MiB and no dismissal", () => {
   assert.equal(shouldShowSessionStorageWarning(usage()), false);
   assert.equal(
     shouldShowSessionStorageWarning(
