@@ -24,6 +24,7 @@ export interface SessionRow {
   time_title_updated: number | null;
   time_compacting: number | null;
   time_archived: number | null;
+  last_turn_has_plan_card: number | null;
 }
 
 export interface MessageRow {

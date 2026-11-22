@@ -935,8 +935,14 @@ export const SQLITE_MIGRATIONS: readonly SqliteMigration[] = [
     id: "0024_subagent_fork_isolation",
     sql: SUBAGENT_FORK_ISOLATION_MIGRATION_SQL,
   },
+  {
+    appVersion: "0.16.323",
+    id: "0025_session_last_turn_plan_card",
+    sql: SESSION_LAST_TURN_PLAN_CARD_MIGRATION_SQL,
+  },
 ];
 import { OFFICIAL_GLM_SELECTION_MIGRATION_SQL } from "./migrations/0021-official-glm-selection.js";
 import { BACKFILLED_SESSION_REASONING_MIGRATION_SQL } from "./migrations/0022-backfilled-session-reasoning.js";
 import { SUBAGENT_IDENTITY_MIGRATION_SQL } from "./migrations/0023-subagent-identity.js";
 import { SUBAGENT_FORK_ISOLATION_MIGRATION_SQL } from "./migrations/0024-subagent-fork-isolation.js";
+import { SESSION_LAST_TURN_PLAN_CARD_MIGRATION_SQL } from "./migrations/0025-session-last-turn-plan-card.js";

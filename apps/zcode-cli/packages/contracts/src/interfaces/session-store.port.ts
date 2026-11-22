@@ -170,6 +170,11 @@ export interface SessionInfo {
   summaryDiffs?: FileDiff[];
   revert?: SessionRevert;
   permission?: PermissionRuleset;
+  /**
+   * 最后一轮是否有默认展示的有效计划卡（列表描边提示）。undefined = 未落盘的旧会话，
+   * 不是 false。真值由 v4 sessions-index 实时投影派生，这里只存冷启动种子可读的提示。
+   */
+  lastTurnHasPlanCard?: boolean;
   time: {
     created: number;
     updated: number;
@@ -1336,6 +1341,14 @@ export interface SessionStorePort extends SubagentForkIsolationStorePort {
   updateSession(input: UpdateSessionInput): Promise<SessionInfo>;
   getSession(sessionID: SessionId): Promise<SessionInfo | null>;
   listSessions(input?: ListSessionsInput): Promise<SessionInfo[]>;
+  /**
+   * 描边提示的窄写：单语句、值未变不产生变更；实现禁止走全字段 updateSession。
+   * 写入失败由调用方降级（仅 warn），不得影响 sessions-index 发布。
+   */
+  setSessionLastTurnPlanCard?(input: {
+    sessionID: SessionId;
+    lastTurnHasPlanCard: boolean;
+  }): Promise<void>;
   /**
    * 用 host task-index allowlist 为旧远端 session 补写 workspace identity。
    * 实现必须同时校验 id、directory 与 workspace_id is null，禁止覆盖已有 identity。

@@ -956,6 +956,14 @@ export class SqliteSessionStore
     return sessionRepository.listSessions(this.db, input);
   }
 
+  async setSessionLastTurnPlanCard(input: {
+    sessionID: SessionId;
+    lastTurnHasPlanCard: boolean;
+  }): Promise<void> {
+    this.throwBeforeWrite();
+    sessionRepository.setSessionLastTurnPlanCard(this.db, input);
+  }
+
   async claimLegacySessionWorkspace(input: ClaimLegacySessionWorkspaceInput): Promise<number> {
     this.throwBeforeWrite();
     return sessionRepository.claimLegacySessionWorkspace(this.db, input);

@@ -73,6 +73,9 @@ export function decodeSessionRow(row: SessionRow): SessionInfo {
       compacting: row.time_compacting ?? undefined,
       archived: row.time_archived ?? undefined,
     },
+    // NULL = 未写过（旧会话/未落过盘），解码为 unknown：冷启动种子据此不带描边字段。
+    lastTurnHasPlanCard:
+      row.last_turn_has_plan_card === null ? undefined : row.last_turn_has_plan_card === 1,
   };
 }
 

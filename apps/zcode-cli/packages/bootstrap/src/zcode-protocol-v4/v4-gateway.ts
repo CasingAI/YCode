@@ -307,6 +307,12 @@ export interface V4GatewayHost {
    */
   getStoredSessionSummaries?(workspaceId: string): Promise<SessionSummary[]> | SessionSummary[];
   /**
+   * sessions-index：把「最后一轮是否有计划卡」的描边提示落盘。冷启动种子不读正文，
+   * 未加载会话的描边只能靠这次持久化恢复；gateway 只在值相对已发布基线翻转时调用。
+   * 提示性事实：宿主写失败只记日志，不得反向影响投影或发布。
+   */
+  persistLastTurnPlanCard?(sessionId: string, lastTurnHasPlanCard: boolean): void;
+  /**
    * 3.3.6 远端历史兼容：用精确 task allowlist 幂等认领后返回严格 identity 摘要。
    * 非远端 workspace 返回 null；失败可降级为空数组，后续携带 allowlist 的订阅会重试。
    */
@@ -1359,6 +1365,16 @@ export class ConversationV4Gateway {
       if (!conversationPublisher) return;
       const conversationSnapshot = conversationPublisher.getSnapshot();
       const planRing = hasPlanCardInLastAssistantResponse(conversationSnapshot.rows.window);
+      // 描边事实在相对已发布基线翻转时落盘一次：冷启动种子不读正文，未加载会话的圈
+      // 只能靠这行持久化记录跨进程恢复。基线缺席（进程内首次发布）也写一次建立基线。
+      // 提示性写入，失败只记 onError，不阻断摘要发布。
+      if (this.lastPublishedPlanRing.get(conversationPublisher) !== planRing) {
+        try {
+          this.host.persistLastTurnPlanCard?.(sessionId, planRing);
+        } catch (error) {
+          this.host.onError?.("v4.sessionsIndex.persistPlanCard", error);
+        }
+      }
       const changed = indexPublisher.ingestConversation(
         conversationSnapshot,
         this.resolveIndexMeta(sessionId),

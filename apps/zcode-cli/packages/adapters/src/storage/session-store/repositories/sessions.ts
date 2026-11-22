@@ -342,6 +342,20 @@ export function touchSession(db: DatabaseSync, sessionID: SessionId, timeUpdated
     .run(timeUpdated, sessionID);
 }
 
+export function setSessionLastTurnPlanCard(
+  db: DatabaseSync,
+  input: { sessionID: SessionId; lastTurnHasPlanCard: boolean },
+): void {
+  // 描边提示的窄写：单语句、值未变（含 NULL → 已同值）不产生变更，
+  // 禁止复用全字段 updateSession 以免并发覆盖其它 session 元数据。
+  const value = input.lastTurnHasPlanCard ? 1 : 0;
+  db
+    .prepare(
+      "update session set last_turn_has_plan_card = ? where id = ? and last_turn_has_plan_card is not ?",
+    )
+    .run(value, input.sessionID, value);
+}
+
 function normalizeSessionTaskTypes(taskTypes: readonly SessionTaskType[] | undefined): string[] {
   if (!taskTypes || taskTypes.length === 0) return [];
   const valid = new Set<string>(SESSION_TASK_TYPES);

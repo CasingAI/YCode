@@ -1691,6 +1691,9 @@ export function createConversationV4Gateway(
         phase: "completedSuccess" as const,
         sessionEnded: true,
         hasBackgroundWork: false,
+        // 轮次发布时落盘的描边提示：未加载会话的圈靠它跨进程恢复。
+        // undefined（旧会话未落盘）不带字段，与「没有计划卡」同表现。
+        ...(session.lastTurnHasPlanCard ? { lastTurnHasPlanCard: true } : {}),
         lastActivityAt: session.time?.updated ?? 0,
         createdAt: session.time?.created ?? 0,
       }));
@@ -1859,6 +1862,22 @@ export function createConversationV4Gateway(
       parseRemoteWorkspaceIdentity(workspaceId)
         ? loadStoredSessionSummaries(workspaceId, legacyTaskIds)
         : null,
+    // 描边提示落盘：gateway 在值翻转时调用一次。窄写单语句、值未变无变更；
+    // 提示性事实，写失败只 warn，不阻断 sessions-index 发布。
+    persistLastTurnPlanCard: (sessionId, lastTurnHasPlanCard) => {
+      const store = context.deps.sessionStore;
+      if (!store?.setSessionLastTurnPlanCard) return;
+      void store
+        .setSessionLastTurnPlanCard({ sessionID: sessionId as SessionId, lastTurnHasPlanCard })
+        .catch((error: unknown) => {
+          context.logger?.warn("sessions-index plan card hint persist failed", {
+            error: error instanceof Error ? error.message : String(error),
+            event: "zcode_protocol.v4.sessions_index_plan_card_persist_failed",
+            module: "bootstrap.zcode_protocol",
+            sessionId,
+          });
+        });
+    },
     // 回落面已清零（20 命令全部原生）：supports 未命中（未知命令类型）→
     // notImplemented → ACK failed fault.command.notImplemented。
     executeCommand: (envelope, admission) =>
