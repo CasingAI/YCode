@@ -166,6 +166,7 @@ import {
 } from "./windowRemoteConnectionRegistry.js";
 import { createWindowHostControllerRuntime } from "./windowHostControllerService.js";
 import { resolveAutomationSubmissionModelSelection } from "./automationModelSelection.js";
+import { resolveCronDispatchPlan, type CronDispatchPlan } from "./cronDispatchPlan.js";
 import { createRemoteConnectionProgressContext } from "@zcode/server/remote/remoteConnectionProgressContext.js";
 import { startHostSelfResourceTelemetry } from "./hostSelfResourceTelemetry.js";
 type RemoteBackendHostConnection = RemoteConnection & {
@@ -887,60 +888,115 @@ async function dispatchCronRun(request: CronRunDispatchRequest): Promise<{
   // 长期配置是原意图；首次派发在目标 Host 解析后固定。已有 run 必须直接复用，
   // 不能因账号变化或本次 Registry 读取失败重新解释历史执行选择。
   const existingRun = await cronAutomationRepo.getRun(request.runId);
-  const resolvedSubmissionModelSelection = await resolveAutomationSubmissionModelSelection({
-    selection: request.modelSelection,
-    modelGroupIntent: request.modelGroupIntent,
-    pickSeed: request.runId,
-    fixedSelection: existingRun?.modelSelection,
-    modelSelectionService,
-    // Repo 已在读取前完成离线导入；不再为迁移绕行 Agent/账号服务。
-    // 未迁入或损坏的新值仍由此入口明确拒绝，不能当成跟随 Workspace。
-    readSelection: () =>
-      cronAutomationRepo.getModelSelectionForDispatch(
+  // 到点必达决策（docs/specs/automation-dispatch-session-trace.md）：解析失败但保存了
+  // 具体模型选择时，仍建会话、仍把提示词以执行域绑定保存的选择原样发出（不回落首选），
+  // 轮次失败落会话内呈现；组意图与无首选场景没有可绑定模型，维持派发失败重试现状。
+  let plan: CronDispatchPlan;
+  let resolutionError: unknown = null;
+  try {
+    const resolvedSubmissionModelSelection = await resolveAutomationSubmissionModelSelection({
+      selection: request.modelSelection,
+      modelGroupIntent: request.modelGroupIntent,
+      pickSeed: request.runId,
+      fixedSelection: existingRun?.modelSelection,
+      modelSelectionService,
+      // Repo 已在读取前完成离线导入；不再为迁移绕行 Agent/账号服务。
+      // 未迁入或损坏的新值仍由此入口明确拒绝，不能当成跟随 Workspace。
+      readSelection: () =>
+        cronAutomationRepo.getModelSelectionForDispatch(
+          request.automationId,
+          resolveWorkspaceKey(request),
+        ),
+      // 组意图活在 automation 定义行（docs/specs/model-group.md）：执行时刻现读钉死。
+      readGroupIntent: () =>
+        cronAutomationRepo.getModelGroupIntentForDispatch(
+          request.automationId,
+          resolveWorkspaceKey(request),
+        ),
+    });
+    plan = resolveCronDispatchPlan({
+      resolutionOk: true,
+      resolvedSelection: resolvedSubmissionModelSelection,
+    });
+  } catch (error) {
+    resolutionError = error;
+    // 可直发选择优先级与解析入口一致：run 行已固定 > 派发请求快照 > repo 现读。
+    const passthroughSelection =
+      existingRun?.modelSelection ??
+      request.modelSelection ??
+      (await cronAutomationRepo.getModelSelectionForDispatch(
         request.automationId,
         resolveWorkspaceKey(request),
-      ),
-    // 组意图活在 automation 定义行（docs/specs/model-group.md）：执行时刻现读钉死。
-    readGroupIntent: () =>
-      cronAutomationRepo.getModelGroupIntentForDispatch(
-        request.automationId,
-        resolveWorkspaceKey(request),
-      ),
-  });
+      )) ??
+      undefined;
+    plan = resolveCronDispatchPlan({
+      resolutionOk: false,
+      resolutionErrorMessage: error instanceof Error ? error.message : String(error),
+      passthroughSelection,
+    });
+    if (plan.kind === "execution-passthrough") {
+      logger.warn(
+        `cron run model resolution failed, dispatch as execution-passthrough runId=${request.runId} error=${plan.resolutionError}`,
+      );
+    }
+  }
+  if (plan.kind === "dispatch-reject") {
+    throw resolutionError;
+  }
   const submissionModelSelection = await cronAutomationRepo.fixRunModelSelection(
     request.runId,
-    resolvedSubmissionModelSelection,
+    plan.selection,
   );
   let trackedKey: string | null = null;
   const workspaceKey = resolveWorkspaceKey(request);
   const trigger = request.runId.includes(":manual:") ? "manual" : "schedule";
   const scheduledAt = parseCronRunScheduledAt(request.runId, request.automationId);
   try {
-    const task = request.targetTaskId
-      ? { taskId: request.targetTaskId }
+    // 到点必达（docs/specs/automation-dispatch-session-trace.md）：execution-passthrough
+    // 优先复用本 run 已回填的会话（上一轮传输失败的重试）直接补发——draft 会话没有持久
+    // 记录，resume/load 必失败；同 inputId 幂等，不会重复发消息。
+    const reusedTaskId =
+      request.targetTaskId ??
+      (plan.kind === "execution-passthrough" ? (existingRun?.sessionId ?? null) : null);
+    const task = reusedTaskId
+      ? { taskId: reusedTaskId }
       : await zcodeTaskService.createTask({
           workspacePath: request.workspacePath,
           workspaceIdentity: request.workspaceIdentity,
-          model: formatModelPickerValue(submissionModelSelection),
+          // 到点必达分支不带模型建会话：解析已失败，模型绑定交给执行域，不写会话配置。
+          ...(plan.kind === "session-scope"
+            ? {
+                model: formatModelPickerValue(submissionModelSelection),
+                thoughtLevel: submissionModelSelection.options?.reasoningLevel,
+              }
+            : {}),
           mode: request.mode,
-          thoughtLevel: submissionModelSelection.options?.reasoningLevel,
           automationId: request.automationId,
         });
     // 未绑定会话时不能沿用 createTask 的 session trace 作为首条 prompt trace：
     // CLI 无法从 inputId 还原 manual/schedule admission。
     // 建会话 trace 与执行 runId 是两种身份；两条派发路径的 prompt 都必须统一使用 runId。
     const promptTraceId = request.runId as TraceId;
-    if (request.targetTaskId) {
+    // 到点必达复用自己的 draft 会话时不 resume（draft 无持久记录，load 必失败），
+    // 直接补发即可；绑定会话与解析成功路径仍需先恢复 active。
+    const skipResume = plan.kind === "execution-passthrough" && !request.targetTaskId;
+    if (reusedTaskId && !skipResume) {
       // 绑定会话在 app 重启或切换 workspace 后通常不处于 active；旧实现直接
       // setConfig/sendPrompt 会立即报 Session is not active，看起来像「立即运行」没有触发。
       await zcodeTaskService.resumeTask({
         taskId: task.taskId,
         workspacePath: request.workspacePath,
         workspaceIdentity: request.workspaceIdentity,
-        model: formatModelPickerValue(submissionModelSelection),
-        thoughtLevel: submissionModelSelection.options?.reasoningLevel,
+        ...(plan.kind === "session-scope"
+          ? {
+              model: formatModelPickerValue(submissionModelSelection),
+              thoughtLevel: submissionModelSelection.options?.reasoningLevel,
+            }
+          : {}),
         automationId: request.automationId,
       });
+    }
+    if (reusedTaskId && plan.kind === "session-scope") {
       await applyCronRunConfigToExistingTask({
         zcodeTaskService,
         taskId: task.taskId,
@@ -948,6 +1004,10 @@ async function dispatchCronRun(request: CronRunDispatchRequest): Promise<{
         modelSelection: submissionModelSelection,
         mode: request.mode,
       });
+    }
+    // 回填 run 的会话 id（先到先得）：派发失败的 run 也留下会话归属，重试据此复用。
+    if (!request.targetTaskId) {
+      await cronAutomationRepo.attachRunSession(request.runId, task.taskId);
     }
     trackedKey = cronRunSubscriptionKey(task.taskId, promptTraceId);
     trackCronRunOutcome({
@@ -968,6 +1028,13 @@ async function dispatchCronRun(request: CronRunDispatchRequest): Promise<{
       content: request.prompt,
       clientMode: "desktop-continuous",
       automationId: request.automationId,
+      // 到点必达：执行域绑定保存的选择原样（不解析不回落），轮次请求期失败在会话内呈现。
+      ...(plan.kind === "execution-passthrough"
+        ? {
+            modelSelection: plan.selection,
+            modelExecution: { selectionScope: "execution" },
+          }
+        : {}),
     });
     // prompt 创建的定时任务带 targetTaskId，追加原会话不能计成 session_create。
     if (!request.targetTaskId) {

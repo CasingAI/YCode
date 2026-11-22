@@ -263,7 +263,10 @@ export interface IZCodeTaskService {
       toolDenylist?: string[];
       /** 标准模型选择；闲时任务同样经 Registry / ModelFactory 创建 Model。 */
       modelSelection?: CommandPayloadMap["sendText"]["modelSelection"];
-      /** 单次执行约束与动态鉴权；仅 idle start-now 接受，不进入普通队列。 */
+      /**
+       * 单次执行约束与动态鉴权，不进入会话配置。闲时 start-now 与定时任务到点必达
+       * （automation-dispatch-session-trace.md：解析失败时绑定保存的选择原样直发）使用。
+       */
       modelExecution?: CommandPayloadMap["sendText"]["modelExecution"];
     } & ZCodeBackgroundTurnAttribution,
   ): Promise<void>;

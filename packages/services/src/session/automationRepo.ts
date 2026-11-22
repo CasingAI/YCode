@@ -1371,6 +1371,22 @@ export class AutomationRepo {
     return fixed;
   }
 
+  /**
+   * 派发期间回填 run 的会话 id（docs/specs/automation-dispatch-session-trace.md）。
+   * 只写 session_id，先到先得不覆盖，不触碰 dispatch 状态——与 markRunDispatch 的
+   * COALESCE 各自独立；重试据此复用同一会话，避免每次重试重复建会话。
+   */
+  async attachRunSession(runId: string, sessionId: string): Promise<void> {
+    await this.ensureReady();
+    this.getDatabase()
+      .prepare(
+        `UPDATE automation_runs
+        SET session_id = COALESCE(session_id, @session_id), updated_at = @now
+        WHERE run_id = @run_id`,
+      )
+      .run({ run_id: runId, session_id: sessionId, now: Date.now() });
+  }
+
   /** 派发结果回写 run（dispatched 回填 session_id / failed_to_dispatch 记 error）。 */
   async markRunDispatch(params: {
     runId: string;

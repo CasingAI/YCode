@@ -240,3 +240,39 @@ test("delay 派发成功后作为一次性任务完成", async () => {
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("attachRunSession 先到先得回填会话且不触碰派发状态", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "zcode-automation-attach-session-"));
+  const repo = new AutomationRepo(join(dir, "tasks-index.sqlite"));
+  try {
+    const automation = await repo.create(
+      {
+        title: "延时任务",
+        cronExpr: "* * * * *",
+        relativeDelayMinutes: 1,
+        prompt: "执行一次",
+        workspacePath: join(dir, "workspace"),
+        recurring: false,
+      },
+      { nextRunAt: Date.now() - 1_000 },
+    );
+    const runId = `${automation.automationId}:${Date.now()}`;
+    await repo.upsertRunClaimed({
+      runId,
+      automationId: automation.automationId,
+      workspaceKey: automation.workspaceKey,
+      scheduledAt: null,
+      trigger: "schedule",
+    });
+    await repo.attachRunSession(runId, "session-first");
+    // 重复回填不覆盖：先到先得，重试复用同一会话。
+    await repo.attachRunSession(runId, "session-second");
+    const run = await repo.getRun(runId);
+    assert.equal(run?.sessionId, "session-first");
+    // 只写 session_id，不触碰派发状态。
+    assert.equal(run?.dispatchStatus, "claimed");
+  } finally {
+    repo.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});

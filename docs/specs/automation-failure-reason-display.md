@@ -8,6 +8,8 @@
 
 失败原因在数据层已完整落库：定时任务派发失败时写入 automation.lastError 与 automation_runs.error（例如「Automation 模型选择不可用，请重新选择模型与思考档位」）；闲时任务终态写入 failureReason。但两张卡片从未渲染这些字段，只以失败图标与状态文字提示；运行历史的错误文本仅存在于悬浮提示里，移动端没有触发路径。曾出现任务因保存的模型选择在派发时解析失败而重试 4 次落败，用户在列表里看不到任何原因的情况。
 
+> 后续（automation-dispatch-session-trace.md）：保存了具体模型选择的任务在派发解析失败时改为「会话必建、消息必达」，执行失败落进会话与运行历史，派发结算为成功——这类失败不再写 automation.lastError，卡片原因展示只覆盖组意图与基础设施类派发失败。
+
 ## 产品规则
 
 - 失败判定沿用现状，不新增判定路径：定时/延时卡片沿用 `hasAutomationFailureState`（lifecycle failed / failed_to_dispatch / lastError 非空）；闲时卡片沿用 `status === "failed"` 的失败脚注判定。
