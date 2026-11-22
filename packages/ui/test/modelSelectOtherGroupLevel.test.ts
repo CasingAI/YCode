@@ -12,6 +12,7 @@ import {
   TID_CHAT_MODEL_SELECT_TRIGGER,
   testId,
 } from "@zcode/shared";
+import { buildLayoutCostCss } from "./helpers/rendererLayoutCostCss.js";
 
 const read = (path: string) =>
   readFileSync(fileURLToPath(new URL(path, import.meta.url)), "utf8").replace(/\r\n/g, "\n");
@@ -153,6 +154,7 @@ function fixtureSource(): string {
   return `
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
+import { ZCodeIntlProvider } from ${sourcePath("i18n/IntlProvider.tsx")};
 import { ModelConfigSelect } from ${sourcePath("ModelConfigSelect.tsx")};
 
 // 全部供应商都是 other：主菜单第一层只应出现「其他 >」，不能露出供应商或模型。
@@ -203,9 +205,20 @@ const singleGroups = [
   },
 ];
 
+const isNarrowScenario = new URLSearchParams(location.hash.slice(1)).has("narrow");
+const accountGroup = {
+  key: "provider:account",
+  label: "Codex · example with a long account label",
+  items: Array.from({ length: 24 }, (_, index) => ({
+    key: "account-" + index,
+    value: "custom:account-" + index,
+    name: "Codex account model " + index,
+  })),
+};
+
 function Fixture() {
   const [single, setSingle] = useState(false);
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(!isNarrowScenario);
   const [value, setValue] = useState("custom:command-model");
   return (
     <>
@@ -232,7 +245,7 @@ function Fixture() {
         single
       </button>
       <ModelConfigSelect
-        modelGroups={single ? singleGroups : manyGroups}
+        modelGroups={isNarrowScenario ? [accountGroup, ...manyGroups] : single ? singleGroups : manyGroups}
         normalizedValue={value}
         triggerLabel="Select model"
         showManageModelsAction={false}
@@ -241,12 +254,16 @@ function Fixture() {
         onValueChange={setValue}
         open={open}
         onOpenChange={setOpen}
+        focusSelectorOnClose={null}
+        triggerClassName={isNarrowScenario ? "fixture-model-trigger" : undefined}
       />
     </>
   );
 }
 
-createRoot(document.getElementById("root")).render(<Fixture />);
+createRoot(document.getElementById("root")).render(
+  <ZCodeIntlProvider initialLocale="zh-CN"><Fixture /></ZCodeIntlProvider>,
+);
 `;
 }
 
@@ -501,6 +518,120 @@ test(
       } finally {
         await context.close();
       }
+
+      await t.test("窄屏触屏账号和其他分组在同一视口内进入、返回并选择模型", async () => {
+        const { cssText } = await buildLayoutCostCss({
+          outDir: directory,
+          sourceDirs: [join(uiRoot, "src")],
+          key: "model-select-narrow",
+        });
+        const touchContext = await chromium.launchPersistentContext(join(directory, "touch"), {
+          executablePath,
+          headless: true,
+          hasTouch: true,
+          viewport: { width: 360, height: 640 },
+        });
+        try {
+          const page = await touchContext.newPage();
+          const errors: string[] = [];
+          page.on("pageerror", (error) => errors.push(error.message));
+          await page.setContent(
+            '<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><script>globalThis.__name = value => value;</script></head><body><div id="root"></div></body></html>',
+          );
+          await page.evaluate(() => {
+            location.hash = "narrow";
+          });
+          await page.addStyleTag({ content: cssText });
+          await page.addStyleTag({
+            content: ".fixture-model-trigger{position:fixed;bottom:2rem;right:1rem}",
+          });
+          await page.addScriptTag({ path: bundle });
+
+          const trigger = page.getByTestId(TID_CHAT_MODEL_SELECT_TRIGGER);
+          const menu = page.locator('[data-slot="dropdown-menu-content"]');
+          const account = page.getByTestId(testId(TID_CHAT_MODEL_SELECT_GROUP, "provider:account"));
+          const other = page.getByTestId(
+            testId(TID_CHAT_MODEL_SELECT_GROUP, "model-selection-other"),
+          );
+          const provider = page.getByTestId(
+            testId(TID_CHAT_MODEL_SELECT_GROUP, "registry-provider:command"),
+          );
+          const model = (value: string) =>
+            page.getByTestId(testId(TID_CHAT_MODEL_SELECT_ITEM, value));
+          const back = page.getByRole("menuitem", { name: "返回", exact: true });
+
+          async function assertPanelInsideViewport() {
+            assert.equal(await page.locator('[data-slot="dropdown-menu-sub-content"]').count(), 0);
+            assert.equal(await menu.count(), 1);
+            const inside = await menu.evaluate((element) => {
+              const rect = element.getBoundingClientRect();
+              return (
+                rect.left >= 0 &&
+                rect.top >= 0 &&
+                rect.right <= window.innerWidth &&
+                rect.bottom <= window.innerHeight
+              );
+            });
+            assert.equal(inside, true, "模型菜单没有完全留在视口内");
+          }
+
+          await trigger.tap();
+          await account.waitFor({ state: "visible" });
+          await assertPanelInsideViewport();
+          await account.tap();
+          await model("custom:account-0").waitFor({ state: "visible" });
+          await assertPanelInsideViewport();
+          assert.equal(await account.count(), 0);
+          assert.ok(await menu.evaluate((element) => element.scrollHeight > element.clientHeight));
+          await back.tap();
+          await account.waitFor({ state: "visible" });
+          assert.equal(
+            await trigger.getAttribute("data-model-current-value"),
+            "custom:command-model",
+          );
+
+          await other.tap();
+          await provider.waitFor({ state: "visible" });
+          await assertPanelInsideViewport();
+          assert.equal(await model("custom:command-model").count(), 0);
+          assert.equal(await provider.getAttribute("data-model-provider-selected"), "true");
+          await provider.tap();
+          await model("custom:command-model").waitFor({ state: "visible" });
+          await assertPanelInsideViewport();
+          await back.tap();
+          await provider.waitFor({ state: "visible" });
+          await page.keyboard.press("Escape");
+          await menu.waitFor({ state: "detached" });
+
+          await trigger.press("Enter");
+          await account.and(page.locator(":focus")).waitFor({ state: "attached" });
+          await page.keyboard.press("Enter");
+          await back.and(page.locator(":focus")).waitFor({ state: "attached" });
+          await page.keyboard.press("Enter");
+          await account.and(page.locator(":focus")).waitFor({ state: "attached" });
+          await page.keyboard.press("Enter");
+          await model("custom:account-23").tap();
+          await menu.waitFor({ state: "detached" });
+          assert.equal(await trigger.getAttribute("data-model-current-value"), "custom:account-23");
+
+          await trigger.tap();
+          await account.waitFor({ state: "visible" });
+          assert.equal(await account.getAttribute("data-model-provider-selected"), "true");
+          assert.equal(await back.count(), 0);
+          await page.setViewportSize({ width: 320, height: 480 });
+          await account.tap();
+          await back.waitFor({ state: "visible" });
+          await assertPanelInsideViewport();
+          await page.touchscreen.tap(1, 1);
+          await menu.waitFor({ state: "detached" });
+          await trigger.tap();
+          await account.waitFor({ state: "visible" });
+          assert.equal(await back.count(), 0);
+          assert.deepEqual(errors, []);
+        } finally {
+          await touchContext.close();
+        }
+      });
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

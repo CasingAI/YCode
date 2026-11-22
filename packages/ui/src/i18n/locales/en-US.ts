@@ -4992,6 +4992,7 @@ const enUS: Record<string, string> = {
   "chat.toolbar.model.description":
     "Choose the model used by this task. The shortcut opens the model menu.",
   "chat.toolbar.model.manageModels": "Manage models",
+  "chat.toolbar.model.back": "Back",
   "chat.toolbar.model.searchPlaceholder": "Search models...",
   "chat.toolbar.model.empty": "No models found",
   "chat.toolbar.modelSwitch.stage.settingModel": "Switching model...",

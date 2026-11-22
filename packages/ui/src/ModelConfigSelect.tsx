@@ -4,6 +4,7 @@ import {
   memo,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -34,7 +35,17 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip.js";
-import { AlertCircle, CheckIcon, ChevronDownIcon, LoaderIcon, PackageIcon } from "lucide-react";
+import {
+  AlertCircle,
+  CheckIcon,
+  ChevronDownIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  LoaderIcon,
+  PackageIcon,
+} from "lucide-react";
+import { useIsNarrowViewport } from "@/hooks/useIsNarrowViewport.js";
+import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import {
   TID_CHAT_MODEL_SELECT_GROUP,
   TID_CHAT_MODEL_SELECT_ITEM,
@@ -146,15 +157,7 @@ function isModelSelectGroupSelected(
   return group.items.some((item) => item.value === normalizedValue);
 }
 
-/**
- * 供应商子菜单内容的统一外壳。固定宽度会提前截断模型名，所以按内容扩展；
- * 宽度规则必须与主菜单一致（w-max min-w-48 max-w-[calc(100vw-2rem)]，见
- * docs/specs/provider-primary.md「子菜单窄屏呈现」）。
- * 不能用 --radix-dropdown-menu-content-available-width 做 min/max：窄屏翻转后该变量
- * 极小，会与 DropdownMenuSubContent 的 overflow-x-hidden、条目名 truncate 叠加，
- * 把模型名截成首字母（如 c...、g...）。改为固定下限 + 视口上限。
- * 调用方传入的覆盖样式优先于缺省宽度。
- */
+// 宽屏侧向菜单按内容扩展，不用翻转后的剩余宽度挤压模型名。
 function getProviderSubmenuContentClassName(overrideClassName?: string): string {
   return cn(
     "max-h-72 overflow-y-auto",
@@ -269,13 +272,54 @@ export const ModelConfigSelect = memo(function ModelConfigSelectComponent({
   leadingItems,
   triggerBadge,
 }: ModelConfigSelectProps) {
+  const { intl } = useZCodeIntl();
+  const isNarrowViewport = useIsNarrowViewport();
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const [groupPath, setGroupPath] = useState<readonly [string, string?] | null>(null);
   const open = controlledOpen ?? uncontrolledOpen;
+  const contentRef = useRef<HTMLDivElement>(null);
+  const returnFocusGroupKeyRef = useRef<string | null>(null);
   const lastOpenRequestKeyRef = useRef(openRequestKey);
   const hasSelectableModel = modelGroups.length > 0;
   // 闲时任务白名单只有一层模型值；只要存在 group 就强制展示 provider 层的话，
   // 下方已有的扁平模型分支永远不可达，也无法复用 New Task 模型选择器。
   const shouldShowProviderLevel = showProviderLevel ?? shouldShowModelProviderLevel(modelGroups);
+  const pathRoot =
+    open && isNarrowViewport && shouldShowProviderLevel && groupPath
+      ? modelGroups.find(
+          (group) => group.key === groupPath[0] && (group.isOtherGroup || !group.directItems),
+        )
+      : undefined;
+  const pathChildKey = groupPath?.[1];
+  const activeGroup =
+    pathChildKey === undefined
+      ? pathRoot
+      : pathRoot?.isOtherGroup
+        ? pathRoot.subSections?.find((group) => group.key === pathChildKey)
+        : undefined;
+
+  useEffect(() => {
+    if (!activeGroup && groupPath) {
+      setGroupPath(null);
+    }
+  }, [activeGroup, groupPath]);
+
+  useLayoutEffect(() => {
+    const content = contentRef.current;
+    const returnFocusGroupKey = returnFocusGroupKeyRef.current;
+    returnFocusGroupKeyRef.current = null;
+    if (!content || (!groupPath && returnFocusGroupKey === null)) return;
+
+    const target = content.querySelector<HTMLElement>(
+      returnFocusGroupKey === null
+        ? "[data-model-menu-back]"
+        : `[data-model-provider-key="${CSS.escape(returnFocusGroupKey)}"]`,
+    );
+    // 切换层级会卸载原焦点项；在绘制前接管焦点，避免键盘导航落回页面。
+    if (returnFocusGroupKey === null) content.scrollTop = 0;
+    (target ?? content).focus();
+  }, [groupPath]);
+
   // 模型名和上游占位值可能大小写敏感，强制大写会把 `<synthetic>` 改成 `<SYNTHETIC>` 这类非原始值。
   const triggerDisplayLabel = triggerLabel;
   const renderedTriggerDisplayLabel =
@@ -429,10 +473,7 @@ export const ModelConfigSelect = memo(function ModelConfigSelectComponent({
   const renderGroupLabel = useCallback(
     (group: ModelSelectGroup) => (
       <span className="min-w-0 flex-1 items-center gap-1.5 text-left inline-flex">
-        <span
-          className="min-w-0 whitespace-normal break-words text-ui-base"
-          title={group.label}
-        >
+        <span className="min-w-0 whitespace-normal break-words text-ui-base" title={group.label}>
           {group.label}
         </span>
         {group.labelBadge ? (
@@ -442,6 +483,27 @@ export const ModelConfigSelect = memo(function ModelConfigSelectComponent({
     ),
     [],
   );
+
+  const renderInlineGroupEntry = (group: ModelSelectGroup, parentKey?: string) => {
+    const selected = isModelSelectGroupSelected(group, normalizedValue);
+    return (
+      <DropdownMenuItem
+        key={group.key}
+        className="min-h-8"
+        data-testid={testId(TID_CHAT_MODEL_SELECT_GROUP, group.key)}
+        data-model-provider-key={group.key}
+        data-model-provider-selected={selected ? "true" : undefined}
+        onSelect={(event) => {
+          event.preventDefault();
+          setGroupPath(parentKey === undefined ? [group.key] : [parentKey, group.key]);
+        }}
+      >
+        {renderGroupLabel(group)}
+        {selected ? <CheckIcon className="size-4 text-foreground-subtle" /> : null}
+        <ChevronRightIcon className="size-4 text-foreground-subtle" />
+      </DropdownMenuItem>
+    );
+  };
 
   const renderProviderConnectionHeader = useCallback(
     (group: ModelSelectGroup) => {
@@ -582,13 +644,21 @@ export const ModelConfigSelect = memo(function ModelConfigSelectComponent({
       )}
       {open ? (
         <DropdownMenuContent
+          ref={contentRef}
           className={cn(
             shouldShowProviderLevel
               ? "w-max min-w-48 max-w-[calc(100vw-2rem)]"
               : "w-48 max-h-72 overflow-y-auto",
+            isNarrowViewport &&
+              "min-w-0 max-h-(--radix-dropdown-menu-content-available-height) max-w-(--radix-dropdown-menu-content-available-width)",
           )}
           align={contentAlign}
-          side={contentSide}
+          side={
+            isNarrowViewport && (contentSide === "left" || contentSide === "right")
+              ? "top"
+              : contentSide
+          }
+          collisionPadding={isNarrowViewport ? 8 : undefined}
           onCloseAutoFocus={(event) => {
             if (!focusSelectorOnClose) {
               // Automations 没有聊天输入框可恢复；保留 Radix 默认行为，
@@ -609,13 +679,35 @@ export const ModelConfigSelect = memo(function ModelConfigSelectComponent({
             input?.focus();
           }}
         >
-          {leadingItems !== undefined && leadingItems.length > 0 ? (
+          {activeGroup ? (
+            <>
+              <DropdownMenuItem
+                className="sticky top-0 z-10 min-h-8 bg-menu"
+                data-model-menu-back=""
+                onSelect={(event) => {
+                  event.preventDefault();
+                  returnFocusGroupKeyRef.current = activeGroup.key;
+                  setGroupPath(pathChildKey && pathRoot ? [pathRoot.key] : null);
+                }}
+              >
+                <ChevronLeftIcon className="size-4 text-foreground-subtle" />
+                {intl.formatMessage({ id: "chat.toolbar.model.back" })}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              {activeGroup.isOtherGroup
+                ? activeGroup.subSections?.map((group) =>
+                    renderInlineGroupEntry(group, activeGroup.key),
+                  )
+                : renderModelItems(activeGroup.items)}
+            </>
+          ) : null}
+          {!activeGroup && leadingItems !== undefined && leadingItems.length > 0 ? (
             <>
               {renderModelItems(leadingItems)}
               {hasSelectableModel ? <DropdownMenuSeparator /> : null}
             </>
           ) : null}
-          {hasSelectableModel && shouldShowProviderLevel
+          {!activeGroup && hasSelectableModel && shouldShowProviderLevel
             ? modelGroups.map((group, index) => {
                 // 分割线跟着 Primary 平铺组走：平铺组与相邻分组之间始终有分割线；
                 // 二级菜单组之间沿用原 family 连接组规则，不额外加线。
@@ -625,6 +717,15 @@ export const ModelConfigSelect = memo(function ModelConfigSelectComponent({
                 ) ? (
                   <DropdownMenuSeparator />
                 ) : null;
+                // 侧向菜单只会翻转；两边都放不下时，窄屏改在主面板内进入下一层。
+                if (isNarrowViewport && (group.isOtherGroup || !group.directItems)) {
+                  return (
+                    <Fragment key={group.key}>
+                      {groupSeparator}
+                      {renderInlineGroupEntry(group)}
+                    </Fragment>
+                  );
+                }
                 if (group.isOtherGroup) {
                   // 「其他」固定三层（docs/specs/provider-primary.md）：
                   // 主菜单「其他 >」→「其他」子菜单里的供应商入口 → 供应商子菜单里的模型。
@@ -646,7 +747,6 @@ export const ModelConfigSelect = memo(function ModelConfigSelectComponent({
                             <CheckIcon className="size-4 text-foreground-subtle" />
                           ) : null}
                         </DropdownMenuSubTrigger>
-                        {/* 窄屏翻转后与视口保留 8px 间距，避免贴死屏幕边缘。 */}
                         <DropdownMenuSubContent
                           className={getProviderSubmenuContentClassName()}
                           collisionPadding={8}
@@ -743,10 +843,10 @@ export const ModelConfigSelect = memo(function ModelConfigSelectComponent({
                   </Fragment>
                 );
               })
-            : hasSelectableModel
+            : !activeGroup && hasSelectableModel
               ? renderModelItems(modelGroups[0]?.items ?? [])
               : null}
-          {renderedFooterActions.length > 0 ? (
+          {!activeGroup && renderedFooterActions.length > 0 ? (
             <div className="sticky bottom-0 z-10 bg-menu after:absolute after:left-0 after:top-full after:h-1 after:w-full after:bg-menu after:content-['']">
               {hasSelectableModel ? <DropdownMenuSeparator /> : null}
               {renderedFooterActions.map((action) => (
