@@ -50,6 +50,11 @@ export interface WorkspaceTabState extends TabState {
   workspaceIdentity?: string;
   localWorkspacePath?: string;
   workspacePurpose?: WorkspacePurpose;
+  /**
+   * 最近一次成为激活 workspace 的时间，只由本 store 在激活时写入。
+   * workspace 切换菜单按它降序排列；缺省表示从未激活。
+   */
+  lastActivatedAt?: number;
 }
 
 export interface WorkspaceTabOptions {
@@ -60,6 +65,8 @@ export interface WorkspaceTabOptions {
   workspaceIdentity?: string;
   localWorkspacePath?: string;
   workspacePurpose?: WorkspacePurpose;
+  /** 仅恢复流程使用：带出持久化的激活时间。 */
+  lastActivatedAt?: number;
 }
 
 export interface RestorableWorkspaceTab {
@@ -70,6 +77,7 @@ export interface RestorableWorkspaceTab {
   workspaceIdentity?: string;
   localWorkspacePath?: string;
   workspacePurpose?: WorkspacePurpose;
+  lastActivatedAt?: number;
 }
 
 export type WindowTabState = WorkspaceTabState | SettingsTabState | FilesTabState;
@@ -191,7 +199,29 @@ function createWorkspaceTab(
     workspaceIdentity: options?.workspaceIdentity,
     localWorkspacePath: options?.localWorkspacePath,
     workspacePurpose: options?.workspacePurpose,
+    lastActivatedAt: options?.lastActivatedAt,
   };
+}
+
+function pickLatestActivationAt(
+  left: number | undefined,
+  right: number | undefined,
+): number | undefined {
+  if (left === undefined || right === undefined) {
+    return left ?? right;
+  }
+
+  return Math.max(left, right);
+}
+
+function markWorkspaceTabActivated(
+  tabs: WindowTabState[],
+  tabId: TabId,
+  activatedAt: number,
+): WindowTabState[] {
+  return tabs.map((tab) =>
+    tab.id === tabId && isWorkspaceTab(tab) ? { ...tab, lastActivatedAt: activatedAt } : tab,
+  );
 }
 
 function mergeWorkspaceTabOptions(
@@ -285,6 +315,13 @@ interface StorageLike {
 }
 
 export function createTabStore(storage: StorageLike | null | undefined = undefined) {
+  // 同一毫秒内连续切换时 Date.now() 可能不变，这里保证写入值严格递增，
+  // 否则两个 workspace 的激活时间相同，菜单顺序会退回传入顺序。
+  let lastActivationAt = 0;
+  const nextActivationAt = () => (lastActivationAt = Math.max(Date.now(), lastActivationAt + 1));
+  const markActivated = (tabs: WindowTabState[], tabId: TabId) =>
+    markWorkspaceTabActivated(tabs, tabId, nextActivationAt());
+
   return create<TabStoreState>()((set, get) => ({
     tabs: [],
     activeTabId: null,
@@ -307,10 +344,13 @@ export function createTabStore(storage: StorageLike | null | undefined = undefin
           // 但这里之前命中已有 tab 只做激活，不把新的 remoteSessionId 等元数据写回旧 tab。
           // 结果 UI 仍然读到“remoteSessionId 还没更新”的旧状态，
           // reconnect 按钮就会一直显示，像是还没连上。这里在复用 tab 时同步覆盖远程会话字段。
-          tabs: state.tabs.map((tab) =>
-            tab.id !== existing.id || !isWorkspaceTab(tab)
-              ? tab
-              : mergeWorkspaceTabOptions(tab, options),
+          tabs: markActivated(
+            state.tabs.map((tab) =>
+              tab.id !== existing.id || !isWorkspaceTab(tab)
+                ? tab
+                : mergeWorkspaceTabOptions(tab, options),
+            ),
+            existing.id,
           ),
           activeTabId: existing.id,
           activeWorkspacePath: existing.workspacePath,
@@ -327,6 +367,7 @@ export function createTabStore(storage: StorageLike | null | undefined = undefin
 
       const tab = createWorkspaceTab(workspacePath, options);
       persistWorkspaceExpandedPreference(workspacePath, true, storage);
+      tab.lastActivatedAt = nextActivationAt();
       set((state) => ({
         // 左侧 workspace 列表现在支持手动排序，但新打开项目仍然默认追加到底部，
         // 连续开新项目时最新 workspace 总要滚到下面找，和侧栏“最新上下文优先”的浏览方式不一致。
@@ -453,6 +494,11 @@ export function createTabStore(storage: StorageLike | null | undefined = undefin
         persistWorkspaceExpandedPreference(fallbackWorkspacePath, true, storage);
       }
 
+      if (activeTabId === tabId && nextWorkspaceTab && isWorkspaceTab(nextWorkspaceTab)) {
+        // 接替的不只是焦点：用户此刻就落在这个 workspace 里，菜单的最近使用排序要认这一次。
+        nextState.tabs = markActivated(newTabs, nextWorkspaceTab.id);
+      }
+
       set(nextState);
     },
 
@@ -463,7 +509,7 @@ export function createTabStore(storage: StorageLike | null | undefined = undefin
         return;
       }
 
-      const nextState = {
+      const nextState: Partial<TabStoreState> = {
         activeTabId: tabId,
         activeWorkspacePath: isWorkspaceTab(tab)
           ? tab.workspacePath
@@ -478,6 +524,11 @@ export function createTabStore(storage: StorageLike | null | undefined = undefin
 
       if (isWorkspaceTab(tab)) {
         persistWorkspaceExpandedPreference(tab.workspacePath, true, storage);
+      }
+
+      // 重复点击已激活的 workspace 不算一次新的使用，否则每次点击都会触发一次设置写回。
+      if (isWorkspaceTab(tab) && stateBefore.activeTabId !== tabId) {
+        nextState.tabs = markActivated(stateBefore.tabs, tabId);
       }
 
       set(nextState);
@@ -610,7 +661,7 @@ export function createTabStore(storage: StorageLike | null | undefined = undefin
         return false;
       }
 
-      const nextState = {
+      const nextState: Partial<TabStoreState> = {
         activeTabId: tab.id,
         activeWorkspacePath: path,
         activeWorkspaceIdentity: tab.workspaceIdentity ?? null,
@@ -618,6 +669,10 @@ export function createTabStore(storage: StorageLike | null | undefined = undefin
       };
 
       persistWorkspaceExpandedPreference(path, true, storage);
+
+      if (stateBefore.activeTabId !== tab.id) {
+        nextState.tabs = markActivated(stateBefore.tabs, tab.id);
+      }
 
       set(nextState);
       return true;
@@ -633,6 +688,7 @@ export function createTabStore(storage: StorageLike | null | undefined = undefin
           workspaceIdentity: normalized.workspaceIdentity,
           workspacePurpose: normalized.workspacePurpose,
           availability: normalized.availability,
+          lastActivatedAt: normalized.lastActivatedAt,
         });
       });
       const safeIndex = Math.min(Math.max(activeIndex, 0), tabs.length - 1);
@@ -640,6 +696,17 @@ export function createTabStore(storage: StorageLike | null | undefined = undefin
       if (!activeWorkspaceTab || !isWorkspaceTab(activeWorkspaceTab)) {
         return;
       }
+      // 时钟从 0 起步时，同一毫秒内写出的时间可能小于已持久化的值；先对齐到快照里最新的激活时间。
+      for (const tab of tabs) {
+        if (tab.lastActivatedAt !== undefined) {
+          lastActivationAt = Math.max(lastActivationAt, tab.lastActivatedAt);
+        }
+      }
+      // 被恢复为激活项的 workspace 此刻正在使用，它的激活时间以本次恢复为准。
+      tabs[tabs.indexOf(activeWorkspaceTab)] = {
+        ...activeWorkspaceTab,
+        lastActivatedAt: nextActivationAt(),
+      };
       const expansionState: WorkspaceExpansionState = readWorkspaceExpansionState(storage);
       set({
         tabs,
@@ -666,6 +733,7 @@ export function createTabStore(storage: StorageLike | null | undefined = undefin
             localWorkspacePath: normalized.localWorkspacePath,
             workspacePurpose: normalized.workspacePurpose,
             availability: normalized.availability,
+            lastActivatedAt: normalized.lastActivatedAt,
           };
           const existing = state.tabs.find(
             (tab): tab is WorkspaceTabState =>
@@ -675,7 +743,14 @@ export function createTabStore(storage: StorageLike | null | undefined = undefin
           );
           if (existing) {
             consumedTabIds.add(existing.id);
-            return mergeWorkspaceTabOptions(existing, options);
+            return {
+              ...mergeWorkspaceTabOptions(existing, options),
+              // 补齐阶段用的是启动时的旧快照；首帧后用户已经激活过的 tab 保留更新的时间。
+              lastActivatedAt: pickLatestActivationAt(
+                existing.lastActivatedAt,
+                normalized.lastActivatedAt,
+              ),
+            };
           }
           return createWorkspaceTab(normalized.workspacePath, options);
         });

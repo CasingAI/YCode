@@ -106,6 +106,7 @@ const appWorkspaceSessionEntrySchema = z.discriminatedUnion("kind", [
     kind: z.literal("local"),
     workspacePath: nonEmptyStringSchema,
     workspacePurpose: z.enum(["project", "conversation"]).default("project"),
+    lastActivatedAt: z.number().int().nonnegative().optional(),
   }),
   z.object({
     kind: z.literal("remote"),
@@ -116,6 +117,7 @@ const appWorkspaceSessionEntrySchema = z.discriminatedUnion("kind", [
     lastOpenedAt: z.number().int().nonnegative(),
     lastConnectionStatus: z.enum(["connected", "failed"]),
     lastConnectionError: z.string().optional(),
+    lastActivatedAt: z.number().int().nonnegative().optional(),
   }),
 ]);
 
@@ -314,6 +316,13 @@ function migrateLegacyWorkspaceSession(value: unknown): unknown {
                 workspacePath: rawEntry.workspacePath,
                 workspacePurpose:
                   rawEntry.workspacePurpose === "conversation" ? "conversation" : "project",
+                // 这里按字段重建本地条目，不透传 lastActivatedAt 会在每次读取设置时把它丢掉。
+                ...(rawEntry.kind === "local" &&
+                typeof rawEntry.lastActivatedAt === "number" &&
+                Number.isInteger(rawEntry.lastActivatedAt) &&
+                rawEntry.lastActivatedAt >= 0
+                  ? { lastActivatedAt: rawEntry.lastActivatedAt }
+                  : {}),
               },
             ];
           }

@@ -125,11 +125,12 @@ export function restorePersistedRemoteWorkspaceSessions({
           ? "unavailable-local-directory"
           : undefined;
       restoredTabs.push(
-        workspacePurpose || availability
+        workspacePurpose || availability || persistedEntry.lastActivatedAt !== undefined
           ? {
               workspacePath: persistedEntry.workspacePath,
               workspacePurpose,
               availability,
+              lastActivatedAt: persistedEntry.lastActivatedAt,
             }
           : persistedEntry.workspacePath,
       );
@@ -170,6 +171,7 @@ export function restorePersistedRemoteWorkspaceSessions({
       workspacePath: persistedEntry.workspacePath,
       remoteTarget: persistedEntry.target,
       workspaceIdentity,
+      lastActivatedAt: persistedEntry.lastActivatedAt,
     });
     seenRemoteWorkspaceKeys.add(workspaceKey);
   }

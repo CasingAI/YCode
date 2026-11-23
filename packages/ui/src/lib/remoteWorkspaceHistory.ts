@@ -417,7 +417,11 @@ export function buildPersistedWorkspaceSessionEntries(
         return entries;
       }
 
-      entries.push(remoteEntry);
+      entries.push(
+        tab.lastActivatedAt === undefined
+          ? remoteEntry
+          : { ...remoteEntry, lastActivatedAt: tab.lastActivatedAt },
+      );
       return entries;
     }
 
@@ -425,6 +429,7 @@ export function buildPersistedWorkspaceSessionEntries(
       kind: "local",
       workspacePath: tab.workspacePath,
       ...(tab.workspacePurpose ? { workspacePurpose: tab.workspacePurpose } : {}),
+      ...(tab.lastActivatedAt === undefined ? {} : { lastActivatedAt: tab.lastActivatedAt }),
     });
     return entries;
   }, []);

@@ -456,6 +456,7 @@ export function App({
         workspacePurpose: tab.workspacePurpose,
         localWorkspacePath: tab.localWorkspacePath,
         availability: tab.availability,
+        lastActivatedAt: tab.lastActivatedAt,
       })),
     [tabs],
   );

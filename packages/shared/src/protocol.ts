@@ -283,10 +283,14 @@ export interface LocalWorkspaceSessionEntry {
   workspacePath: string;
   /** 项目展示分类；旧数据缺省为 project，conversation 仍使用真实 workspacePath 作为 cwd/key。 */
   workspacePurpose?: WorkspacePurpose;
+  /** 最近一次成为激活 workspace 的时间戳；旧设置缺省表示从未激活。 */
+  lastActivatedAt?: number;
 }
 
 export interface RemoteWorkspaceSessionEntry extends RemoteWorkspaceSessionSnapshot {
   kind: "remote";
+  /** 最近一次成为激活 workspace 的时间戳；旧设置缺省表示从未激活。 */
+  lastActivatedAt?: number;
 }
 
 export type PersistedWorkspaceSessionEntry =

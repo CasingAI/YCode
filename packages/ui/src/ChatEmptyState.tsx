@@ -100,6 +100,8 @@ export interface ChatEmptyWorkspaceMenuTab {
   remoteTarget?: RemoteTarget;
   workspaceIdentity?: string;
   workspacePurpose?: WorkspacePurpose;
+  /** 最近一次激活时间，由 tab store 写入；缺省表示从未激活，排在列表最后。 */
+  lastActivatedAt?: number;
 }
 
 function isWorkspaceMenuTabSelected(
@@ -122,7 +124,38 @@ function getRemoteWorkspaceSearchText(workspaceTab: ChatEmptyWorkspaceMenuTab) {
     .join(" ");
 }
 
-function filterVisibleWorkspaceMenuTabs({
+/** 查询词带路径分隔符或盘符时才按路径匹配；否则只看显示名称。 */
+function shouldMatchWorkspacePath(normalizedQuery: string) {
+  return /[/\\]|^[a-z]:/.test(normalizedQuery);
+}
+
+function compareWorkspaceMenuTabsByActivation(
+  left: ChatEmptyWorkspaceMenuTab,
+  right: ChatEmptyWorkspaceMenuTab,
+) {
+  if (left.lastActivatedAt === right.lastActivatedAt) {
+    return 0;
+  }
+
+  // 没有激活时间的视为从未使用，排在最后。
+  if (left.lastActivatedAt === undefined || right.lastActivatedAt === undefined) {
+    return left.lastActivatedAt === undefined ? 1 : -1;
+  }
+
+  return right.lastActivatedAt - left.lastActivatedAt;
+}
+
+/** Windows 路径用反斜杠，用户输入的片段可能是正斜杠，两侧统一成正斜杠再比较。 */
+function normalizeWorkspacePathSearchText(text: string) {
+  return text.replace(/\\/g, "/").toLowerCase();
+}
+
+/**
+ * 过滤并排序 workspace 菜单列表：按最近激活时间降序，再截取前 5 条。
+ * 之前路径无条件参与匹配，`C:\Users\...` 里的 Users、GitHub 让单个常见字母命中全部项目；
+ * 排序又直接沿用侧栏手动顺序，最近使用的项目不一定出现在前 5 条里。
+ */
+export function filterVisibleWorkspaceMenuTabs({
   workspaceTabs,
   homeWorkspaceLabel,
   searchQuery,
@@ -151,16 +184,23 @@ function filterVisibleWorkspaceMenuTabs({
       }
 
       const workspaceTitle = getWorkspaceListTitle(workspaceTab.workspacePath, homeWorkspaceLabel);
-      const searchableText = [
-        workspaceTitle,
-        workspaceTab.label,
-        workspaceTab.workspacePath,
-        getRemoteWorkspaceSearchText(workspaceTab),
-      ]
+      if (shouldMatchWorkspacePath(normalizedQuery)) {
+        return [
+          workspaceTab.workspacePath,
+          getRemoteWorkspaceSearchText(workspaceTab),
+          workspaceTitle,
+          workspaceTab.label,
+        ]
+          .map(normalizeWorkspacePathSearchText)
+          .some((text) => text.includes(normalizeWorkspacePathSearchText(normalizedQuery)));
+      }
+
+      return [workspaceTitle, workspaceTab.label]
         .join(" ")
-        .toLowerCase();
-      return searchableText.includes(normalizedQuery);
+        .toLowerCase()
+        .includes(normalizedQuery);
     })
+    .sort(compareWorkspaceMenuTabsByActivation)
     .slice(0, 5);
 }
 

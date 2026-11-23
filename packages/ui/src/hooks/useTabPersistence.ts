@@ -184,10 +184,11 @@ export function useTabPersistence({
           const tabs = readPersistedWorkspaceSessionEntries(settings).flatMap((entry) =>
             entry.kind === "local"
               ? [
-                  entry.workspacePurpose
+                  entry.workspacePurpose || entry.lastActivatedAt !== undefined
                     ? {
                         workspacePath: entry.workspacePath,
                         workspacePurpose: entry.workspacePurpose,
+                        lastActivatedAt: entry.lastActivatedAt,
                       }
                     : entry.workspacePath,
                 ]
