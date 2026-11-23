@@ -114,8 +114,19 @@ function deriveSessionSummary(
   };
 }
 
-/** 两条 summary 是否等价（conflation：等价则不产 delta）。 */
-function summariesEqual(a: SessionSummary, b: SessionSummary): boolean {
+/**
+ * 两条 summary 是否等价（conflation：等价则不产 delta）。
+ *
+ * `ignoreLastActivityAt` 供网关做帧分类：活动事件（turn/tool）只推进
+ * lastActivityAt 时摘要仍「内容等价」，这类帧走合并窗口而不是逐事件直发
+ * （见 docs/specs/sessions-index-activity-flush-coalescing.md）。字段清单只有
+ * 这一份，分类与 conflation 不得各自维护比较表。
+ */
+function summariesEqual(
+  a: SessionSummary,
+  b: SessionSummary,
+  options?: { ignoreLastActivityAt?: boolean },
+): boolean {
   return (
     a.sessionId === b.sessionId &&
     a.workspaceId === b.workspaceId &&
@@ -137,10 +148,18 @@ function summariesEqual(a: SessionSummary, b: SessionSummary): boolean {
     // plan 卡描边的落地与清除都必须产帧：plan_created 停轮时 phase 可能与上一轮同值，
     // 漏判等会让列表的描边永远停在旧值。
     a.lastTurnHasPlanCard === b.lastTurnHasPlanCard &&
-    a.lastActivityAt === b.lastActivityAt &&
+    (options?.ignoreLastActivityAt === true || a.lastActivityAt === b.lastActivityAt) &&
     a.lastAssistantPreview === b.lastAssistantPreview &&
     a.createdAt === b.createdAt
   );
+}
+
+/** upsertFromConversation 的产物：delta 及其帧分类（见 docs/specs/sessions-index-activity-flush-coalescing.md）。 */
+export interface SessionsIndexUpsertResult {
+  /** 空 = conflation 判等，无帧。 */
+  deltas: SessionsIndexDelta[];
+  /** true = 只有 lastActivityAt 变化；网关对这类帧走合并窗口，其余立即直发。 */
+  activityOnly: boolean;
 }
 
 /**
@@ -155,11 +174,11 @@ export class SessionsIndexProjection {
     readonly logEpoch: string,
   ) {}
 
-  /** 用某会话的最新 snapshot 更新其 summary；变化则返回 upsert delta，否则空。 */
+  /** 用某会话的最新 snapshot 更新其 summary；返回 delta 与帧分类，无变化则 deltas 为空。 */
   upsertFromConversation(
     snapshot: ConversationSnapshot,
     extra: Omit<SessionSummaryDeriveExtra, "workspaceId">,
-  ): SessionsIndexDelta[] {
+  ): SessionsIndexUpsertResult {
     const summary = deriveSessionSummary(snapshot, {
       workspaceId: this.workspaceId,
       ...extra,
@@ -205,9 +224,14 @@ export class SessionsIndexProjection {
         }
       }
     }
-    if (prev && summariesEqual(prev, summary)) return [];
+    if (prev && summariesEqual(prev, summary)) {
+      return { deltas: [], activityOnly: false };
+    }
+    // 帧分类必须与 conflation 用同一份字段表：仅 lastActivityAt 推进 → activity-only。
+    const activityOnly =
+      prev !== undefined && summariesEqual(prev, summary, { ignoreLastActivityAt: true });
     this.summaries.set(summary.sessionId, summary);
-    return [{ op: "session.upserted", session: summary }];
+    return { deltas: [{ op: "session.upserted", session: summary }], activityOnly };
   }
 
   /** 直接放入一条 summary（冷启动/无 live projection 的 store 会话）。 */

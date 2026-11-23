@@ -125,7 +125,7 @@ test("sessions-index summary 与快照同源：快照版本不会被领先的 re
   publisher.ingest(turnStarted(2_000), { lastActivityAt: activityAt });
 
   const index = new SessionsIndexProjection("/repo", "index-epoch");
-  const deltas = index.upsertFromConversation(publisher.getSnapshot(), {
+  const { deltas } = index.upsertFromConversation(publisher.getSnapshot(), {
     createdAt: T0,
     // 模拟列表摘要先拿到了更新的 record 时间：正文快照仍是 activityAt。
     lastActivityAt: activityAt + 5_000,

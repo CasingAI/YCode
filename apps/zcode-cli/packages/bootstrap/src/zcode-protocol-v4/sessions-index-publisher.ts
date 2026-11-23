@@ -13,6 +13,7 @@ import { sessionsIndexTopic } from "@zcode/shared/zcode-protocol-v4";
 import {
   SessionsIndexProjection,
   type SessionSummaryDeriveExtra,
+  type SessionsIndexUpsertResult,
 } from "./sessions-index-projection.js";
 import type { TopicFrameReservation } from "./topic-frame-reservation.js";
 
@@ -75,12 +76,18 @@ export class SessionsIndexPublisher {
     );
   }
 
-  /** 某会话最新快照进入 → 更新 summary，产生的 delta 记账并推进 seq。返回是否有变化。 */
+  /**
+   * 某会话最新快照进入 → 更新 summary，产生的 delta 记账并推进 seq。
+   * 返回 `changed`（是否有帧进账本）与 `activityOnly`（帧分类；见
+   * docs/specs/sessions-index-activity-flush-coalescing.md——网关据此决定直发或合并窗口）。
+   */
   ingestConversation(
     snapshot: ConversationSnapshot,
     extra: Omit<SessionSummaryDeriveExtra, "workspaceId">,
-  ): boolean {
-    return this.record(this.projection.upsertFromConversation(snapshot, extra));
+  ): SessionsIndexUpsertResult {
+    const result = this.projection.upsertFromConversation(snapshot, extra);
+    this.record(result.deltas);
+    return { deltas: result.deltas, activityOnly: result.activityOnly };
   }
 
   /** 会话移除 → remove delta 记账。返回是否有变化。 */

@@ -52,10 +52,12 @@ test("Plan 拒绝与回合终态在 sessions-index 在线帧上一起收口", ()
   const subscriptionId = subscribed.subscriptionId;
 
   const ingest = (lastActivityAt: number): boolean =>
-    publisher.ingestConversation(projection.getSnapshot(), {
-      createdAt: T0,
-      lastActivityAt,
-    });
+    publisher
+      .ingestConversation(projection.getSnapshot(), {
+        createdAt: T0,
+        lastActivityAt,
+      })
+      .deltas.length > 0;
 
   projection.applyEvent(
     event(SessionEventType.TurnStarted, { turnNumber: 1, input: "写计划", executionKind: "agent" }, 0),
@@ -166,7 +168,8 @@ test("Plan 拒绝后同一终态重复投影不产生新帧，也不把 pending 
     ),
   );
   assert.equal(
-    publisher.ingestConversation(projection.getSnapshot(), { createdAt: T0, lastActivityAt: T0 + 1_000 }),
+    publisher.ingestConversation(projection.getSnapshot(), { createdAt: T0, lastActivityAt: T0 + 1_000 })
+      .deltas.length > 0,
     true,
   );
   assert.ok(publisher.reserveFlush(subscriptionId)?.commit());
@@ -187,7 +190,7 @@ test("Plan 拒绝后同一终态重复投影不产生新帧，也不把 pending 
   );
   const terminalSnapshot = projection.getSnapshot();
   const extra = { createdAt: T0, lastActivityAt: T0 + 3_000 };
-  assert.equal(publisher.ingestConversation(terminalSnapshot, extra), true);
+  assert.equal(publisher.ingestConversation(terminalSnapshot, extra).deltas.length > 0, true);
   const terminal = publisher.reserveFlush(subscriptionId);
   assert.ok(terminal);
   const summary = summaryOf(terminal.frame);
@@ -197,7 +200,7 @@ test("Plan 拒绝后同一终态重复投影不产生新帧，也不把 pending 
   assert.equal(terminal.commit(), true);
 
   // 重放同一终态快照：conflation 必须判等，既不再发帧也不回退 phase。
-  assert.equal(publisher.ingestConversation(terminalSnapshot, extra), false);
+  assert.equal(publisher.ingestConversation(terminalSnapshot, extra).deltas.length, 0);
   assert.equal(publisher.reserveFlush(subscriptionId), null);
 });
 
@@ -222,7 +225,7 @@ test("失同步标记经 sessions-index 派生后带上 lastErrorCode 并产帧"
   assert.equal(snapshot.control.lastError?.code, "fault.projection.desynced");
 
   const index = new SessionsIndexProjection(WORKSPACE_ID, "epoch");
-  const deltas = index.upsertFromConversation(snapshot, {
+  const { deltas } = index.upsertFromConversation(snapshot, {
     createdAt: T0,
     lastActivityAt: T0,
   });
@@ -251,14 +254,14 @@ test("lastErrorCode 变化必须产帧（否则列表会停在旧的没有 code 
   );
   const index = new SessionsIndexProjection(WORKSPACE_ID, "epoch");
   const extra = { createdAt: T0, lastActivityAt: T0 };
-  const first = index.upsertFromConversation(projection.getSnapshot(), extra);
+  const { deltas: first } = index.upsertFromConversation(projection.getSnapshot(), extra);
   const failedSummary = first
     .flatMap((delta) => (delta.op === "session.upserted" ? [delta.session] : []))
     .find((s) => s.sessionId === SESSION_ID);
   assert.equal(failedSummary?.lastErrorCode, "fault.provider.unavailable");
 
   // 同一 phase、只换 lastErrorCode：conflation 不得判等吞掉。
-  const sameAgain = index.upsertFromConversation(projection.getSnapshot(), extra);
+  const { deltas: sameAgain } = index.upsertFromConversation(projection.getSnapshot(), extra);
   assert.deepEqual(sameAgain, [], "完全相同的摘要不产帧（避免无意义刷新）");
 });
 
@@ -317,8 +320,8 @@ function turnWithPlanCard(projection: ProductProjection, turnNumber: number): vo
   );
 }
 
-function planCardSummaryOf(deltas: ReturnType<SessionsIndexProjection["upsertFromConversation"]>) {
-  return deltas
+function planCardSummaryOf(result: ReturnType<SessionsIndexProjection["upsertFromConversation"]>) {
+  return result.deltas
     .flatMap((delta) => (delta.op === "session.upserted" ? [delta.session] : []))
     .find((s) => s.sessionId === SESSION_ID);
 }
@@ -386,7 +389,7 @@ test("lastTurnHasPlanCard 变化必须产帧（否则描边会停在旧值）", 
 
   // 完全相同的快照不得产帧（conflation 基线）。
   const sameAgain = index.upsertFromConversation(projection.getSnapshot(), extra);
-  assert.deepEqual(sameAgain, [], "完全相同的摘要不产帧（避免无意义刷新）");
+  assert.deepEqual(sameAgain.deltas, [], "完全相同的摘要不产帧（避免无意义刷新）");
 
   // 同一 phase 下把 plan 卡挤出最后一个 turn：判等不得吞掉这次翻转。
   projection.applyEvent(

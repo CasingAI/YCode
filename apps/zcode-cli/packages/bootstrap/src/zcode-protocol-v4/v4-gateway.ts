@@ -503,6 +503,8 @@ interface ConversationV4GatewayOptions {
   rawSequenceGapToleranceMs?: number;
   /** control reservation 卡死判定窗口（测试注入小值，避免用例真的等三十秒）。 */
   stuckControlReservationMs?: number;
+  /** sessions-index activity-only 帧的合并窗口（测试注入小值；见 docs/specs/sessions-index-activity-flush-coalescing.md）。 */
+  sessionsIndexActivityFlushWindowMs?: number;
 }
 
 interface FlushState {
@@ -568,6 +570,13 @@ const PROJECTION_EVENT_COMMIT_TIMEOUT_MS = 25_000;
 const MAX_TELEMETRY_EVENT_IDS = 2_000;
 /** detached subagent child 终态后无订阅者时，publisher 由低频 tick 释放前的保留时长。 */
 const DETACHED_CHILD_PUBLISHER_GRACE_MS = 120_000;
+/**
+ * sessions-index activity-only 帧的合并窗口：活动事件（turn/tool）只推进
+ * lastActivityAt 时，侧栏列表帧在窗口内合并直发，而不是逐事件同步 flush。
+ * 可见变化（phase/描边/interaction 等）不经过本窗口，保持立即直发。
+ * 见 docs/specs/sessions-index-activity-flush-coalescing.md。
+ */
+const DEFAULT_SESSIONS_INDEX_ACTIVITY_FLUSH_WINDOW_MS = 500;
 /**
  * raw seq 空洞的确认窗口。notify sink 允许乱序（事件各自 await 持久化后再投递），
  * 正常乱序会在同一批里被 drain 干净；能滞留到窗口之后的缺失序号才是真空洞。
@@ -736,6 +745,8 @@ export class ConversationV4Gateway {
   private readonly detachedTerminalAt = new Map<string, number>();
   /** 冷恢复协调器（既有 activation 单飞 + 错误分型）。 */
   private readonly coldResume: ColdSessionResumeCoordinator;
+  /** workspaceId → sessions-index pending activity-only 合并窗口定时器。 */
+  private readonly indexFlushTimers = new Map<string, ReturnType<typeof setTimeout>>();
   /** 订阅 → flush 调度状态（publisher 内部不持有定时器，调度归网关）。 */
   private readonly flushStates = new Map<string, FlushState>();
   /** ACK/outbox 尚未 admission 的 control reservation 禁止被 online flush 抢先发送。 */
@@ -774,6 +785,8 @@ export class ConversationV4Gateway {
   private readonly createLogEpoch: (sessionId: string) => string;
   private readonly rawSequenceGapToleranceMs: number;
   private readonly stuckControlReservationMs: number;
+  /** sessions-index activity-only 帧合并窗口（测试可注入小值）。 */
+  private readonly sessionsIndexActivityFlushWindowMs: number;
   private readonly telemetryNormalizer = new ConversationTelemetryFactNormalizer();
   private readonly cuaPermissionNormalizer = new CuaPermissionObservationNormalizer();
   private readonly telemetryEventIds = new Set<string>();
@@ -802,6 +815,8 @@ export class ConversationV4Gateway {
       options.rawSequenceGapToleranceMs ?? RAW_SEQUENCE_GAP_TOLERANCE_MS;
     this.stuckControlReservationMs =
       options.stuckControlReservationMs ?? STUCK_CONTROL_RESERVATION_MS;
+    this.sessionsIndexActivityFlushWindowMs =
+      options.sessionsIndexActivityFlushWindowMs ?? DEFAULT_SESSIONS_INDEX_ACTIVITY_FLUSH_WINDOW_MS;
     this.coldResume = new ColdSessionResumeCoordinator(host);
     this.inbox = new CommandInbox({
       getRevision: (sessionId) => {
@@ -1375,7 +1390,7 @@ export class ConversationV4Gateway {
           this.host.onError?.("v4.sessionsIndex.persistPlanCard", error);
         }
       }
-      const changed = indexPublisher.ingestConversation(
+      const ingested = indexPublisher.ingestConversation(
         conversationSnapshot,
         this.resolveIndexMeta(sessionId),
       );
@@ -1384,7 +1399,18 @@ export class ConversationV4Gateway {
       this.lastPlanRingResponseId.set(conversationPublisher, {
         responseId: resolveLastAssistantResponseId(conversationSnapshot.rows.window),
       });
-      if (changed) this.flushIndex(workspaceId);
+      if (ingested.deltas.length === 0) return;
+      // 修复「跑一天后列表链路拖垮 renderer」：活动事件以工具调用频率到达，仅推进
+      // lastActivityAt 的帧不得逐事件同步直发（实测 4–13 帧/秒，UI 侧每帧全量聚合）。
+      // 可见变化保持立即直发（权限徽标、描边、终态零延迟）；activity-only 走合并窗口，
+      // 期间到达的可见变化会连带清窗并携带全部积压增量。projection 已即时推进，
+      // 新订阅 snapshot 永远读权威最新态，不受窗口影响。
+      // 见 docs/specs/sessions-index-activity-flush-coalescing.md。
+      if (!ingested.activityOnly) {
+        this.flushIndex(workspaceId);
+        return;
+      }
+      this.scheduleIndexFlush(workspaceId);
     } catch (error) {
       this.host.onError?.("v4.sessionsIndex.ingest", error);
     }
@@ -1406,6 +1432,15 @@ export class ConversationV4Gateway {
 
   /** 把某 workspace index publisher 的未发增量帧推给所有列表订阅者。 */
   private flushIndex(workspaceId: string, onlyConnectionId?: string): void {
+    // 全量 flush 已覆盖 pending 活动窗口的全部积压（seq 全局推进），窗口不再需要；
+    // 单连接补投（SAT 解除等）不清窗——其余连接仍由窗口到期统一送达。
+    if (onlyConnectionId === undefined) {
+      const pendingTimer = this.indexFlushTimers.get(workspaceId);
+      if (pendingTimer) {
+        clearTimeout(pendingTimer);
+        this.indexFlushTimers.delete(workspaceId);
+      }
+    }
     const publisher = this.indexPublishers.get(workspaceId);
     if (!publisher) return;
     for (const subscriptionId of publisher.subscriptionIds()) {
@@ -1426,6 +1461,21 @@ export class ConversationV4Gateway {
         this.host.onError?.("v4.sessionsIndex.emit", error);
       }
     }
+  }
+
+  /**
+   * activity-only 帧的合并窗口：窗口已排队则合并（一次 flush 覆盖全部积压），
+   * 未排队则起 unref 定时器（不挂住进程退出）。到期一次 flushIndex 即清账。
+   */
+  private scheduleIndexFlush(workspaceId: string): void {
+    if (this.indexFlushTimers.has(workspaceId)) return;
+    const timer = setTimeout(() => {
+      this.indexFlushTimers.delete(workspaceId);
+      this.flushIndex(workspaceId);
+    }, this.sessionsIndexActivityFlushWindowMs);
+    // 与 scheduleFlush 同因：CLI 进程退出不被列表 flush 定时器挂住。
+    timer.unref?.();
+    this.indexFlushTimers.set(workspaceId, timer);
   }
 
   /**
@@ -3274,6 +3324,8 @@ export class ConversationV4Gateway {
       if (state.timer) clearTimeout(state.timer);
     }
     this.flushStates.clear();
+    for (const timer of this.indexFlushTimers.values()) clearTimeout(timer);
+    this.indexFlushTimers.clear();
     this.publishers.clear();
     this.hydratedSessions.clear();
     for (const buffer of this.hydrationBuffers.values()) buffer.cancelled = true;

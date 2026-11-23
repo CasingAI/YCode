@@ -53,11 +53,14 @@ function ingestSummary(
   phase: SessionPhase,
   pending?: PendingInteractionSummary,
 ): void {
-  const changed = publisher.ingestConversation(conversationSnapshot(phase, pending ? [pending] : []), {
-    createdAt: T0,
-    lastActivityAt: T0 + 1,
-  });
-  assert.equal(changed, true);
+  const ingested = publisher.ingestConversation(
+    conversationSnapshot(phase, pending ? [pending] : []),
+    {
+      createdAt: T0,
+      lastActivityAt: T0 + 1,
+    },
+  );
+  assert.equal(ingested.deltas.length > 0, true);
 }
 
 test("发送失败回滚 reservation 后，下一帧覆盖到最新终态水位", () => {

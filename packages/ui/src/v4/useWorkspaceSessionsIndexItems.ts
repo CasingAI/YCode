@@ -8,11 +8,14 @@ import type { ZCodeTaskMeta } from "@zcode/shared";
 import { useBaseWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
 import { measureRendererPerformance } from "@/lib/rendererPerformanceDiagnostics.js";
 import { compareZCodeTaskListItems } from "@/lib/taskListOrdering.js";
-import { mapSessionSummaryToTaskMeta } from "@/v4/mapSessionSummaryToTaskMeta.js";
 import {
   buildTaskListItemIdentityKey,
   stabilizeTaskListItems,
 } from "@/v4/taskListItemStabilization.js";
+import {
+  mapSessionsIndexScopeMetas,
+  type ScopeMetasCacheEntry,
+} from "@/v4/workspaceSessionsIndexMetas.js";
 import {
   LOCAL_SESSIONS_INDEX_ENDPOINT,
   buildSessionsIndexEntryKey,
@@ -94,7 +97,9 @@ function isHydratingStore(store: SessionsIndexStore): boolean {
 /**
  * 订阅给定 workspace scope 的 sessions-index，聚合出 ZCodeTaskMeta[]（running 置顶，其余按 updatedAt 降序）。
  * 生命周期：scope 集合变化时按引用计数 acquire/release 共享 store；任一 store 变化即重算。
- * sessions-index 变化是 conflated 低频列表事件，不属于高频 snapshot。
+ * sessions-index 帧经 CLI 合并窗口约束（activity-only 不再逐事件直发）；
+ * 本 hook 的重算成本按 scope 代次 + summary 引用分层缓存，
+ * 长会话高频活动不再触发全量重映射（docs/specs/sessions-index-activity-flush-coalescing.md）。
  */
 export function useWorkspaceSessionsIndexItems(
   scopes: WorkspaceSessionsIndexScope[],
@@ -152,6 +157,9 @@ export function useWorkspaceSessionsIndexItems(
   );
 
   // 从各 store 聚合会话 → ZCodeTaskMeta + hydration 状态（tick 驱动重算，引用稳定）。
+  // per-scope 派生缓存：binding 变化/重订阅换代时由 store 实例 + 代次串自动失效，
+  // scope 撤销后按当次 touched 集合淘汰，防止旧 store 引用驻留。
+  const scopeCacheRef = useRef(new Map<string, ScopeMetasCacheEntry>());
   const previousItemsRef = useRef<ZCodeTaskMeta[]>([]);
   const previousHydratingRef = useRef<string[]>([]);
   return useMemo(
@@ -163,12 +171,14 @@ export function useWorkspaceSessionsIndexItems(
         const previousByKey = new Map(
           previousItemsRef.current.map((meta) => [buildTaskListItemIdentityKey(meta), meta]),
         );
+        const touchedBindingKeys = new Set<string>();
         for (const scope of scopesRef.current) {
           const sourceKey = entryKeyOf(scope);
           const agentService = scope.agentService ?? baseAgentService;
           const bindingRevision = agentService
             ? buildScopeBindingKey(scope, agentService)
             : `${sourceKey} service-unavailable`;
+          touchedBindingKeys.add(bindingRevision);
           const store = subscriptionSet.getStore({
             workspaceKey: workspaceKeyOf(scope),
             ...(scope.endpointKey ? { endpointKey: scope.endpointKey } : {}),
@@ -178,27 +188,32 @@ export function useWorkspaceSessionsIndexItems(
             continue;
           }
           const storeState = store.getState();
-          sourceRevisionByScopeKey[sourceKey] =
-            `${bindingRevision}:${storeState.logEpoch ?? "none"}:${storeState.seq}:${store.getStatus()}`;
+          const storeRevision = `${storeState.logEpoch ?? "none"}:${storeState.seq}:${store.getStatus()}`;
+          sourceRevisionByScopeKey[sourceKey] = `${bindingRevision}:${storeRevision}`;
           if (isHydratingStore(store)) {
             hydratingEndpointKeys.add(scope.endpointKey ?? LOCAL_SESSIONS_INDEX_ENDPOINT);
           }
-          for (const summary of store.getSessions()) {
-            metas.push(
-              mapSessionSummaryToTaskMeta(summary, {
-                workspacePath: scope.workspacePath,
-                ...(scope.workspaceIdentity ? { workspaceIdentity: scope.workspaceIdentity } : {}),
-                previous: previousByKey.get(buildSummaryIdentityKey(scope, summary.sessionId)),
-              }),
-            );
-          }
+          // 成本分层：代次不变复用整份 metas；变化时仅重映射引用变化的 summary。
+          const entry = mapSessionsIndexScopeMetas(
+            store,
+            storeRevision,
+            {
+              workspacePath: scope.workspacePath,
+              ...(scope.workspaceIdentity ? { workspaceIdentity: scope.workspaceIdentity } : {}),
+            },
+            scopeCacheRef.current.get(bindingRevision),
+            previousByKey,
+          );
+          scopeCacheRef.current.set(bindingRevision, entry);
+          metas.push(...entry.metas);
+        }
+        for (const key of scopeCacheRef.current.keys()) {
+          if (!touchedBindingKeys.has(key)) scopeCacheRef.current.delete(key);
         }
         metas.sort((a, b) => compareZCodeTaskListItems(a, b, "updated"));
-        // 每个 tick 都全量重建 metas，即使内容完全没变（例如冷恢复把 seed 换成
-        // live 投影只改了列表不消费的 preview 字段），下游也会把"全新数组引用"当成新数据：
-        // grouped 视图整树 refresh、workspace 行缓存被 invalidate、各列表 republish——
-        // 表现为"打开一个历史任务，左侧列表整个重新加载"。这里做逐条引用稳定化：
-        // 内容等价复用旧对象；整表等价复用旧数组，让依赖数组身份的 effect 全部短路。
+        // 引用稳定化语义保持：等价条目复用旧对象；整表等价复用旧数组，
+        // 让依赖数组身份的 effect 全部短路。逐条判等在引用相等处短路，
+        // 高频活动 tick 的深比较只落在真正变化的会话上。
         const items = stabilizeTaskListItems(previousItemsRef.current, metas);
         previousItemsRef.current = items;
         const nextHydrating = [...hydratingEndpointKeys].sort();
@@ -216,8 +231,4 @@ export function useWorkspaceSessionsIndexItems(
       }),
     [signature, subscriptionSet, tick],
   );
-}
-
-function buildSummaryIdentityKey(scope: WorkspaceSessionsIndexScope, sessionId: string): string {
-  return `${scope.workspaceIdentity?.trim() || scope.workspacePath}::${sessionId}`;
 }

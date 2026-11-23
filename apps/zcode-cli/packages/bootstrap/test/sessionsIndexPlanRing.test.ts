@@ -132,9 +132,9 @@ function eventsThroughTurnComplete(
 }
 
 function summaryOf(
-  deltas: ReturnType<SessionsIndexProjection["upsertFromConversation"]>,
+  result: ReturnType<SessionsIndexProjection["upsertFromConversation"]>,
 ): SessionSummary | undefined {
-  return deltas
+  return result.deltas
     .flatMap((delta) => (delta.op === "session.upserted" ? [delta.session] : []))
     .find((summary) => summary.sessionId === SESSION_ID);
 }
@@ -348,10 +348,12 @@ test("描边从 true 翻到 false 必须产帧（同一 phase 下 conflation 不
   const subscriptionId = subscribed.subscriptionId;
 
   assert.equal(
-    publisher.ingestConversation(projection.getSnapshot(), {
-      createdAt: T0,
-      lastActivityAt: T0,
-    }),
+    publisher
+      .ingestConversation(projection.getSnapshot(), {
+        createdAt: T0,
+        lastActivityAt: T0,
+      })
+      .deltas.length > 0,
     true,
   );
   const withRing = publisher.reserveFlush(subscriptionId);
@@ -375,10 +377,12 @@ test("描边从 true 翻到 false 必须产帧（同一 phase 下 conflation 不
   // 后一次模型响应开始：同一 phase、同一轮，只有描边字段翻转，仍必须产帧。
   startAssistantText(projection, "assistant-implementation", "实施中", 2_000);
   assert.equal(
-    publisher.ingestConversation(projection.getSnapshot(), {
-      createdAt: T0,
-      lastActivityAt: T0 + 2_000,
-    }),
+    publisher
+      .ingestConversation(projection.getSnapshot(), {
+        createdAt: T0,
+        lastActivityAt: T0 + 2_000,
+      })
+      .deltas.length > 0,
     true,
   );
   const withoutRing = publisher.reserveFlush(subscriptionId);

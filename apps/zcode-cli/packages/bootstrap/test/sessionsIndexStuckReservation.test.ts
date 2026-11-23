@@ -39,7 +39,10 @@ interface CapturedError {
 }
 
 interface IndexPublisherTestAccess {
-  ingestConversation: (s: ConversationSnapshot, e: unknown) => boolean;
+  ingestConversation: (
+    s: ConversationSnapshot,
+    e: unknown,
+  ) => { deltas: unknown[]; activityOnly: boolean };
   seq: number;
   subscriptionWatermark(id: string): { sentSeq: number; inFlightStuck: boolean } | null;
 }
@@ -108,10 +111,12 @@ test("正常 subscribe 往返不报卡死：commit 之后就摘掉了", async ()
 
     const publisher = publisherOf(gateway);
     assert.equal(
-      publisher.ingestConversation(snapshotOf("running"), {
-        createdAt: T0,
-        lastActivityAt: T0 + 1,
-      }),
+      publisher
+        .ingestConversation(snapshotOf("running"), {
+          createdAt: T0,
+          lastActivityAt: T0 + 1,
+        })
+        .deltas.length > 0,
       true,
     );
     (gateway as unknown as GatewayTestAccess).flushIndex(WORKSPACE_ID);
@@ -135,10 +140,12 @@ test("outbox 条目在 admission 前被删除（既不 commit 也不 rollback）
 
     const publisher = publisherOf(gateway);
     assert.equal(
-      publisher.ingestConversation(snapshotOf("running"), {
-        createdAt: T0,
-        lastActivityAt: T0 + 1,
-      }),
+      publisher
+        .ingestConversation(snapshotOf("running"), {
+          createdAt: T0,
+          lastActivityAt: T0 + 1,
+        })
+        .deltas.length > 0,
       true,
     );
     (gateway as unknown as GatewayTestAccess).flushIndex(WORKSPACE_ID);
