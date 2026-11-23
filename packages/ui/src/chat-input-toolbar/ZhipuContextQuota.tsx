@@ -11,6 +11,7 @@ import {
   formatQuotaRemainingPercentage,
   formatQuotaResetTime,
   getQuotaRemainingPercentage,
+  TOKEN_LIMIT_TYPES,
 } from "@/lib/codingPlanQuotaPresentation.js";
 import { isZhipuTemplateId } from "@/settings/model-provider-section/ZhipuTemplateQuotaSection.js";
 
@@ -36,10 +37,34 @@ const METER_COLORS = [
   "var(--color-usage-chart-4)",
 ] as const;
 
-function resolveLimitLabel(limit: UsageQuotaLimit, index: number): string {
-  const level = limit.type?.trim();
-  if (level) return level;
-  return `Quota ${index + 1}`;
+/**
+ * 额度条标题按窗口周期命名。quota/limit 返回的 `type` 是 TOKENS_LIMIT / CREDIT_LIMIT
+ * 这类后端枚举（zai 与 bigmodel 仅命名不同），直接当标题会把内部标识暴露给用户；
+ * 周期由 unit/number 决定，这里据此映射到与 Coding Plan 用量视图相同的文案。
+ * 返回 i18n message id；无法识别的窗口返回 null，由调用方回退。
+ */
+export function resolveZhipuQuotaLimitLabelId(
+  limit: Pick<UsageQuotaLimit, "type" | "unit" | "number">,
+): "sidebar.usage.plan.fiveHour" | "sidebar.usage.plan.weekly" | null {
+  if (!TOKEN_LIMIT_TYPES.has(limit.type?.trim() ?? "")) {
+    return null;
+  }
+  if (limit.unit === 3 && limit.number === 5) {
+    return "sidebar.usage.plan.fiveHour";
+  }
+  if (limit.unit === 6) {
+    return "sidebar.usage.plan.weekly";
+  }
+  return null;
+}
+
+function resolveLimitLabel(
+  limit: UsageQuotaLimit,
+  index: number,
+  intl: ReturnType<typeof useZCodeIntl>["intl"],
+): string {
+  const labelId = resolveZhipuQuotaLimitLabelId(limit);
+  return labelId ? intl.formatMessage({ id: labelId }) : `Quota ${index + 1}`;
 }
 
 /**
@@ -107,7 +132,7 @@ export function ChatZhipuQuotaPanel({
             <ChatCodingPlanUsageMeter
               key={`${limit.type}:${limit.unit ?? ""}:${limit.number ?? ""}:${index}`}
               color={METER_COLORS[index % METER_COLORS.length] ?? METER_COLORS[0]!}
-              label={resolveLimitLabel(limit, index)}
+              label={resolveLimitLabel(limit, index, intl)}
               percentage={getQuotaRemainingPercentage(limit)}
               resetTime={formatQuotaResetTime({
                 locale,

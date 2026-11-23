@@ -81,6 +81,12 @@ Beta 胶囊本身不解释风险，用户未必知道「Beta」意味着什么�
 （`ZhipuContextQuota`）在 `isZhipuTemplateId` 命中时都会显示剩余额度，
 `supportsTemplateQuotaDisplay` 已把本层 `isZhipuTemplateId` 纳入并集——挂 Tag 不再是撒谎。
 
+输入框 context 浮层（`ChatZhipuQuotaPanel`）的额度条标签按窗口周期命名，不展示接口原始 `type`：
+`type` 属于 `TOKENS_LIMIT` / `CREDIT_LIMIT` 等价集合时，`unit=3,number=5` 显示「5 小时」，
+`unit=6` 显示「每周」（文案复用 `sidebar.usage.plan.fiveHour` / `sidebar.usage.plan.weekly`，
+与 Coding Plan 用量视图一致）；不满足上述窗口的条目回退为「Quota N」。
+验收：`CREDIT_LIMIT` + `unit=6` 的条目标题为「每周」，不出现 `CREDIT_LIMIT` 字样。
+
 同理，「创建自定义供应商」永远没有 Tag：自定义端点无法预知走的是官方接口还是中转。
 
 ### 不在范围内

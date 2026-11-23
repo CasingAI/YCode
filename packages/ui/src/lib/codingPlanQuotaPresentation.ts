@@ -11,7 +11,7 @@ type CodingPlanQuotaResetFormat = "date" | "dateTime" | "adaptive";
  * 这里把两个 type 视为等价，让 zai/bigmodel team plan 在同一套 UI 消费方下都能命中。
  * 若 zai 后端后续对齐到 TOKENS_LIMIT，此集合仍兼容。
  */
-const TOKEN_LIMIT_TYPES = new Set(["TOKENS_LIMIT", "CREDIT_LIMIT"]);
+export const TOKEN_LIMIT_TYPES = new Set(["TOKENS_LIMIT", "CREDIT_LIMIT"]);
 
 /**
  * Tool 类配额的 type。
