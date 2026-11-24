@@ -63,6 +63,7 @@ harness 层的 Ask（管助手工具箱）此前对 Bash 整 Tool 拒绝，与�
 - **档位有两份，消费时机决定谁说了算。** Composer 草稿档（`V4ComposerDraft.mode`，纯 UI 草稿态）与会话档（runtime `config.mode`，持久化真值）是两份状态：工具条与快捷键只改草稿，不发切换命令，也不写会话。会话档只在命令消费时随载荷或显式切换命令落地。于是「本次提交以哪份为准」必须按消费时机分开定，不能一条规则覆盖两端：
   - **立即发送以本次提交档位为准，且先落地再判定。** 用户在草稿档切到 Agent 后按下发送，载荷带 `mode: "yolo"`，这份显式选择就是本次发送的事实。会话若还停在旧档（Ask / Plan），`sendGoalCommand` 必须在写目标之前把这份档位经 `runtime.setExecutionState` 写进会话，再走受限判定；否则会出现「载荷已放行、受限判定却读会话旧档」的自我拒绝，用户看到目标发不出去。顺序固定为 **落档 → setTarget → continueGoalAfterChange**。同值不写：会话档已经等于提交档位时直接跳过，不产空转 delta。
   - **队列消费以执行当时的会话档位为准，不落档。** 队列项里冻结的是入队那一刻的档位，轮到消费时用户可能已经显式切到 Plan / Ask。`applyGoalCommand` 走队列路径时只判定、不写档：那时既不能落盘目标，也不允许由 Goal 命令把 runtime 升回 Agent 顶掉这次显式切档。
+- **工具切档回执的方向必须与权威档一致。** `config.planTransition`（`{ toolCallId, planEnabled }`）是单次工具切档（`EnterPlanMode` 经 `source: "tool"` 的事件）留给 Composer 消费一次的回执，不是可重放的历史流水：投影只在回执方向与同一份快照的权威 `config.mode === "plan"` 一致时下发，方向冲突即丢弃，不伪造 tool ID 反写；Composer 只在方向一致时应用，`lastPlanTransitionId` 去重只回答「处理过没有」，不证明回执仍有效。权威档缺失或非法时草稿保持不动，不得把缺失当成「已退出 Plan」。这条规则挡住的是：非工具来源（提交载荷、`switchCollaborationMode`、全访问授权）把会话切离 Plan 后，快照残留旧的「进入 Plan」回执；桌面端早已消费过该 ID 而没有感知，Web / 手机远控（独立 localStorage，没有这条去重记录）打开同一会话时会把输入框拉回 Plan，并带着 `plan` 档发送下一次提交。
 - **立即发送的落档不属于「Goal 偷偷改档」。** 上一条「CLI 不得把载荷或 runtime 偷偷改成 Agent」约束的是**改写用户没选的档位**：载荷或队列项声明受限档时一律拒绝，任何来源都不得把 runtime 悄悄升到 Agent。立即发送落的是**用户这一次显式选择的档位**（载荷 `mode`，来自提交时的草稿档），写入路径与普通切档完全相同（同一个 `setExecutionState` 写入点、同一套持久化与事件顺序），不新增档位写入路径。受限档载荷仍然在提交侧直接拒绝，不落盘。
 - **档已落但目标未写时不回滚。** 落档成功后 `setTarget` 失败属于「档位已改、目标未写」，不回退档位：档位是用户显式选择，回滚等于用一次失败抹掉一次正确操作；目标没写成就没写，用户重发即可。
 - **Goal 拒绝必须用户可见。** 即时发送被 CLI 拒绝（`guard.planGoalMutuallyExclusive` / `guard.readOnlyGoalMutuallyExclusive` 等）时，`dispatchSlashCommand` 必须返回 `blocked` 而不是「已消费」，Composer 保留草稿并弹出既有 `chat.goal.planModeBlocked` / `chat.goal.readOnlyModeBlocked` 提示；其余 reasonCode 落到 pane-local 错误横幅。返回 `true` 会让 Composer 走成功路径清空输入框，用户看到的是「像发出去了、实际没发出去」。
@@ -110,14 +111,16 @@ flowchart TD
 - **contracts**：`CollaborationMode`（四值）、`SessionModePort.getMode()` / `isPlanEnabled()` / `isReadOnlyEnabled()` / `enterPlanMode()`、`PermissionContext.mode`、`SessionModeChangedPayload.planExecuteMode?`、`SessionProjection.planExecuteMode?`、`switchCollaborationMode` 的值域四值。计划工具经 `SessionModePort.enterPlanMode` 切档（`source: "tool"`，走既有 `applyRuntimeExecutionState` 写入点）；`exitPlanMode` / `getPrePlanMode` 已删除，不加回。`SessionModePort` 不新增计划目标 getter，除非工具层出现实际消费方。
 - **计划执行目标（只读面）**：shared `PlanExecuteMode = "team" | "yolo"`；runtime `AgentRuntimeConfig.planExecuteMode?`，按需暴露最小公开 getter（`getPlanExecuteMode()`）供 bootstrap 种子读取；v4 快照 `sessionConfigStateSchema.planExecuteMode?`。写入只发生在 runtime 的档位写入点，客户端与 UI 只能读取，不得直接设置或依据 `previousMode` 重算。
 - **runtime**：`setExecutionState`（命令路径）与 `applyRuntimeExecutionState`（`switchCollaborationMode` 路径）是仅有的两个档位写入点；`grantPermissionFullAccess` 是既有全访问写入点，必须同步清空目标。`buildRuntimeModeReminderBody(mode)` 是唯一的标签构造入口（无参数依赖、无条件返回标签），`ContextBuilder` 的 Collaboration modes 段是唯一的四档行为文案来源。
+- **投影**：`ProductProjection.onSessionModeChanged` 是 `config.planTransition` 的唯一构造点；工具切档（`source: "tool"` 且带 `toolCallId`）生成方向由 `mode` 派生的新回执，其余来源沿用旧回执前必须校验方向，冲突即丢弃（省略字段即撤销客户端旧值）。
 - **CLI / TUI**：`SWITCHABLE_MODES`、`SWITCHABLE_COMMAND_CENTER_MODES`、`TUI_SWITCHABLE_MODES`、`CliPermissionMode` 全部四项。
-- **UI**：`V4ComposerDraft.mode`、`ComposerSubmissionConfig.mode`、`V4ComposerModeSwitch` 四选单选组。
+- **UI**：`V4ComposerDraft.mode`、`ComposerSubmissionConfig.mode`、`V4ComposerModeSwitch` 四选单选组；`applyComposerPlanTransition(draft, transition, authoritativeMode)` 按同一份快照的权威档校验回执方向后再应用，方向冲突或权威档缺失/非法时保持草稿不动。
 - **权限判定**：`checkPlanMode` 与 `checkReadOnlyMode` 委托同一个参数化实现，规则体只有一份。Team 无独立判定分支，与 `yolo` 同路径。
 
 ## 不变量
 
 - 权限轴状态只有一个 `mode`；`planEnabled` / `readOnlyEnabled` 只能由它派生，任何地方不得独立设置。`planExecuteMode` 不是档位，只在 `mode === "plan"` 时存在。
 - `planExecuteMode` 由 runtime 在进入/离开 Plan 的写入点派生与清理；客户端、UI、投影种子不得直接设置，也不得从 `previousMode` 或历史消息重建任意退档栈。
+- `planTransition.planEnabled` 必须与同一份快照的 `config.mode === "plan"` 一致；方向冲突的回执视为无效，投影不下发、Composer 不消费且不推进去重 ID。回执方向由事件的 `mode` 派生，不读载荷里的兼容布尔位。
 - 离开 Plan 必须清空 `planExecuteMode`；不得让上一条计划的 Team 目标污染之后从 Agent / Ask 进入的新计划。
 - 放行规则只有一份实现；禁止为只读复制一份 `checkPlanMode` 的分支。
 - 受限档不放行任何 `destructive` 能力。
@@ -175,3 +178,5 @@ flowchart TD
 15a. 从当前 Team 手动选择 Plan 后提交（不经 `EnterPlanMode`）再执行计划：档位回到 Team，不得因为从 Team 手动选择 Plan 而落到 Agent。
 16. 冷恢复与远端快照：Plan 内重启 / 重连后 `config.mode === "plan"` 且 `config.planExecuteMode` 与重启前一致；旧 plan 会话缺字段时按 `yolo`。
 17. 手动离开 Plan（切到 Agent / Ask / Team）后 `planExecuteMode` 被清除；随后从 Agent 进入新 Plan 时目标为 `yolo`，不会残留上一次的 Team。已在 Plan 内重复调用 `EnterPlanMode` 不改写既有目标。
+18. 工具切进 Plan 后，会话经命令或提交载荷切到非 Plan（含计划卡「执行计划」随 `sendText` 退出）→ 快照与后续 delta 不再携带方向冲突的「进入 Plan」回执；重复同档命令不产生新 delta；真正的工具进入/退出回执仍带 `toolCallId` 与正确方向。
+19. Web / 手机远控（独立 localStorage、未消费过旧回执 ID）打开上述会话 → 输入框档位跟随权威 `config.mode`，不被旧回执拉回 Plan；下一次提交档位与显示一致。

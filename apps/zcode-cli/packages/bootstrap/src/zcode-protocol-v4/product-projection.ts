@@ -4862,8 +4862,8 @@ export class ProductProjection {
 
   /**
    * switchCollaborationMode：SessionModeChanged → config.mode。
-   * 事件来源覆盖命令面（source=command）与 plan 工具路径（enterPlanMode/exitPlanMode，
-   * source=tool）——两条路径共用这条投影，UI 的模式选择器因此也能跟随工具驱动的模式切换。
+   * 事件来源覆盖命令面（source=command）与计划工具路径（EnterPlanMode，source=tool）
+   * ——两条路径共用这条投影，UI 的模式选择器因此也能跟随工具驱动的模式切换。
    */
   private onSessionModeChanged(event: SessionEvent): ConversationDelta[] {
     const payload = event.payload as {
@@ -4886,10 +4886,21 @@ export class ProductProjection {
     // 非法值（含 readonly）不得被恢复——目标只可能是 team / yolo。
     const planExecuteMode: PlanExecuteMode | undefined =
       mode === "plan" ? (payload.planExecuteMode === "team" ? "team" : "yolo") : undefined;
-    const planTransition =
+    const toolTransition =
       payload.source === "tool" && payload.toolCallId
-        ? { toolCallId: payload.toolCallId, planEnabled }
-        : this.snapshot.config.planTransition;
+        ? { toolCallId: payload.toolCallId, planEnabled: mode === "plan" }
+        : undefined;
+    const previousTransition = this.snapshot.config.planTransition;
+    // planTransition 是单次工具切档回执，不是可重放的历史流水，方向由权威 mode 派生，
+    // 不读兼容布尔位（旧日志可能自相矛盾）。非工具来源把会话切离 Plan 后，旧的
+    // 「进入 Plan」回执方向已与 mode 冲突，必须丢弃：未消费过该 ID 的客户端（外部版
+    // 独立 localStorage）会把历史回执当成新事件把输入框拉回 Plan。
+    //（docs/specs/agent-mode-axis.md「工具切档回执的方向必须与权威档一致」）
+    const planTransition =
+      toolTransition ??
+      (previousTransition && previousTransition.planEnabled === (mode === "plan")
+        ? previousTransition
+        : undefined);
     if (
       this.snapshot.config.mode === mode &&
       this.snapshot.config.planEnabled === planEnabled &&

@@ -207,7 +207,7 @@ export function useDraftConfigControl(params: {
           };
   }
   if (sessionConfig) {
-    draft = applyComposerPlanTransition(draft, sessionConfig.planTransition);
+    draft = applyComposerPlanTransition(draft, sessionConfig.planTransition, sessionConfig.mode);
     draft = applyComposerPermissionGrant(draft, sessionConfig.permissionGrant);
   }
   if (draft !== currentState.draft) currentState = { ...currentState, draft };
