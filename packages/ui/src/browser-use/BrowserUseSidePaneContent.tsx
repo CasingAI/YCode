@@ -91,6 +91,7 @@ export function BrowserUseSidePaneContent({
         residencyGeneration={tab.residencyGeneration ?? residencyGeneration}
         browserUseOperationUntil={tab.browserUseOperationUntil}
         browserResizeBaselineVersion={tab.browserUseResizeBaselineVersion}
+        usesProxy={tab.usesProxy === true}
         onUrlChange={onUrlChange}
         onPageMetadataChange={onPageMetadataChange}
       />

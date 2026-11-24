@@ -134,6 +134,8 @@ declare global {
           tabId: string;
           browserId: string;
           browserGeneration: number;
+          /** true 表示该 tab 挂代理分区（persist:zcode-embedded-browser-proxy）。 */
+          usesProxy: boolean;
         }) => void,
       ): () => void;
       onBrowserViewOperation?(handler: (payload: BrowserViewOperationPayload) => void): () => void;

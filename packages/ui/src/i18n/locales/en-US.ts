@@ -2401,6 +2401,11 @@ const enUS: Record<string, string> = {
   "settings.httpProxyNoProxyDescription":
     "Requests matching these hosts connect directly instead of using the HTTP proxy. Separate rules with commas. Restart the app to take effect.",
   "settings.httpProxyNoProxyPlaceholder": "e.g. localhost,127.0.0.1,::1,.example.com,*.corp.com",
+  "settings.embeddedBrowserProxy": "Embedded browser proxy",
+  "settings.embeddedBrowserProxyDescription":
+    "Only applies to proxy tabs created by the AI: it can opt in per tab when opening a new tab. Takes effect immediately, independent of the global switch. Leave empty to prevent the AI from creating proxy tabs.",
+  "settings.embeddedBrowserProxyPlaceholder": "e.g. http://127.0.0.1:7890",
+  "settings.embeddedBrowserProxySavedHint": "Embedded browser proxy saved. It takes effect immediately.",
   "settings.httpProxyCaCertPath": "Custom certificate",
   "settings.httpProxyCaCertPathDescription":
     "Optional. Set a PEM root certificate path to inject it as NODE_EXTRA_CA_CERTS for models, MCP, and command tools, and to trust it in renderer certificate verification. Restart the app to take effect.",

@@ -58,6 +58,8 @@ export interface BrowserTabInfo {
   title?: string;
   url?: string;
   viewport: BrowserViewportSize;
+  /** true 表示该 tab 挂代理分区（创建时 tabs.new({ proxy: true }) 决定，不可事后切换）。 */
+  usesProxy: boolean;
 }
 
 class BrowserCapability {
@@ -745,6 +747,7 @@ export class BrowserTabs {
       ...(summary.active ? { active: true } : {}),
       ...(summary.title ? { title: summary.title } : {}),
       ...(summary.url ? { url: summary.url } : {}),
+      usesProxy: summary.usesProxy,
     }));
   }
 
@@ -773,8 +776,16 @@ export class BrowserTabs {
     return this.tab(activated);
   }
 
-  async new(): Promise<Tab> {
-    const command: BrowserCommand = { method: "newTab" };
+  /**
+   * 新建受控 tab。options.proxy 为 true 时创建「代理标签页」：出口走设置页
+   * 「内置浏览器代理」地址（AI 不接触地址本身）。地址未配置时命令失败并抛出
+   * proxy_not_configured 结构化错误——应提示用户在设置页填写，而不是重试直连。
+   */
+  async new(options: { proxy?: true } = {}): Promise<Tab> {
+    const command: BrowserCommand = {
+      method: "newTab",
+      ...(options.proxy === true ? { proxy: true as const } : {}),
+    };
     const result = await this.execute(command);
     const summary = expectPayload(command, result, result.tab, "tab");
     return this.tab(summary);

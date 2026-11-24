@@ -2244,6 +2244,11 @@ const zhCN: Record<string, string> = {
   "settings.httpProxyNoProxyDescription":
     "匹配这些主机的请求将直连，不经过 HTTP 代理。多个规则用英文逗号分隔。修改后需重启应用生效。",
   "settings.httpProxyNoProxyPlaceholder": "例如 localhost,127.0.0.1,::1,.example.com,*.corp.com",
+  "settings.embeddedBrowserProxy": "内置浏览器代理",
+  "settings.embeddedBrowserProxyDescription":
+    "仅作用于 AI 创建的代理标签页：AI 新建标签页时可选择经此代理访问站点。填写即生效，不受「为全局启用」影响；留空时 AI 无法创建代理标签页。",
+  "settings.embeddedBrowserProxyPlaceholder": "例如 http://127.0.0.1:7890",
+  "settings.embeddedBrowserProxySavedHint": "内置浏览器代理已保存，立即生效",
   "settings.httpProxyCaCertPath": "自定义证书",
   "settings.httpProxyCaCertPathDescription":
     "可选。填写 PEM 根证书路径后，会作为 NODE_EXTRA_CA_CERTS 注入模型、MCP 与命令工具，并用于渲染层证书校验。修改后需重启应用生效。",

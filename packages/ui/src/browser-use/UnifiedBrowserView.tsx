@@ -67,6 +67,7 @@ export function UnifiedBrowserView({
   residencyGeneration,
   browserUseOperationUntil,
   browserResizeBaselineVersion,
+  usesProxy = false,
   screenshotSurfaceRequest,
   deferEmptyGuest = false,
   initialHumanViewportPreference,
@@ -107,6 +108,8 @@ export function UnifiedBrowserView({
   /** 与 tab 鼠标图标共用的 operation deadline；仅 browser-use tab 传入。 */
   browserUseOperationUntil?: number;
   browserResizeBaselineVersion?: number;
+  /** 代理标签页标记：webview 挂 persist:zcode-embedded-browser-proxy 分区（创建时决定，不可变更）。 */
+  usesProxy?: boolean;
   /** 截图前临时保持后台 guest 的真实布局；不改变任何 active/focus 语义。 */
   screenshotSurfaceRequest?: BrowserViewScreenshotSurfacePreparePayload | null;
   /** human 空白 tab 延迟创建 guest；agent/browser-use 必须保持创建期 attach。 */
@@ -1068,6 +1071,7 @@ export function UnifiedBrowserView({
         onWebviewRef={handleWebviewRef}
         shouldMountWebview={shouldMountWebview}
         showResizeWarning={showResizeWarning}
+        usesProxy={usesProxy}
         webviewGeneration={webviewGeneration}
         viewportSize={effectiveViewportSize}
         viewportZoom={effectiveViewportZoom}

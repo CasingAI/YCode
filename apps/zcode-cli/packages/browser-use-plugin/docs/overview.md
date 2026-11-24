@@ -78,6 +78,11 @@ Available entry points:
 - `browser.tabs.get(tabId)` validates, binds, and activates a tab in its owning window/workspace/session scope. The
   renderer shows it only if that scope is currently foreground; background sessions never steal the user's current UI.
 - `browser.tabs.new()` creates a real IAB tab and returns only after its guest ready acknowledgement.
+- `browser.tabs.new({ proxy: true })` creates a proxy tab whose network egress goes through the embedded browser proxy
+  the user configured in Settings → Network. Use it for sites that are unreachable without a proxy; the AI never sees
+  the proxy address itself. Without a configured address the command fails with `proxy_not_configured` — tell the user
+  to fill in the setting instead of retrying. Proxy tabs have their own cookie jar (log in again inside them), an
+  existing tab cannot be switched to or from proxy, and `TabInfo.usesProxy` marks them in `tabs.list()`.
 - `browser.user.openTabs()` lists user tabs without granting control; call `browser.user.claimTab(tab)` explicitly before using one. Main-agent sessions only; delegated subagents do not have these interfaces.
 - Browser tabs persist across turns for the lifetime of the current ZCode process. `tabs.finalize({ keep })` marks
   only listed tabs as `handoff` or `deliverable`; unlisted tabs remain open. Only `tab.close()`, a user close, window

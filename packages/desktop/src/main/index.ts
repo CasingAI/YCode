@@ -27,7 +27,10 @@ import {
   registerLocalMediaPreviewScheme,
 } from "./localMediaPreviewProtocol.js";
 import { createDesktopBrowserScreenshotSurfaceCoordinator } from "./browserView/browserScreenshotSurfaceCoordinatorWiring.js";
-import { EMBEDDED_BROWSER_PARTITION } from "./browserDataManager.js";
+import {
+  EMBEDDED_BROWSER_PARTITION,
+  EMBEDDED_BROWSER_PROXY_PARTITION,
+} from "./browserDataManager.js";
 import { EmbeddedBrowserJavaScriptDialogController } from "./embeddedBrowserJavaScriptDialog.js";
 import {
   browserOperationResetsResizeBaseline,
@@ -360,7 +363,7 @@ const browserGuestManager = new BrowserGuestManager(
       );
     }
   },
-  (tabId, owner) => {
+  (tabId, owner, usesProxy) => {
     const win = BrowserWindow.fromId(owner.windowId);
     if (win && !win.isDestroyed()) {
       win.webContents.send(PlatformChannels.BrowserViewReady, {
@@ -370,6 +373,8 @@ const browserGuestManager = new BrowserGuestManager(
         tabId,
         browserId: owner.browserId,
         browserGeneration: owner.browserGeneration,
+        // renderer 依据该标记为 webview 选择 persist:zcode-embedded-browser(-proxy) 分区。
+        usesProxy,
       });
     }
   },
@@ -464,6 +469,14 @@ const browserGuestManager = new BrowserGuestManager(
       BrowserWindow.getAllWindows().some(
         (win) => !win.isDestroyed() && win.webContents.getOSProcessId() === pid,
       ),
+  },
+  // 代理标签页前置校验读取口：实时读设置，设置页改地址后无需重启即对 newTab 生效。
+  async () => {
+    try {
+      return (await mainSettingService.get()).embeddedBrowserProxy;
+    } catch {
+      return undefined;
+    }
   },
 );
 setBrowserUseGuestWebContentsIdsProvider(() => browserGuestManager.listGuestWebContentsIds());
@@ -983,8 +996,12 @@ async function reapplyDesktopChromiumNetworkPolicy() {
 function syncImmediateAppSettings(patch: Partial<AppSettings>) {
   syncCloseToTrayOnWindows(patch.closeToTrayOnWindows);
 
-  if (typeof patch.httpProxyEnabled === "boolean") {
-    // 设置页切换「为全局启用」后即时切换 renderer 出口代理；其余链路由设置页 toast 提示重启后完全生效。
+  if (
+    typeof patch.httpProxyEnabled === "boolean" ||
+    patch.embeddedBrowserProxy !== undefined
+  ) {
+    // 设置页切换「为全局启用」或改「内置浏览器代理」后即时切换 renderer 出口代理；
+    // 其余链路由设置页 toast 提示重启后完全生效。
     void reapplyDesktopChromiumNetworkPolicy();
   }
 
@@ -1954,8 +1971,13 @@ app.whenReady().then(async () => {
   });
   // Electron 的 net.request 只能在 app ready 后使用；灰度请求仍是旁路预热，不阻塞首个 Host。
   void desktopContextPromptRollout?.refresh();
+  // 代理标签页分区同样要注册恢复 bootstrap 协议，否则代理 tab 的恢复流程会因
+  // scheme 未注册拿不到 bootstrap 页（与 docs/specs/browser-tab-proxy.md 分区清单一致）。
   installBrowserRestoreBootstrapProtocol(
     session.fromPartition(EMBEDDED_BROWSER_PARTITION).protocol,
+  );
+  installBrowserRestoreBootstrapProtocol(
+    session.fromPartition(EMBEDDED_BROWSER_PROXY_PARTITION).protocol,
   );
   // Bootstrap: 从设置文件读取自定义数据目录，在所有 host 进程启动前生效
   let loadedBootstrapLocale = false;

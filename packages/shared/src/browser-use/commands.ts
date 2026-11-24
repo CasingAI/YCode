@@ -556,7 +556,9 @@ export const browserCommandSchema = z.discriminatedUnion("method", [
     .strict(),
   // tabs.get(id) 的 backend 激活步骤：校验并更新该 scope selected tab；renderer 决定前台展示或后台记录。
   z.object({ method: z.literal("activateTab"), tabId: z.string().min(1) }).strict(),
-  z.object({ method: z.literal("newTab") }).strict(),
+  // proxy: true 表示该 tab 挂代理分区（persist:zcode-embedded-browser-proxy），出口取设置页 embeddedBrowserProxy；
+  // 只接受显式 true：代理是创建时决定的 tab 属性，不接受 false（不带字段即普通 tab）。
+  z.object({ method: z.literal("newTab"), proxy: z.literal(true).optional() }).strict(),
   z.object({ method: z.literal("listUserTabs") }).strict(),
   z.object({ method: z.literal("claimTab"), tabId: z.string().min(1) }).strict(),
   z

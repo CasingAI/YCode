@@ -20,6 +20,8 @@ export const browserTabSummarySchema = z
      */
     active: z.boolean().optional(),
     lifecycle: z.enum(["active", "deliverable", "handoff"]).optional(),
+    /** true 表示该 tab 挂代理分区，出口取设置页 embeddedBrowserProxy；创建时决定，不可事后切换。 */
+    usesProxy: z.boolean(),
   })
   .strict();
 export type BrowserTabSummary = z.infer<typeof browserTabSummarySchema>;

@@ -19,19 +19,23 @@ export function NetworkSettingsSection({
   httpProxy = "",
   httpProxyNoProxy = "",
   httpProxyCaCertPath = "",
+  embeddedBrowserProxy = "",
   onHttpProxyEnabledChange = async () => {},
   onHttpProxyChange = async () => {},
   onHttpProxyNoProxyChange = async () => {},
   onHttpProxyCaCertPathChange = async () => {},
+  onEmbeddedBrowserProxyChange = async () => {},
 }: {
   httpProxyEnabled?: boolean;
   httpProxy?: string;
   httpProxyNoProxy?: string;
   httpProxyCaCertPath?: string;
+  embeddedBrowserProxy?: string;
   onHttpProxyEnabledChange?: (enabled: boolean) => Promise<void>;
   onHttpProxyChange?: (httpProxy: string) => Promise<void>;
   onHttpProxyNoProxyChange?: (noProxy: string) => Promise<void>;
   onHttpProxyCaCertPathChange?: (caCertPath: string) => Promise<void>;
+  onEmbeddedBrowserProxyChange?: (embeddedBrowserProxy: string) => Promise<void>;
 }) {
   const { intl } = useZCodeIntl();
 
@@ -73,6 +77,19 @@ export function NetworkSettingsSection({
   const handleHttpProxyCaCertPathSave = useCallback(async () => {
     await onHttpProxyCaCertPathChange(normalizedHttpProxyCaCertPath);
   }, [normalizedHttpProxyCaCertPath, onHttpProxyCaCertPathChange]);
+
+  const [localEmbeddedBrowserProxy, setLocalEmbeddedBrowserProxy] = useState(embeddedBrowserProxy);
+
+  useEffect(() => {
+    setLocalEmbeddedBrowserProxy(embeddedBrowserProxy);
+  }, [embeddedBrowserProxy]);
+
+  const normalizedEmbeddedBrowserProxy = localEmbeddedBrowserProxy.trim();
+  const isEmbeddedBrowserProxyDirty = normalizedEmbeddedBrowserProxy !== embeddedBrowserProxy;
+
+  const handleEmbeddedBrowserProxySave = useCallback(async () => {
+    await onEmbeddedBrowserProxyChange(normalizedEmbeddedBrowserProxy);
+  }, [normalizedEmbeddedBrowserProxy, onEmbeddedBrowserProxyChange]);
 
   return (
     <div className="space-y-6">
@@ -163,6 +180,41 @@ export function NetworkSettingsSection({
                 onKeyDown={(event) => {
                   if (event.key === "Enter" && isHttpProxyNoProxyDirty) {
                     void handleHttpProxyNoProxySave();
+                  }
+                }}
+                className="max-w-[520px] font-mono"
+              />
+            }
+          />
+          {/* 内置浏览器代理标签页出口：填写即生效，没有独立开关，也不受「为全局启用」gate。 */}
+          <SettingsRow
+            label={intl.formatMessage({ id: "settings.embeddedBrowserProxy" })}
+            description={intl.formatMessage({
+              id: "settings.embeddedBrowserProxyDescription",
+            })}
+            control={
+              <Button
+                type="button"
+                size="lg"
+                disabled={!isEmbeddedBrowserProxyDirty}
+                onClick={() => void handleEmbeddedBrowserProxySave()}
+              >
+                {intl.formatMessage({ id: "settings.dataBaseDirSave" })}
+              </Button>
+            }
+            detail={
+              <Input
+                size="lg"
+                value={localEmbeddedBrowserProxy}
+                placeholder={intl.formatMessage({
+                  id: "settings.embeddedBrowserProxyPlaceholder",
+                })}
+                onChange={(event) => {
+                  setLocalEmbeddedBrowserProxy(event.currentTarget.value);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && isEmbeddedBrowserProxyDirty) {
+                    void handleEmbeddedBrowserProxySave();
                   }
                 }}
                 className="max-w-[520px] font-mono"

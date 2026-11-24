@@ -204,6 +204,12 @@ interface ManagedTab {
   cachedFaviconUrl: string | null;
   openedAt: number;
   restoredFromStore?: boolean;
+  /**
+   * 代理标签页标记（docs/specs/browser-tab-proxy.md）：创建时由 newTab proxy:true 决定，
+   * 不可事后切换；renderer 依据 BrowserViewReady 的同名字段选 webview partition，
+   * guest 出口由 desktopNetworkPolicy 的代理分区 target 控制。
+   */
+  usesProxy: boolean;
 }
 
 interface PendingWaiter {
@@ -496,6 +502,7 @@ export class BrowserGuestManager {
     private readonly onOpenTabRequested?: (
       tabId: string,
       owner: BrowserGuestExecutionContext,
+      usesProxy: boolean,
     ) => void,
     private readonly onVisibilityChanged?: (
       visible: boolean,
@@ -526,6 +533,9 @@ export class BrowserGuestManager {
       isProtectedPid?: (pid: number) => boolean;
       lower?: GuestRendererPriorityLower;
     } = {},
+    // 设置页 embeddedBrowserProxy 读取口（main 注入，返回当前配置的代理地址）。
+    // newTab proxy:true 时用于前置校验：拿不到地址即报 proxy_not_configured，不静默直连。
+    private readonly resolveEmbeddedBrowserProxy?: () => Promise<string | undefined>,
   ) {
     this.residencyCoordinator = new BrowserTabResidencyCoordinator({
       tabLimit: residencyOptions.tabLimit,
@@ -613,6 +623,8 @@ export class BrowserGuestManager {
         cachedTitle: "",
         cachedFaviconUrl: null,
         openedAt: this.now(),
+        // human IAB tab 永远落默认分区；代理 tab 只能由 AI newTab proxy:true 创建。
+        usesProxy: false,
       };
       this.tabs.set(tabId, tab);
       this.registerTabResidency(tab, options?.active === true);
@@ -963,6 +975,8 @@ export class BrowserGuestManager {
           cachedFaviconUrl: record.faviconUrl,
           openedAt: record.openedAt,
           restoredFromStore: true,
+          // 恢复存储当前不记录代理标记（桌面生产未接线 recoveryStore）；已恢复的 shell 一律落默认分区。
+          usesProxy: false,
         };
         this.tabs.set(record.tabId, tab);
         this.registerTabResidency(tab, false, "suspended", record.lastSelectedAt);
@@ -1236,7 +1250,28 @@ export class BrowserGuestManager {
     }
 
     if (command.method === "newTab") {
-      const tab = this.createTab(context);
+      if (command.proxy === true) {
+        // 代理标签页必须先确认设置页已配置地址：显式报错优于静默直连，
+        // 否则配置遗漏会伪装成目标站点网络不可达（对齐 network-settings.md MCP config_invalid 先例）。
+        const proxyAddress = (await this.resolveEmbeddedBrowserProxy?.())?.trim();
+        if (!proxyAddress) {
+          return this.withMeta(
+            {
+              ok: false,
+              error: {
+                code: "proxy_not_configured",
+                message:
+                  "proxy tab requested but the embedded browser proxy is not configured. " +
+                  "Ask the user to fill it in Settings → Network (embedded browser proxy), then retry tabs.new({ proxy: true }).",
+                sideEffect: "none",
+              },
+              elapsedMs: Date.now() - startedAt,
+            },
+            context,
+          );
+        }
+      }
+      const tab = this.createTab(context, undefined, false, command.proxy === true);
       running.tabId = tab.tabId;
       this.refreshRuntimeProtection(tab.tabId);
       const guest = await this.ensureGuest(tab, running.controller.signal);
@@ -2546,6 +2581,7 @@ export class BrowserGuestManager {
     context: InternalExecutionContext,
     preferredTabId?: string,
     makeDefault = false,
+    usesProxy = false,
   ): ManagedTab {
     const tabId = preferredTabId ?? `iab-tab:${randomUUID()}`;
     const existing = this.tabs.get(tabId);
@@ -2574,6 +2610,7 @@ export class BrowserGuestManager {
       // 模型创建路径（显式 newTab 与无 tab 时的隐式创建）默认使用桌面自由尺寸。
       // viewport 属于 tab 创建事实；claim、activate、navigate 只复用已有 tab，不能再次套默认值。
       viewportOverride: { ...DEFAULT_AGENT_BROWSER_VIEWPORT },
+      usesProxy,
     };
     this.tabs.set(tabId, tab);
     this.registerTabResidency(tab, false);
@@ -2639,7 +2676,7 @@ export class BrowserGuestManager {
       if (tab.lifecycle === "closed") return null;
       // create/ready 是可重放状态；事件丢失或 guest 崩溃后发起一次有界重放。
       // 如果 destroyed/mismatch 已经发起过重绑，沿用该请求，避免同一 tab 重复创建 webview。
-      if (!tab.rebindRequested) this.onOpenTabRequested?.(tab.tabId, tab.owner);
+      if (!tab.rebindRequested) this.onOpenTabRequested?.(tab.tabId, tab.owner, tab.usesProxy);
       // 某些测试/旧 renderer 会在 Ready 回调内同步 attach；不能在 attach 已成功后再注册 waiter。
       if (tab.guest && !safeBool(() => tab.guest.isDestroyed(), true)) return tab.guest;
       const guest = await this.waitForGuest(tab.tabId);
@@ -2799,6 +2836,7 @@ export class BrowserGuestManager {
       viewport: await this.readTabViewport(tab),
       ...(this.effectiveActiveTabId(tab.owner) === tab.tabId ? { active: true } : {}),
       ...(tab.lifecycle !== "active" ? { lifecycle: tab.lifecycle } : {}),
+      usesProxy: tab.usesProxy,
     };
   }
 
@@ -3749,7 +3787,7 @@ export class BrowserGuestManager {
       if (this.residencyOptions.onRestoreTabRequested) {
         this.residencyOptions.onRestoreTabRequested(payload);
       } else {
-        this.onOpenTabRequested?.(tab.tabId, tab.owner);
+        this.onOpenTabRequested?.(tab.tabId, tab.owner, tab.usesProxy);
       }
     }
 
@@ -4084,7 +4122,7 @@ export class BrowserGuestManager {
     if (tab.lifecycle === "closed" || tab.rebindRequested || !this.onOpenTabRequested) return false;
     tab.rebindRequested = true;
     this.log?.(`[browser-use] request guest rebind tabId=${tab.tabId} reason=${reason}`);
-    this.onOpenTabRequested?.(tab.tabId, tab.owner);
+    this.onOpenTabRequested?.(tab.tabId, tab.owner, tab.usesProxy);
     return true;
   }
 

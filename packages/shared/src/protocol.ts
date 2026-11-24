@@ -402,6 +402,13 @@ export interface AppSettings {
    * 只影响内置浏览器出口，不影响 ZCode 自身对后端与模型 API 的请求。默认关闭，重启后生效。
    */
   embeddedBrowserAllowInsecureCertificates?: boolean;
+  /**
+   * 内置浏览器「代理标签页」出口代理，例如 http://127.0.0.1:7890；仅作用于 AI 创建时
+   * 声明 proxy:true 的 tab（独立 partition persist:zcode-embedded-browser-proxy）。
+   * 不受 httpProxyEnabled gate；留空时 AI 无法创建代理标签页（报 proxy_not_configured）。
+   * 填写即生效（renderer session 级，即时通道重应用）。
+   */
+  embeddedBrowserProxy?: string;
   /** 人类用户主动打开 Browser tab 时的一次性显示偏好；Agent Browser Use 不读写。 */
   embeddedBrowserViewportPreference?: EmbeddedBrowserViewportPreference;
   /**

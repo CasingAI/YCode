@@ -358,7 +358,8 @@ export type BrowserCommand =
     }
   | { method: "recordingCancel"; recordingId: string; tabId?: string }
   | { method: "activateTab"; tabId: string }
-  | { method: "newTab" }
+  // proxy: true 表示该 tab 挂代理分区；只接受显式 true，与 @zcode/shared 严格 schema 镜像同步。
+  | { method: "newTab"; proxy?: true }
   | { method: "listUserTabs" }
   | { method: "claimTab"; tabId: string }
   | {
@@ -386,7 +387,9 @@ export type BrowserErrorCode =
   | "timeout"
   | "renderer_unreachable"
   | "cancelled"
-  | "execution_error";
+  | "execution_error"
+  // newTab proxy:true 但设置页未填 embeddedBrowserProxy：显式报配置遗漏，不静默直连。
+  | "proxy_not_configured";
 
 export interface BrowserPageState {
   url: string;
@@ -447,6 +450,8 @@ export interface BrowserTabSummary {
   /** 当前可见/激活的内置浏览器 tab；agent 用它优先读取用户正在看的页面。 */
   active?: boolean;
   lifecycle?: "active" | "deliverable" | "handoff";
+  /** true 表示该 tab 挂代理分区，出口取设置页 embeddedBrowserProxy；创建时决定，不可事后切换。 */
+  usesProxy: boolean;
 }
 
 export interface BrowserUserTabInfo {

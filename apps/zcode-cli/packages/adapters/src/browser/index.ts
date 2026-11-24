@@ -121,6 +121,24 @@ class ManagedCdpBrowserControlPort implements BrowserControlPort {
     const forwardAbort = () => controller.abort(input.signal?.reason ?? abortError());
     input.signal?.addEventListener("abort", forwardAbort, { once: true });
     if (input.signal?.aborted) forwardAbort();
+
+    // 代理标签页是桌面 IAB 分区能力：CLI headless 的 Playwright 代理是 context 级，
+    // 本期不支持 per-tab 代理；在启动浏览器之前就显式报错，而不是拉起浏览器后
+    // 再拒绝（对齐共享错误码语义，省一次无意义的浏览器冷启动）。
+    if (input.command.method === "newTab" && input.command.proxy === true) {
+      return {
+        ok: false,
+        error: {
+          code: "capability_unsupported",
+          message:
+            "proxy tabs are only supported by the desktop embedded browser (IAB). " +
+            "Run the task in the ZCode desktop app or create a normal tab without proxy.",
+          sideEffect: "none",
+        },
+        elapsedMs: Date.now() - startedAt,
+      };
+    }
+
     this.#pending.set(requestId, {
       controller,
       sessionId: input.sessionId,

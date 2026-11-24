@@ -1,7 +1,10 @@
 import { X509Certificate } from "node:crypto";
 import { readFileSync } from "node:fs";
 import type { ProxyConfig, Session } from "electron";
-import { EMBEDDED_BROWSER_PARTITION } from "./browserDataManager.js";
+import {
+  EMBEDDED_BROWSER_PARTITION,
+  EMBEDDED_BROWSER_PROXY_PARTITION,
+} from "./browserDataManager.js";
 
 interface DesktopNetworkPolicySettings {
   httpProxy?: string;
@@ -14,6 +17,11 @@ interface DesktopNetworkPolicySettings {
   httpProxyNoProxy?: string;
   httpProxyCaCertPath?: string;
   embeddedBrowserAllowInsecureCertificates?: boolean;
+  /**
+   * 内置浏览器「代理标签页」出口地址（docs/specs/browser-tab-proxy.md）。
+   * 不受 httpProxyEnabled gate：填写即生效，只作用于代理分区。
+   */
+  embeddedBrowserProxy?: string;
 }
 
 /**
@@ -30,6 +38,8 @@ interface DesktopSessionNetworkPolicyOptions {
   allowInsecureCertificates?: boolean;
   /** 设置页代理留空时使用的兜底模式，默认 `direct`。 */
   fallbackProxyMode?: ProxyFallbackMode;
+  /** 显式代理配置；提供时不再从 httpProxy/httpProxyNoProxy 推导（代理分区专用）。 */
+  proxyConfigOverride?: ProxyConfig;
 }
 
 interface DesktopNetworkPolicyLogger {
@@ -66,6 +76,7 @@ export async function applyDesktopChromiumNetworkPolicies(
       allowInsecure: false,
       // ZCode 自身对后端与模型 API 的出口，收敛到设置页的显式配置，不被本机系统代理左右。
       fallbackProxyMode: "direct" as const,
+      proxyConfigOverride: undefined as ProxyConfig | undefined,
     },
     {
       name: "embedded-browser",
@@ -76,6 +87,17 @@ export async function applyDesktopChromiumNetworkPolicies(
       // 内置浏览器是用户自己的浏览出口，留空时跟随系统代理，与本机浏览器保持一致；
       // 否则需要代理才能访问的站点只会拿到 ERR_CONNECTION_TIMED_OUT，用户无从下手。
       fallbackProxyMode: "system" as const,
+      proxyConfigOverride: undefined as ProxyConfig | undefined,
+    },
+    {
+      name: "embedded-browser-proxy",
+      session: sessionProvider.fromPartition(EMBEDDED_BROWSER_PROXY_PARTITION),
+      // 证书策略与默认内置浏览器分区同待遇：同一组「浏览器」设置覆盖两个分区。
+      allowInsecure: settings.embeddedBrowserAllowInsecureCertificates === true,
+      // 代理标签页出口只看 embeddedBrowserProxy（填写即生效，不受 httpProxyEnabled gate）；
+      // 未配置时 direct 兜底——创建路径已被 newTab 前置校验挡住，这里保证不误连系统代理。
+      fallbackProxyMode: "direct" as const,
+      proxyConfigOverride: buildEmbeddedBrowserProxyConfig(settings.embeddedBrowserProxy),
     },
   ] as const;
 
@@ -85,6 +107,9 @@ export async function applyDesktopChromiumNetworkPolicies(
         await applyDesktopSessionNetworkPolicy(target.session, settings, logger, {
           allowInsecureCertificates: target.allowInsecure,
           fallbackProxyMode: target.fallbackProxyMode,
+          ...(target.proxyConfigOverride
+            ? { proxyConfigOverride: target.proxyConfigOverride }
+            : {}),
         });
       } catch (error) {
         // 内置 Browser 使用独立 partition，过去只配置 defaultSession；同时
@@ -103,15 +128,14 @@ async function applyDesktopSessionNetworkPolicy(
 ): Promise<void> {
   // 「为全局启用」关闭时代理视为不存在，走 fallback 模式（defaultSession=direct、内置浏览器=system）；
   // 与「代理留空」语义一致。setProxy 可随时重调，设置页切换开关后经 main 即时通道重应用本函数即可热切换。
-  const effectiveProxySettings = {
-    httpProxy: settings.httpProxyEnabled === true ? settings.httpProxy : undefined,
-    httpProxyNoProxy: settings.httpProxyEnabled === true ? settings.httpProxyNoProxy : undefined,
-  };
-  const proxyConfig = buildElectronProxyConfig(
-    effectiveProxySettings.httpProxy,
-    effectiveProxySettings.httpProxyNoProxy,
-    options.fallbackProxyMode,
-  );
+  // 代理分区出口经 proxyConfigOverride 显式给出，不走全局 gate 推导。
+  const proxyConfig =
+    options.proxyConfigOverride ??
+    buildElectronProxyConfig(
+      settings.httpProxyEnabled === true ? settings.httpProxy : undefined,
+      settings.httpProxyEnabled === true ? settings.httpProxyNoProxy : undefined,
+      options.fallbackProxyMode,
+    );
   await targetSession.setProxy(proxyConfig);
   await targetSession.closeAllConnections();
 
@@ -160,6 +184,23 @@ function buildElectronProxyConfig(
     proxyConfig.proxyBypassRules = proxyBypassRules;
   }
   return proxyConfig;
+}
+
+/**
+ * 代理标签页出口配置（docs/specs/browser-tab-proxy.md）：只看 embeddedBrowserProxy，
+ * 不受 httpProxyEnabled gate。已配置 → fixed_servers + `<local>` bypass（localhost 不走代理）；
+ * 未配置 → direct（newTab 前置校验已挡住，这里保证分区出口不误连系统代理）。
+ */
+function buildEmbeddedBrowserProxyConfig(address: string | undefined): ProxyConfig {
+  const proxyRules = normalizeProxyRules(address);
+  if (!proxyRules) {
+    return { mode: "direct" };
+  }
+  return {
+    mode: "fixed_servers",
+    proxyRules,
+    proxyBypassRules: "<local>",
+  };
 }
 
 function createCustomCaCertificateVerifyProcFromFile(

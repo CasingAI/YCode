@@ -840,6 +840,8 @@ export interface PlatformChannelMap {
       tabId: string;
       browserId: string;
       browserGeneration: number;
+      /** true 表示该 tab 挂代理分区，renderer 据此映射 webview partition。 */
+      usesProxy: boolean;
     };
     response: void;
   };

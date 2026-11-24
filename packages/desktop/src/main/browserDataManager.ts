@@ -6,6 +6,10 @@ import type {
   EmbeddedBrowserDataClearResult,
 } from "@zcode/shared";
 import {
+  EMBEDDED_BROWSER_PARTITION,
+  EMBEDDED_BROWSER_PROXY_PARTITION,
+} from "@zcode/shared";
+import {
   importChromeCookies,
   type ChromeCookieDatabaseBackup,
   type ChromeCookieHelper,
@@ -27,7 +31,15 @@ import {
 import type { LinuxChromePasswordStore } from "./chromeInstallationCandidates.js";
 import type { WindowsChromeAppBoundKeyReader } from "./windowsChromeAppBoundKey.js";
 
-export const EMBEDDED_BROWSER_PARTITION = "persist:zcode-embedded-browser";
+// 分区字符串的唯一事实源在 @zcode/shared（renderer 的 webview 同样引用）；
+// 这里 re-export 保持 main 侧既有 import 路径不变。
+export { EMBEDDED_BROWSER_PARTITION, EMBEDDED_BROWSER_PROXY_PARTITION };
+
+/** 内置浏览器全部分区；数据清理必须同时覆盖，避免代理分区留下残余登录态。 */
+export const EMBEDDED_BROWSER_PARTITIONS = [
+  EMBEDDED_BROWSER_PARTITION,
+  EMBEDDED_BROWSER_PROXY_PARTITION,
+] as const;
 const CACHE_STORAGE_TYPES: Electron.ClearStorageDataOptions["storages"] = [
   "shadercache",
   "serviceworkers",
@@ -212,20 +224,33 @@ export async function clearEmbeddedBrowserData(options: {
   mode: "cache" | "all";
   targetSession?: BrowserSessionLike;
 }): Promise<EmbeddedBrowserDataClearResult> {
-  const targetSession =
-    options.targetSession ?? electronSession.fromPartition(EMBEDDED_BROWSER_PARTITION);
-  try {
-    await targetSession.clearCache();
-    if (options.mode === "all") {
-      await targetSession.clearStorageData();
-    } else {
-      // 普通缓存清理不能删除承载登录态的 LocalStorage/IndexedDB。
-      await targetSession.clearStorageData({ storages: CACHE_STORAGE_TYPES });
+  // 代理标签页分区是独立 cookie jar，必须与默认分区一起清理；
+  // 单个分区失败不阻断另一个，最后统一报告失败。
+  const targets: BrowserSessionLike[] =
+    options.targetSession !== undefined
+      ? [options.targetSession]
+      : EMBEDDED_BROWSER_PARTITIONS.map((partition) => electronSession.fromPartition(partition));
+  let failed = false;
+  for (const targetSession of targets) {
+    try {
+      await targetSession.clearCache();
+      if (options.mode === "all") {
+        await targetSession.clearStorageData();
+      } else {
+        // 普通缓存清理不能删除承载登录态的 LocalStorage/IndexedDB。
+        await targetSession.clearStorageData({ storages: CACHE_STORAGE_TYPES });
+      }
+    } catch {
+      failed = true;
     }
-    options.logger.info("[browser-data] 内置浏览器数据清理完成", { mode: options.mode });
-    return { success: true };
-  } catch {
+  }
+  if (failed) {
     options.logger.warn("[browser-data] 内置浏览器数据清理失败", { mode: options.mode });
     return { success: false, error: "embedded_browser_clear_failed" };
   }
+  options.logger.info("[browser-data] 内置浏览器数据清理完成", {
+    mode: options.mode,
+    partitions: targets.length,
+  });
+  return { success: true };
 }

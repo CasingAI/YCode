@@ -151,6 +151,8 @@ export const browserErrorCodeSchema = z.enum([
   "renderer_unreachable",
   "cancelled",
   "execution_error",
+  // newTab proxy:true 但设置页未填 embeddedBrowserProxy：显式报配置遗漏，不静默直连。
+  "proxy_not_configured",
 ]);
 export type BrowserErrorCode = z.infer<typeof browserErrorCodeSchema>;
 

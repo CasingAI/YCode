@@ -155,6 +155,14 @@ export const webContents = {
   getAllWebContents: () => windows.map((win) => win.webContents),
 };
 
+/**
+ * session 命名导出桩：desktopNetworkPolicy 等模块经 browserDataManager 间接 import
+ * `session`（值导入），ESM 只校验导出存在；网络策略测试自带按分区记录调用的 fake session。
+ */
+export const session = {
+  fromPartition: () => ({}),
+};
+
 /** 测试可注册 fake guest（`<webview>` WebContents），供 BrowserGuestManager.attachGuest 解析。 */
 let registeredWebContents = new Map();
 

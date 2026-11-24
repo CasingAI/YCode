@@ -139,6 +139,15 @@ export interface BrowserViewCloseTabNotification {
   reason?: "recovery-orphan";
 }
 
+/** 内置浏览器（IAB）webview 分区；main（desktopNetworkPolicy/browserDataManager）与 renderer 必须同源。 */
+export const EMBEDDED_BROWSER_PARTITION = "persist:zcode-embedded-browser";
+/**
+ * 内置浏览器「代理标签页」分区（docs/specs/browser-tab-proxy.md）：
+ * AI newTab 声明 proxy:true 的 tab 挂到这里，出口代理取设置页 embeddedBrowserProxy，
+ * 与默认分区互不共享 cookie/登录态。
+ */
+export const EMBEDDED_BROWSER_PROXY_PARTITION = "persist:zcode-embedded-browser-proxy";
+
 /** 跨重启先恢复 logical shell；renderer 初始不得一次 mount 全部 guest。 */
 export interface BrowserViewRestoredTabShell {
   tabId: string;
@@ -801,6 +810,8 @@ export interface IPlatformService {
       tabId: string;
       browserId: string;
       browserGeneration: number;
+      /** true 表示该 tab 挂代理分区（persist:zcode-embedded-browser-proxy）。 */
+      usesProxy: boolean;
     }) => void,
   ): () => void;
 

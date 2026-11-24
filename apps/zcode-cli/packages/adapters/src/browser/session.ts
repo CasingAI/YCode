@@ -75,6 +75,8 @@ export class ManagedCdpSession {
         viewport: tab.page.viewportSize() ?? DEFAULT_VIEWPORT,
         ...(tab.id === this.#activeTabId ? { active: true } : {}),
         lifecycle: "active",
+        // CLI headless 没有 per-tab 代理分区：Playwright 代理是 context 级能力，本期未接。
+        usesProxy: false,
       });
     }
     return summaries;

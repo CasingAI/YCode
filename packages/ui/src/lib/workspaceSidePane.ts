@@ -118,6 +118,11 @@ export interface BrowserUseSidePaneTab {
   /** 模型布局命令对应的单调版本；目标 view 据此重建 ResizeObserver 基线。 */
   browserUseResizeBaselineVersion?: number;
   /**
+   * 代理标签页标记（docs/specs/browser-tab-proxy.md）：main 在 Ready 通知里携带，
+   * renderer 据此把 webview 挂到 persist:zcode-embedded-browser-proxy 分区；缺省为普通 tab。
+   */
+  usesProxy?: boolean;
+  /**
    * 查看归属根会话：由根会话 conversation 投影 `snapshot.subagents` 冻结而来。
    *
    * 只决定"哪个 root 的侧栏可以查看这个 child 页面"，不改变 `sessionId`/`ownerTaskId`
@@ -1523,6 +1528,8 @@ function openBrowserUseSidePane(
     remoteSessionId?: string;
     title?: string;
     activate?: boolean;
+    /** Ready 通知携带的代理标签页标记；重放/旧 payload 缺省时保留既有值。 */
+    usesProxy?: boolean;
   },
 ): WorkspaceSidePaneState {
   const id = `browser-use:${options.tabId}`;
@@ -1564,6 +1571,10 @@ function openBrowserUseSidePane(
       ? { viewerRootSessionId: existing!.viewerRootSessionId }
       : {}),
     ...((existing?.viewerTitle ?? null) !== null ? { viewerTitle: existing!.viewerTitle } : {}),
+    // 代理标记是 tab 的创建事实：ready 重放始终以 main 侧最新值为准（恒为布尔，不会回退成 undefined）。
+    ...(options.usesProxy !== undefined || existing?.usesProxy !== undefined
+      ? { usesProxy: options.usesProxy ?? existing?.usesProxy ?? false }
+      : {}),
   };
 
   if (options.activate !== false) {
@@ -1597,6 +1608,7 @@ export function applyBrowserUseSidePaneEvent(
     tabId: string;
     browserId?: string;
     browserGeneration?: number;
+    usesProxy?: boolean;
   },
   activeScope: BrowserUseSidePaneScope,
 ): { state: WorkspaceSidePaneState; shouldReveal: boolean } {

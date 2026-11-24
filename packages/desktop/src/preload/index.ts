@@ -443,6 +443,7 @@ contextBridge.exposeInMainWorld("zcode", {
       tabId: string;
       browserId: string;
       browserGeneration: number;
+      usesProxy: boolean;
     }) => void,
   ): (() => void) => {
     const handler = (
@@ -454,6 +455,7 @@ contextBridge.exposeInMainWorld("zcode", {
         tabId: string;
         browserId: string;
         browserGeneration: number;
+        usesProxy: boolean;
       },
     ) => callback(payload);
     ipcRenderer.on(PlatformChannels.BrowserViewReady, handler);

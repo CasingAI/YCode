@@ -48,7 +48,7 @@
     "BrowserRecordingOptions": "{ actions?: BrowserRecordingAction[]; fps?: number; jpegQuality?: number; maxDurationMs?: number; settleMs?: number; showCursor?: boolean; viewport?: BrowserViewportSize }",
     "BrowserRecordingArtifact": "{ path: string; mimeType: \"video/webm\"; width: number; height: number; fps: number; durationMs: number; frameCount: number }",
     "BrowserRecordingJob": "{ id: string; status: \"running\" | \"completed\" | \"failed\" | \"cancelled\"; phase: \"preparing\" | \"capturing\" | \"finalizing\" | \"completed\" | \"failed\" | \"cancelled\"; progress: number; startedAt: number; updatedAt: number; artifact?: BrowserRecordingArtifact; error?: string }",
-    "TabInfo": "{ id: string; active?: boolean; title?: string; url?: string; viewport: BrowserViewportSize }",
+    "TabInfo": "{ id: string; active?: boolean; title?: string; url?: string; viewport: BrowserViewportSize; usesProxy: boolean }",
     "BrowserUserTabInfo": "{ id: string; lastOpened?: string; tabGroup?: string; title?: string; url?: string }",
     "BrowserHistoryOptions": "{ from?: string | Date; limit?: number; queries?: string[]; to?: string | Date }",
     "BrowserHistoryEntry": "{ dateVisited: string; title?: string; url: string }",
@@ -189,8 +189,9 @@
         {
           "name": "new",
           "kind": "method",
-          "signature": "new(): Promise<Tab>",
-          "command": "newTab"
+          "signature": "new(options?: { proxy?: true }): Promise<Tab>",
+          "command": "newTab",
+          "description": "proxy: true creates a proxy tab routed through the embedded browser proxy configured in Settings > Network. Fails with proxy_not_configured when no address is configured; TabInfo.usesProxy marks existing proxy tabs."
         },
         {
           "name": "finalize",

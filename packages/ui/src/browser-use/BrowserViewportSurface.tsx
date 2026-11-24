@@ -1,6 +1,8 @@
 import { useCallback, type RefObject } from "react";
 import {
   BROWSER_VIEW_RESTORE_BOOTSTRAP_URL,
+  EMBEDDED_BROWSER_PARTITION,
+  EMBEDDED_BROWSER_PROXY_PARTITION,
   TID_BROWSER_WEBVIEW,
   type BrowserViewportSize,
 } from "@zcode/shared";
@@ -39,6 +41,7 @@ export function BrowserViewportSurface({
   onWebviewRef,
   shouldMountWebview = true,
   showResizeWarning,
+  usesProxy = false,
   webviewGeneration,
   viewportSize,
   viewportZoom,
@@ -59,6 +62,8 @@ export function BrowserViewportSurface({
   onWebviewRef: (node: ElectronWebviewTag | null) => void;
   shouldMountWebview?: boolean;
   showResizeWarning: boolean;
+  /** true 表示代理标签页：webview 挂独立分区，出口代理由 main 按该分区单独配置。 */
+  usesProxy?: boolean;
   webviewGeneration: number;
   viewportSize: BrowserViewportSize;
   viewportZoom: BrowserViewportZoom;
@@ -148,7 +153,8 @@ export function BrowserViewportSurface({
             ref={handleWebviewRef}
             allowpopups={"" as unknown as boolean}
             src={isResidencyRestore ? BROWSER_VIEW_RESTORE_BOOTSTRAP_URL : DEFAULT_BROWSER_URL}
-            partition="persist:zcode-embedded-browser"
+            // 布尔 → 固定分区字符串映射；renderer 不透传任意 partition 值（安全边界）。
+            partition={usesProxy ? EMBEDDED_BROWSER_PROXY_PARTITION : EMBEDDED_BROWSER_PARTITION}
             nodeintegrationinsubframes="true"
             data-browser-compositor-scale={isResponsiveMode ? desktopZoomFactor : undefined}
             data-browser-layout-scale={isResponsiveMode ? responsiveGuestLayoutScale : undefined}

@@ -41,7 +41,7 @@ const FALLBACK_MANIFEST: BrowserApiManifest = {
   types: {
     BrowserViewportSize: "{ width: number; height: number }",
     TabInfo:
-      "{ id: string; active?: boolean; title?: string; url?: string; viewport: BrowserViewportSize }",
+      "{ id: string; active?: boolean; title?: string; url?: string; viewport: BrowserViewportSize; usesProxy: boolean }",
   },
   objects: {
     Agent: {

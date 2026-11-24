@@ -72,7 +72,12 @@ export const SETTINGS_USER_ACTION_FEATURES = {
   ],
   "settings.terminal": ["toggle_system_profile", "save_font_family", "change_shell"],
   "settings.search": ["toggle_native_search"],
-  "settings.network": ["save_http_proxy", "save_no_proxy", "save_ca_certificate"],
+  "settings.network": [
+    "save_http_proxy",
+    "save_no_proxy",
+    "save_ca_certificate",
+    "save_embedded_browser_proxy",
+  ],
   "settings.desktop": ["toggle_hardware_acceleration", "toggle_close_to_tray", "toggle_keep_awake"],
   "settings.update": ["toggle_preview_updates", "toggle_auto_update"],
   "settings.notification": ["toggle_notification", "toggle_notification_sound"],

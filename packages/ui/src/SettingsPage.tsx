@@ -958,6 +958,7 @@ export function SettingsPage({
   const [httpProxy, setHttpProxy] = useState("");
   const [httpProxyNoProxy, setHttpProxyNoProxy] = useState("");
   const [httpProxyCaCertPath, setHttpProxyCaCertPath] = useState("");
+  const [embeddedBrowserProxy, setEmbeddedBrowserProxy] = useState("");
   const [
     embeddedBrowserAllowInsecureCertificates,
     setEmbeddedBrowserAllowInsecureCertificates,
@@ -1066,6 +1067,7 @@ export function SettingsPage({
         setHttpProxy(settings.httpProxy ?? "");
         setHttpProxyNoProxy(settings.httpProxyNoProxy ?? "");
         setHttpProxyCaCertPath(settings.httpProxyCaCertPath ?? "");
+        setEmbeddedBrowserProxy(settings.embeddedBrowserProxy ?? "");
         setEmbeddedBrowserAllowInsecureCertificates(
           settings.embeddedBrowserAllowInsecureCertificates ?? false,
         );
@@ -1407,6 +1409,32 @@ export function SettingsPage({
       toast(intl.formatMessage({ id: "settings.httpProxySavedHint" }));
     },
     [services.settingService, intl],
+  );
+  const handleEmbeddedBrowserProxyChange = useCallback(
+    async (proxy: string) => {
+      const normalizedProxy = proxy.trim();
+      await runSettingsActionAsync({
+        featureId: "settings.network",
+        action: "save_embedded_browser_proxy",
+        trigger: "button",
+        operation: () =>
+          services.settingService.update({
+            // Bugfix: 清空内置浏览器代理必须传空串，由服务层删除旧字段，
+            // 否则代理标签页会继续沿用已删除的地址。
+            embeddedBrowserProxy: normalizedProxy,
+          }),
+        completed: {
+          resultSource: "setting_service",
+          configured: normalizedProxy.length > 0,
+        },
+      });
+      setEmbeddedBrowserProxy(normalizedProxy);
+      // 代理标签页出口是 renderer session 级配置：经 main 即时通道热切换，无需重启；
+      // 已创建的代理标签页随下一次网络策略重应用立即对齐（Electron setProxy 可随时重调）。
+      platform.syncAppSettings?.({ embeddedBrowserProxy: normalizedProxy });
+      toast(intl.formatMessage({ id: "settings.embeddedBrowserProxySavedHint" }));
+    },
+    [services.settingService, platform, intl],
   );
   const handleDataBaseDirChange = useCallback(
     async (dir: string) => {
@@ -1938,10 +1966,12 @@ export function SettingsPage({
                   httpProxy={httpProxy}
                   httpProxyNoProxy={httpProxyNoProxy}
                   httpProxyCaCertPath={httpProxyCaCertPath}
+                  embeddedBrowserProxy={embeddedBrowserProxy}
                   onHttpProxyEnabledChange={handleHttpProxyEnabledChange}
                   onHttpProxyChange={handleHttpProxyChange}
                   onHttpProxyNoProxyChange={handleHttpProxyNoProxyChange}
                   onHttpProxyCaCertPathChange={handleHttpProxyCaCertPathChange}
+                  onEmbeddedBrowserProxyChange={handleEmbeddedBrowserProxyChange}
                 />
               ) : activeSection === "appearance" ? (
                 <AppearanceSectionContent

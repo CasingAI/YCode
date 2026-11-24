@@ -58,6 +58,17 @@ export function normalizeSettingsPatch(patch: Partial<AppSettings>): Partial<App
   }
 
   if (
+    "embeddedBrowserProxy" in normalizedPatch &&
+    typeof normalizedPatch.embeddedBrowserProxy === "string"
+  ) {
+    // 内置浏览器代理标签页地址：清空时必须删除旧值并通知 main 重应用网络策略，
+    // 否则代理标签页会一直沿用已删除的地址（填写即生效、无独立开关）。
+    const trimmedEmbeddedBrowserProxy = normalizedPatch.embeddedBrowserProxy.trim();
+    normalizedPatch.embeddedBrowserProxy =
+      trimmedEmbeddedBrowserProxy.length > 0 ? trimmedEmbeddedBrowserProxy : undefined;
+  }
+
+  if (
     "httpProxyCaCertPath" in normalizedPatch &&
     typeof normalizedPatch.httpProxyCaCertPath === "string"
   ) {
